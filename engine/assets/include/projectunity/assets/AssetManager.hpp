@@ -22,6 +22,12 @@ enum class AssetType : std::uint8_t {
     Model,
 };
 
+enum class MaterialAlphaMode : std::uint8_t {
+    Opaque,
+    Mask,
+    Blend,
+};
+
 struct MeshVertex {
     math::Vec3 position;
     math::Vec3 normal {0.0F, 1.0F, 0.0F};
@@ -64,7 +70,14 @@ struct MaterialAsset {
     std::array<float, 3> emissiveColor {0.0F, 0.0F, 0.0F};
     float metallicFactor {1.0F};
     float roughnessFactor {1.0F};
+    float normalScale {1.0F};
+    float occlusionStrength {1.0F};
+    MaterialAlphaMode alphaMode {MaterialAlphaMode::Opaque};
+    float alphaCutoff {0.5F};
     std::optional<std::size_t> baseColorTexture;
+    std::optional<std::size_t> normalTexture;
+    std::optional<std::size_t> metallicRoughnessTexture;
+    std::optional<std::size_t> occlusionTexture;
 };
 
 struct ModelAsset {

@@ -4,16 +4,19 @@ layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inTexCoord;
 layout(location = 3) in vec4 inColor;
+layout(location = 4) in vec4 inTangent;
 
 layout(location = 0) out vec2 outTexCoord;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec4 outColorFactor;
+layout(location = 3) out vec4 outTangent;
 
 layout(push_constant) uniform DrawPush {
     mat4 modelViewProjection;
     vec4 baseColor;
     vec4 pbrFactors;
     vec4 emissiveColor;
+    vec4 materialExtras;
 } pushData;
 
 void main()
@@ -22,4 +25,5 @@ void main()
     outTexCoord = inTexCoord;
     outNormal = inNormal;
     outColorFactor = inColor;
+    outTangent = inTangent;
 }

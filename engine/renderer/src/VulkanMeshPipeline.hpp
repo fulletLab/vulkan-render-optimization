@@ -10,8 +10,9 @@ namespace projectunity::renderer {
 struct VulkanDrawPushConstants {
     std::array<float, 16> modelViewProjection {};
     std::array<float, 4> baseColor {1.0F, 1.0F, 1.0F, 1.0F};
-    std::array<float, 4> pbrFactors {1.0F, 1.0F, 0.0F, 0.0F};
-    std::array<float, 4> emissiveColor {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> pbrFactors {1.0F, 1.0F, 1.0F, 0.0F};
+    std::array<float, 4> emissiveColor {0.0F, 0.0F, 0.0F, 0.5F};
+    std::array<float, 4> materialExtras {1.0F, 0.0F, 0.0F, 0.0F};
 };
 
 class VulkanMeshPipeline final {

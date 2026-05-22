@@ -32,6 +32,19 @@ struct VulkanViewportContext {
     }
 };
 
+struct VulkanMaterialTextureKey {
+    std::uint64_t baseColor {0};
+    std::uint64_t normal {0};
+    std::uint64_t metallicRoughness {0};
+    std::uint64_t occlusion {0};
+
+    [[nodiscard]] bool operator==(const VulkanMaterialTextureKey&) const noexcept = default;
+};
+
+struct VulkanMaterialTextureKeyHash {
+    [[nodiscard]] std::size_t operator()(const VulkanMaterialTextureKey& key) const noexcept;
+};
+
 class VulkanViewportTarget final {
 public:
     VulkanViewportTarget(VulkanViewportContext context, ViewportRenderSurfaceDesc desc);
@@ -58,7 +71,12 @@ private:
     void createDescriptors();
     void createCommands();
     void createSync();
-    [[nodiscard]] VkDescriptorSet textureDescriptor(const VulkanTextureHandle& texture, std::string* errorMessage);
+    [[nodiscard]] VkDescriptorSet textureDescriptor(
+        const VulkanTextureHandle& baseColor,
+        const VulkanTextureHandle& normal,
+        const VulkanTextureHandle& metallicRoughness,
+        const VulkanTextureHandle& occlusion,
+        std::string* errorMessage);
     [[nodiscard]] bool recordFrameCommand(
         std::uint32_t imageIndex,
         const RenderFrame& frame,
@@ -83,7 +101,7 @@ private:
     std::vector<VulkanColorMeshBuffers> colorMeshes_;
     std::vector<VkFramebuffer> framebuffers_;
     VkDescriptorPool descriptorPool_ {VK_NULL_HANDLE};
-    std::unordered_map<std::uint64_t, VkDescriptorSet> textureDescriptors_;
+    std::unordered_map<VulkanMaterialTextureKey, VkDescriptorSet, VulkanMaterialTextureKeyHash> textureDescriptors_;
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
     VkSemaphore imageAvailable_ {VK_NULL_HANDLE};

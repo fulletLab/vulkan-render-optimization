@@ -360,16 +360,20 @@ bool ViewportWidget::renderRendererFrame()
                     continue;
                 }
                 const auto& material = model->materials[primitive.materialIndex];
-                const assets::TextureAsset* texture = nullptr;
-                if (material.baseColorTexture.has_value() && *material.baseColorTexture < model->textures.size()) {
-                    texture = &model->textures[*material.baseColorTexture];
-                }
+                const auto modelTexture = [&model](std::optional<std::size_t> textureIndex) {
+                    return textureIndex.has_value() && *textureIndex < model->textures.size()
+                        ? &model->textures[*textureIndex]
+                        : nullptr;
+                };
                 rendererMeshDraws_.push_back({
                     model->id,
                     static_cast<std::uint32_t>(primitiveIndex),
                     &primitive,
                     &material,
-                    texture,
+                    modelTexture(material.baseColorTexture),
+                    modelTexture(material.normalTexture),
+                    modelTexture(material.metallicRoughnessTexture),
+                    modelTexture(material.occlusionTexture),
                     mvp,
                 });
             }

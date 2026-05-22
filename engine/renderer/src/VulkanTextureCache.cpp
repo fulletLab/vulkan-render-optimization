@@ -8,7 +8,8 @@
 namespace projectunity::renderer {
 namespace {
 
-constexpr std::uint64_t kWhiteTextureKey = 1ULL;
+constexpr std::uint64_t kWhiteTextureKey = UINT64_MAX;
+constexpr std::uint64_t kFlatNormalTextureKey = UINT64_MAX - 1ULL;
 
 struct TextureStagingBuffer {
     VulkanResourceContext context;
@@ -110,6 +111,18 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
         errorMessage);
 }
 
+const VulkanTextureHandle* VulkanTextureCache::ensureNormalUploaded(
+    VulkanResourceContext context,
+    VulkanUploadContext& uploads,
+    const assets::TextureAsset* texture,
+    std::string* errorMessage)
+{
+    if (!textureUsable(texture)) {
+        return ensureFlatNormalTexture(context, uploads, errorMessage);
+    }
+    return ensureUploaded(context, uploads, texture, errorMessage);
+}
+
 void VulkanTextureCache::clear() noexcept
 {
     for (auto& [key, texture] : textures_) {
@@ -129,6 +142,26 @@ const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
     }
     constexpr std::array<std::uint8_t, 4> white {255U, 255U, 255U, 255U};
     return uploadTexture(context, uploads, kWhiteTextureKey, 1, 1, white.data(), white.size(), errorMessage);
+}
+
+const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
+    VulkanResourceContext context,
+    VulkanUploadContext& uploads,
+    std::string* errorMessage)
+{
+    if (const auto existing = textures_.find(kFlatNormalTextureKey); existing != textures_.end()) {
+        return &existing->second.handle;
+    }
+    constexpr std::array<std::uint8_t, 4> flatNormal {128U, 128U, 255U, 255U};
+    return uploadTexture(
+        context,
+        uploads,
+        kFlatNormalTextureKey,
+        1,
+        1,
+        flatNormal.data(),
+        flatNormal.size(),
+        errorMessage);
 }
 
 const VulkanTextureHandle* VulkanTextureCache::uploadTexture(

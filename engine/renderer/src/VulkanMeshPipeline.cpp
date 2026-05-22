@@ -87,15 +87,17 @@ VkFormat VulkanMeshPipeline::chooseDepthFormat() const
 
 void VulkanMeshPipeline::createTextureLayout()
 {
-    VkDescriptorSetLayoutBinding binding {};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings {};
+    for (std::uint32_t index = 0; index < bindings.size(); ++index) {
+        bindings[index].binding = index;
+        bindings[index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[index].descriptorCount = 1;
+        bindings[index].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
     VkDescriptorSetLayoutCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.bindingCount = 1;
-    info.pBindings = &binding;
+    info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    info.pBindings = bindings.data();
     if (vkCreateDescriptorSetLayout(context_.device, &info, nullptr, &textureLayout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan texture descriptor layout");
     }
@@ -171,11 +173,12 @@ void VulkanMeshPipeline::createPipeline()
         binding.binding = 0;
         binding.stride = sizeof(VulkanGpuVertex);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        std::array<VkVertexInputAttributeDescription, 4> attributes {};
+        std::array<VkVertexInputAttributeDescription, 5> attributes {};
         attributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanGpuVertex, position)};
         attributes[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanGpuVertex, normal)};
         attributes[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(VulkanGpuVertex, texCoord)};
         attributes[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(VulkanGpuVertex, color)};
+        attributes[4] = {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(VulkanGpuVertex, tangent)};
         VkPipelineVertexInputStateCreateInfo vertexInput {};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;

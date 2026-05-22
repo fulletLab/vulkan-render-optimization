@@ -41,6 +41,10 @@ namespace {
         gpuVertex.color[1] = vertex.color[1];
         gpuVertex.color[2] = vertex.color[2];
         gpuVertex.color[3] = vertex.color[3];
+        gpuVertex.tangent[0] = vertex.tangent.x;
+        gpuVertex.tangent[1] = vertex.tangent.y;
+        gpuVertex.tangent[2] = vertex.tangent.z;
+        gpuVertex.tangent[3] = vertex.tangentSign;
         packed.push_back(gpuVertex);
     }
     return packed;

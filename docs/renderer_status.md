@@ -15,10 +15,11 @@ The viewport target now owns command pool/buffer, acquire/present semaphores, an
 fence, depth-backed render-pass resources, and a first presented mesh frame path.
 The imported mesh path now builds Vulkan draw items from `Scene` and `ModelAsset` data,
 uploads vertex/index buffers through VMA staging buffers, caches them by model primitive,
-uploads base-color RGBA textures once, generates GPU mip chains when the format supports
+uploads material RGBA textures once, generates GPU mip chains when the format supports
 linear blits, preserves glTF base-color/metallic/roughness/emissive factors, binds
-texture descriptors, preserves glTF `COLOR_0` vertex colors, and draws through a
-textured mesh pipeline with a depth target.
+base-color/normal/metallic-roughness texture descriptors, preserves glTF `COLOR_0`
+vertex colors and alpha mode/cutoff state, and draws through a textured mesh
+pipeline with a depth target.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
@@ -43,8 +44,10 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 
 ## Vulkan Work Remaining
 
-- Expand materials beyond current factor-only PBR approximation into normal maps,
-  metallic-roughness textures, occlusion, alpha modes, IBL, and real scene lights.
+- Expand materials beyond current texture/factor pass into occlusion, IBL, and real
+  scene lights.
+- Add back-to-front sorting or an equivalent transparent path for overlapping glTF
+  `BLEND` draws.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
 - Move labels/text overlays off QPainter and into renderer-owned passes.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
@@ -85,11 +88,21 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - Mesh primitive bounds are computed at import time, updated after glTF node transforms,
   and used by Scene/Game viewport submission for conservative camera culling.
 - glTF material `metallicFactor`, `roughnessFactor`, and `emissiveFactor` are now
-  imported, tested, pushed to Vulkan, and used by the preview shader. This is a
-  factor-only PBR approximation, not the final full glTF material model.
+  imported, tested, pushed to Vulkan, and used by the preview shader. This was the
+  first factor pass and is now extended by normal and metallic-roughness texture
+  sampling, but it is not the final full glTF material model.
 - glTF `COLOR_0` vertex colors are now imported, tested, kept through meshoptimizer
   vertex reordering, uploaded as part of the Vulkan vertex buffer, and multiplied
   with base-color texture/material output in the textured mesh shader.
+- glTF normal maps and metallic-roughness textures are now imported into
+  `MaterialAsset`, submitted through renderer draw items, cached/uploaded as GPU
+  texture descriptors, and sampled by the Vulkan mesh shader. Materials without a
+  normal map use a cached flat-normal texture, so the fallback does not flatten or
+  replace their base-color content.
+- glTF alpha mode and cutoff now survive import. The Vulkan mesh shader writes
+  opaque alpha for `OPAQUE`, discards `MASK` fragments at the imported cutoff, and
+  forwards `BLEND` alpha to the existing blend state. Overlapping blended draw
+  sorting remains open renderer work.
 - The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
   development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
   the source-rule test passes again.

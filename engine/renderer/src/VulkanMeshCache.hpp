@@ -15,6 +15,7 @@ struct VulkanGpuVertex {
     float normal[3] {};
     float texCoord[2] {};
     float color[4] {1.0F, 1.0F, 1.0F, 1.0F};
+    float tangent[4] {1.0F, 0.0F, 0.0F, 1.0F};
 };
 
 struct VulkanMeshKey {

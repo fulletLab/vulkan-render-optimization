@@ -27,6 +27,11 @@ public:
         VulkanUploadContext& uploads,
         const assets::TextureAsset* texture,
         std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* ensureNormalUploaded(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        const assets::TextureAsset* texture,
+        std::string* errorMessage);
     void clear() noexcept;
 
 private:
@@ -37,6 +42,10 @@ private:
     };
 
     [[nodiscard]] const VulkanTextureHandle* ensureWhiteTexture(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* ensureFlatNormalTexture(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
         std::string* errorMessage);

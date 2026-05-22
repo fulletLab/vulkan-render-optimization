@@ -105,12 +105,22 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
             {"bufferView":3,"componentType":5126,"count":3,"type":"VEC4"},
             {"bufferView":4,"componentType":5123,"count":3,"type":"SCALAR"}
         ],
+        "images":[{
+            "uri":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        }],
+        "textures":[{"source":0}],
         "materials":[{
             "pbrMetallicRoughness":{
+                "baseColorTexture":{"index":0},
+                "metallicRoughnessTexture":{"index":0},
                 "baseColorFactor":[0.25,0.5,0.75,1.0],
                 "metallicFactor":0.35,
                 "roughnessFactor":0.65
             },
+            "normalTexture":{"index":0,"scale":0.75},
+            "occlusionTexture":{"index":0,"strength":0.4},
+            "alphaMode":"MASK",
+            "alphaCutoff":0.33,
             "emissiveFactor":[0.05,0.1,0.15]
         }],
         "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2,"COLOR_0":3},"indices":4,"material":0}]}],
@@ -217,7 +227,17 @@ int main()
         || material.roughnessFactor < 0.64F
         || material.roughnessFactor > 0.66F
         || material.emissiveColor[2] < 0.14F
-        || material.baseColor[2] < 0.74F) {
+        || material.baseColor[2] < 0.74F
+        || material.normalScale < 0.74F
+        || material.alphaMode != MaterialAlphaMode::Mask
+        || material.alphaCutoff < 0.32F
+        || material.alphaCutoff > 0.34F
+        || !material.baseColorTexture.has_value()
+        || !material.normalTexture.has_value()
+        || !material.metallicRoughnessTexture.has_value()
+        || !material.occlusionTexture.has_value()
+        || material.occlusionStrength < 0.39F
+        || material.occlusionStrength > 0.41F) {
         return fail("imported GLB PBR material factors were not preserved");
     }
 

@@ -292,6 +292,17 @@ void optimizePrimitive(MeshPrimitive& primitive)
     return {};
 }
 
+[[nodiscard]] MaterialAlphaMode materialAlphaMode(const std::string& gltfAlphaMode)
+{
+    if (gltfAlphaMode == "MASK") {
+        return MaterialAlphaMode::Mask;
+    }
+    if (gltfAlphaMode == "BLEND") {
+        return MaterialAlphaMode::Blend;
+    }
+    return MaterialAlphaMode::Opaque;
+}
+
 [[nodiscard]] bool importPrimitive(
     const tinygltf::Model& gltf,
     const tinygltf::Primitive& source,
@@ -502,6 +513,8 @@ void optimizePrimitive(MeshPrimitive& primitive)
             material.name = sourceMaterial.name.empty() ? "Material" : sourceMaterial.name;
             material.metallicFactor = static_cast<float>(sourceMaterial.pbrMetallicRoughness.metallicFactor);
             material.roughnessFactor = static_cast<float>(sourceMaterial.pbrMetallicRoughness.roughnessFactor);
+            material.alphaMode = materialAlphaMode(sourceMaterial.alphaMode);
+            material.alphaCutoff = std::clamp(static_cast<float>(sourceMaterial.alphaCutoff), 0.0F, 1.0F);
             const auto& factor = sourceMaterial.pbrMetallicRoughness.baseColorFactor;
             if (factor.size() == 4U) {
                 material.baseColor = {
@@ -519,12 +532,21 @@ void optimizePrimitive(MeshPrimitive& primitive)
                 };
             }
 
-            const auto textureIndex = sourceMaterial.pbrMetallicRoughness.baseColorTexture.index;
-            if (textureIndex >= 0
-                && static_cast<std::size_t>(textureIndex) < textureMap.size()
-                && textureMap[static_cast<std::size_t>(textureIndex)] >= 0) {
-                material.baseColorTexture = static_cast<std::size_t>(textureMap[static_cast<std::size_t>(textureIndex)]);
-            }
+            const auto mapTexture = [&textureMap](int textureIndex, std::optional<std::size_t>& output) {
+                if (textureIndex >= 0
+                    && static_cast<std::size_t>(textureIndex) < textureMap.size()
+                    && textureMap[static_cast<std::size_t>(textureIndex)] >= 0) {
+                    output = static_cast<std::size_t>(textureMap[static_cast<std::size_t>(textureIndex)]);
+                }
+            };
+            mapTexture(sourceMaterial.pbrMetallicRoughness.baseColorTexture.index, material.baseColorTexture);
+            mapTexture(sourceMaterial.normalTexture.index, material.normalTexture);
+            mapTexture(
+                sourceMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index,
+                material.metallicRoughnessTexture);
+            mapTexture(sourceMaterial.occlusionTexture.index, material.occlusionTexture);
+            material.normalScale = static_cast<float>(sourceMaterial.normalTexture.scale);
+            material.occlusionStrength = std::clamp(static_cast<float>(sourceMaterial.occlusionTexture.strength), 0.0F, 1.0F);
             model->materials.push_back(std::move(material));
         }
     }

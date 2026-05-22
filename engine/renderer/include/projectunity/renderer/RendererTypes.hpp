@@ -58,6 +58,9 @@ struct RenderMeshDraw {
     const assets::MeshPrimitive* primitive {nullptr};
     const assets::MaterialAsset* material {nullptr};
     const assets::TextureAsset* baseColorTexture {nullptr};
+    const assets::TextureAsset* normalTexture {nullptr};
+    const assets::TextureAsset* metallicRoughnessTexture {nullptr};
+    const assets::TextureAsset* occlusionTexture {nullptr};
     RenderMatrix4 modelViewProjection;
 };
 
