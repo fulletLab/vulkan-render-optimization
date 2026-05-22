@@ -6,9 +6,11 @@
 #include <QString>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace projectunity::editor {
 namespace {
@@ -78,6 +80,166 @@ namespace {
     return matrix;
 }
 
+[[nodiscard]] float maxAbsScale(math::Vec3 scale)
+{
+    return std::max({std::fabs(scale.x), std::fabs(scale.y), std::fabs(scale.z)});
+}
+
+[[nodiscard]] math::Vec3 transformPoint(const scene::Entity& entity, math::Vec3 worldPosition, math::Vec3 point)
+{
+    return worldPosition + rotateEuler(
+        {point.x * entity.transform.scale.x, point.y * entity.transform.scale.y, point.z * entity.transform.scale.z},
+        entity.transform.rotationEuler);
+}
+
+[[nodiscard]] bool sphereVisible(
+    math::Vec3 center,
+    float radius,
+    math::Vec3 eye,
+    math::Vec3 right,
+    math::Vec3 up,
+    math::Vec3 forward,
+    float verticalFovRadians,
+    float aspectRatio)
+{
+    constexpr float nearPlane = 0.05F;
+    constexpr float farPlane = 4000.0F;
+    if (radius < 0.0F || !std::isfinite(radius)) {
+        return true;
+    }
+
+    const auto relative = center - eye;
+    const auto depth = math::dot(relative, forward);
+    if (depth + radius < nearPlane || depth - radius > farPlane) {
+        return false;
+    }
+
+    const auto extentDepth = std::max(depth, nearPlane);
+    const auto halfHeight = std::tan(verticalFovRadians * 0.5F) * extentDepth;
+    const auto halfWidth = halfHeight * std::max(aspectRatio, 0.001F);
+    const auto x = math::dot(relative, right);
+    const auto y = math::dot(relative, up);
+    return std::fabs(x) <= halfWidth + radius && std::fabs(y) <= halfHeight + radius;
+}
+
+[[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback)
+{
+    const auto length = value.length();
+    if (length <= 0.00001F || !std::isfinite(length)) {
+        return fallback;
+    }
+    return value / length;
+}
+
+void appendLineQuad(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    math::Vec3 start,
+    math::Vec3 end,
+    std::array<float, 4> color,
+    float thickness,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance)
+{
+    const auto direction = end - start;
+    if (direction.lengthSquared() <= 0.0000001F) {
+        return;
+    }
+
+    const auto side = safeNormalized(math::cross(direction, cameraForward), cameraRight);
+    const auto halfWidth = std::clamp(cameraDistance * 0.00085F * std::max(thickness, 1.0F), 0.006F, 0.08F);
+    const auto offset = side * halfWidth;
+    const auto base = static_cast<std::uint32_t>(vertices.size());
+    vertices.push_back({{start.x - offset.x, start.y - offset.y, start.z - offset.z}, color});
+    vertices.push_back({{start.x + offset.x, start.y + offset.y, start.z + offset.z}, color});
+    vertices.push_back({{end.x + offset.x, end.y + offset.y, end.z + offset.z}, color});
+    vertices.push_back({{end.x - offset.x, end.y - offset.y, end.z - offset.z}, color});
+    indices.insert(indices.end(), {base, base + 1U, base + 2U, base, base + 2U, base + 3U});
+}
+
+void appendGrid(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance)
+{
+    constexpr int divisions = 40;
+    constexpr float halfExtent = 20.0F;
+    constexpr float spacing = halfExtent * 2.0F / static_cast<float>(divisions);
+    for (int line = 0; line <= divisions; ++line) {
+        const auto coordinate = -halfExtent + static_cast<float>(line) * spacing;
+        const auto centerLine = std::abs(coordinate) <= 0.0001F;
+        const auto color = centerLine
+            ? std::array<float, 4> {0.68F, 0.72F, 0.80F, 0.58F}
+            : std::array<float, 4> {0.54F, 0.58F, 0.64F, 0.24F};
+        appendLineQuad(
+            vertices,
+            indices,
+            {-halfExtent, 0.0F, coordinate},
+            {halfExtent, 0.0F, coordinate},
+            color,
+            centerLine ? 1.4F : 1.0F,
+            cameraForward,
+            cameraRight,
+            cameraDistance);
+        appendLineQuad(
+            vertices,
+            indices,
+            {coordinate, 0.0F, -halfExtent},
+            {coordinate, 0.0F, halfExtent},
+            color,
+            centerLine ? 1.4F : 1.0F,
+            cameraForward,
+            cameraRight,
+            cameraDistance);
+    }
+}
+
+void appendAxes(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance)
+{
+    appendLineQuad(vertices, indices, {}, {3.0F, 0.0F, 0.0F}, {0.86F, 0.31F, 0.31F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, {}, {0.0F, 3.0F, 0.0F}, {0.37F, 0.75F, 0.43F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, {}, {0.0F, 0.0F, 3.0F}, {0.31F, 0.53F, 0.90F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
+}
+
+void appendHierarchyLinks(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const scene::Scene& scene,
+    const auto& worldPositionFor,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance)
+{
+    for (const auto& entity : scene.entities()) {
+        if (!entity.parent.has_value()) {
+            continue;
+        }
+        const auto childPosition = worldPositionFor(entity.id);
+        const auto parentPosition = worldPositionFor(*entity.parent);
+        if (!childPosition.has_value() || !parentPosition.has_value()) {
+            continue;
+        }
+        appendLineQuad(
+            vertices,
+            indices,
+            *parentPosition,
+            *childPosition,
+            {0.63F, 0.67F, 0.73F, 0.38F},
+            1.0F,
+            cameraForward,
+            cameraRight,
+            cameraDistance);
+    }
+}
+
 } // namespace
 
 bool ViewportWidget::ensureRendererSurface()
@@ -142,6 +304,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.clearColor.blue = mode_ == ViewportMode::Scene ? 0.15F : 0.025F;
     frame.clearColor.alpha = 1.0F;
     rendererMeshDraws_.clear();
+    bool hasMeshSceneContent = false;
 
     renderer::RenderMatrix4 view;
     view.values.fill(0.0F);
@@ -184,10 +347,16 @@ bool ViewportWidget::renderRendererFrame()
             if (!worldPosition.has_value() || model == nullptr) {
                 continue;
             }
+            hasMeshSceneContent = hasMeshSceneContent || !model->primitives.empty();
             const auto mvp = multiply(viewProjection, modelMatrix(entity, *worldPosition));
             for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
                 const auto& primitive = model->primitives[primitiveIndex];
                 if (primitive.materialIndex >= model->materials.size()) {
+                    continue;
+                }
+                const auto boundsCenter = transformPoint(entity, *worldPosition, primitive.bounds.center);
+                const auto boundsRadius = primitive.bounds.radius * maxAbsScale(entity.transform.scale);
+                if (!sphereVisible(boundsCenter, boundsRadius, eye, right, up, forward, camera_.verticalFovRadians, aspectRatio())) {
                     continue;
                 }
                 const auto& material = model->materials[primitive.materialIndex];
@@ -208,7 +377,7 @@ bool ViewportWidget::renderRendererFrame()
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
 
-    if (rendererMeshDraws_.empty()) {
+    if (rendererMeshDraws_.empty() && !hasMeshSceneContent) {
         return false;
     }
 
@@ -216,10 +385,28 @@ bool ViewportWidget::renderRendererFrame()
     rendererGizmoIndices_.clear();
     rendererColorMeshDraws_.clear();
     if (mode_ == ViewportMode::Scene) {
+        appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
+        appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
+        if (scene_ != nullptr) {
+            appendHierarchyLinks(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                *scene_,
+                [this](scene::EntityId id) {
+                    return entityWorldPosition(id);
+                },
+                forward,
+                right,
+                camera_.distance);
+        }
+
+        const auto vertexCountBeforeGizmo = rendererGizmoVertices_.size();
+        const auto indexCountBeforeGizmo = rendererGizmoIndices_.size();
+        const auto gizmoVertexOffset = static_cast<std::uint32_t>(rendererGizmoVertices_.size());
         (void)updateGizmoFrame();
         const auto& gizmo = gizmoBackend_->mesh();
-        rendererGizmoVertices_.reserve(gizmo.vertices.size());
-        rendererGizmoIndices_.reserve(gizmo.triangles.size() * 3U);
+        rendererGizmoVertices_.reserve(rendererGizmoVertices_.size() + gizmo.vertices.size());
+        rendererGizmoIndices_.reserve(rendererGizmoIndices_.size() + gizmo.triangles.size() * 3U);
         for (const auto& vertex : gizmo.vertices) {
             rendererGizmoVertices_.push_back({
                 {vertex.position.x, vertex.position.y, vertex.position.z},
@@ -230,7 +417,9 @@ bool ViewportWidget::renderRendererFrame()
             if (triangle.x >= gizmo.vertices.size() || triangle.y >= gizmo.vertices.size() || triangle.z >= gizmo.vertices.size()) {
                 continue;
             }
-            rendererGizmoIndices_.insert(rendererGizmoIndices_.end(), {triangle.x, triangle.y, triangle.z});
+            rendererGizmoIndices_.insert(
+                rendererGizmoIndices_.end(),
+                {gizmoVertexOffset + triangle.x, gizmoVertexOffset + triangle.y, gizmoVertexOffset + triangle.z});
         }
         if (!rendererGizmoVertices_.empty() && !rendererGizmoIndices_.empty()) {
             rendererColorMeshDraws_.push_back({
@@ -238,12 +427,15 @@ bool ViewportWidget::renderRendererFrame()
                 std::span<const std::uint32_t>(rendererGizmoIndices_),
                 viewProjection,
             });
-        } else if (selectedEntityId_.isValid()) {
+        }
+        if (selectedEntityId_.isValid()
+            && rendererGizmoVertices_.size() == vertexCountBeforeGizmo
+            && rendererGizmoIndices_.size() == indexCountBeforeGizmo) {
             core::logWarning(
                 core::LogCategory::Renderer,
                 QStringLiteral("Selected viewport gizmo produced no Vulkan color geometry: vertices=%1 indices=%2")
-                    .arg(static_cast<qulonglong>(rendererGizmoVertices_.size()))
-                    .arg(static_cast<qulonglong>(rendererGizmoIndices_.size()))
+                    .arg(static_cast<qulonglong>(gizmo.vertices.size()))
+                    .arg(static_cast<qulonglong>(gizmo.triangles.size() * 3U))
                     .toStdString());
         }
     }

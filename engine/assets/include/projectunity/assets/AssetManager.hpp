@@ -34,10 +34,18 @@ struct MeshLod {
     std::vector<std::uint32_t> indices;
 };
 
+struct MeshBounds {
+    math::Vec3 minimum;
+    math::Vec3 maximum;
+    math::Vec3 center;
+    float radius {0.0F};
+};
+
 struct MeshPrimitive {
     std::vector<MeshVertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<MeshLod> lods;
+    MeshBounds bounds;
     std::size_t materialIndex {0};
 };
 
@@ -52,6 +60,9 @@ struct TextureAsset {
 struct MaterialAsset {
     std::string name {"Default Material"};
     std::array<float, 4> baseColor {1.0F, 1.0F, 1.0F, 1.0F};
+    std::array<float, 3> emissiveColor {0.0F, 0.0F, 0.0F};
+    float metallicFactor {1.0F};
+    float roughnessFactor {1.0F};
     std::optional<std::size_t> baseColorTexture;
 };
 

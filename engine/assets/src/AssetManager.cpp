@@ -2,6 +2,7 @@
 
 #include "AssetImportUtils.hpp"
 #include "GltfNodeTransforms.hpp"
+#include "MeshBounds.hpp"
 #include "StbTextureImport.hpp"
 
 #include <projectunity/core/Log.hpp>
@@ -540,6 +541,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     }
     generateTangents(output);
     optimizePrimitive(output);
+    detail::updateMeshBounds(output);
     output.materialIndex = source.material >= 0 && static_cast<std::size_t>(source.material) < materialCount
         ? static_cast<std::size_t>(source.material)
         : 0U;
@@ -644,6 +646,8 @@ void optimizePrimitive(MeshPrimitive& primitive)
         for (const auto& sourceMaterial : gltf.materials) {
             MaterialAsset material;
             material.name = sourceMaterial.name.empty() ? "Material" : sourceMaterial.name;
+            material.metallicFactor = static_cast<float>(sourceMaterial.pbrMetallicRoughness.metallicFactor);
+            material.roughnessFactor = static_cast<float>(sourceMaterial.pbrMetallicRoughness.roughnessFactor);
             const auto& factor = sourceMaterial.pbrMetallicRoughness.baseColorFactor;
             if (factor.size() == 4U) {
                 material.baseColor = {
@@ -651,6 +655,13 @@ void optimizePrimitive(MeshPrimitive& primitive)
                     static_cast<float>(factor[1]),
                     static_cast<float>(factor[2]),
                     static_cast<float>(factor[3]),
+                };
+            }
+            if (sourceMaterial.emissiveFactor.size() == 3U) {
+                material.emissiveColor = {
+                    static_cast<float>(sourceMaterial.emissiveFactor[0]),
+                    static_cast<float>(sourceMaterial.emissiveFactor[1]),
+                    static_cast<float>(sourceMaterial.emissiveFactor[2]),
                 };
             }
 

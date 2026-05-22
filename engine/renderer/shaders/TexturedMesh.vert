@@ -10,6 +10,8 @@ layout(location = 1) out vec3 outNormal;
 layout(push_constant) uniform DrawPush {
     mat4 modelViewProjection;
     vec4 baseColor;
+    vec4 pbrFactors;
+    vec4 emissiveColor;
 } pushData;
 
 void main()

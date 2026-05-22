@@ -10,12 +10,21 @@ layout(location = 0) out vec4 outColor;
 layout(push_constant) uniform DrawPush {
     mat4 modelViewProjection;
     vec4 baseColor;
+    vec4 pbrFactors;
+    vec4 emissiveColor;
 } pushData;
 
 void main()
 {
     vec3 lightDirection = normalize(vec3(0.4, 0.8, 0.25));
-    float lambert = max(dot(normalize(inNormal), lightDirection), 0.0);
-    float lighting = 0.55 + lambert * 0.45;
-    outColor = texture(baseColorTexture, inTexCoord) * pushData.baseColor * vec4(vec3(lighting), 1.0);
+    vec3 normal = normalize(inNormal);
+    float metallic = clamp(pushData.pbrFactors.x, 0.0, 1.0);
+    float roughness = clamp(pushData.pbrFactors.y, 0.04, 1.0);
+    float lambert = max(dot(normal, lightDirection), 0.0);
+    vec4 sampledBase = texture(baseColorTexture, inTexCoord) * pushData.baseColor;
+    vec3 diffuse = sampledBase.rgb * (0.36 + lambert * mix(0.64, 0.28, metallic));
+    float specularPower = mix(96.0, 12.0, roughness);
+    float specularTerm = pow(max(lambert, 0.0), specularPower) * mix(0.08, 0.55, metallic);
+    vec3 emissive = pushData.emissiveColor.rgb;
+    outColor = vec4(diffuse + vec3(specularTerm) + emissive, sampledBase.a);
 }

@@ -94,7 +94,15 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
             {"bufferView":2,"componentType":5126,"count":3,"type":"VEC2"},
             {"bufferView":3,"componentType":5123,"count":3,"type":"SCALAR"}
         ],
-        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3}]}],
+        "materials":[{
+            "pbrMetallicRoughness":{
+                "baseColorFactor":[0.25,0.5,0.75,1.0],
+                "metallicFactor":0.35,
+                "roughnessFactor":0.65
+            },
+            "emissiveFactor":[0.05,0.1,0.15]
+        }],
+        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3,"material":0}]}],
         "nodes":[{"translation":[6,0,0],"mesh":0}],
         "scenes":[{"nodes":[0]}],
         "scene":0
@@ -175,6 +183,19 @@ int main()
         });
     if (!nodeTransformApplied) {
         return fail("imported GLB node transform was not applied to mesh geometry");
+    }
+    const auto& bounds = model->primitives.front().bounds;
+    if (bounds.radius <= 0.1F || bounds.minimum.x < 5.0F || bounds.maximum.x > 7.0F) {
+        return fail("imported GLB bounds were not updated after node transform");
+    }
+    const auto& material = model->materials.front();
+    if (material.metallicFactor < 0.34F
+        || material.metallicFactor > 0.36F
+        || material.roughnessFactor < 0.64F
+        || material.roughnessFactor > 0.66F
+        || material.emissiveColor[2] < 0.14F
+        || material.baseColor[2] < 0.74F) {
+        return fail("imported GLB PBR material factors were not preserved");
     }
 
     const auto textureResult = manager.importTexture(pngPath);

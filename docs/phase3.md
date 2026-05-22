@@ -21,7 +21,7 @@ Status: COMPLETA
 
 - `editor/viewport` static library.
 - `ViewportWidget` for Scene View and Game View.
-- Camera orbit, pan, zoom, and focus selected.
+- Camera orbit, right-mouse look, WASD fly navigation while right mouse is held, pan, zoom, and focus selected.
 - Q/W/E/R tool mode shortcuts in the Scene View.
 - Grid, axes, parent-child links, entity bounds, labels, and selection outline.
 - Picking by ray/sphere intersection using the same camera basis used for drawing.
@@ -44,6 +44,9 @@ Status: COMPLETA
 
 ## Verification
 
+- 2026-05-22: `cmake --build --preset dev-editor-local-qt` passed.
+- 2026-05-22: `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 5.14 seconds.
+- 2026-05-22: `projectunity_editor.exe --smoke-test` passed with exit code 0.
 - Clean removed `build/dev-core` and `build/dev-editor`.
 - `cmake --preset dev-core`
 - `cmake --build --preset dev-core`

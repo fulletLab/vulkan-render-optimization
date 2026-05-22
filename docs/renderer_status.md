@@ -15,16 +15,20 @@ The viewport target now owns command pool/buffer, acquire/present semaphores, an
 fence, depth-backed render-pass resources, and a first presented mesh frame path.
 The imported mesh path now builds Vulkan draw items from `Scene` and `ModelAsset` data,
 uploads vertex/index buffers through VMA staging buffers, caches them by model primitive,
-uploads base-color RGBA textures once, binds texture descriptors, and draws through a
-textured mesh pipeline with a depth target.
-Selected Scene View gizmos now also have a renderer-owned Vulkan color mesh path for
-imported mesh frames, so they are not hidden by the swapchain when the GPU path presents.
+uploads base-color RGBA textures once, generates GPU mip chains when the format supports
+linear blits, preserves glTF base-color/metallic/roughness/emissive factors, binds
+texture descriptors, and draws through a textured mesh pipeline with a depth target.
+Imported primitives now store cached bounds, and the editor viewport performs camera
+sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
+the draw list.
+Selected Scene View gizmos, a controlled grid, axes, and hierarchy links now have a
+renderer-owned Vulkan color mesh path for imported mesh frames, so those editor aids are
+not hidden by the swapchain when the GPU path presents.
 
 Scene View uses the CPU/QPainter mesh fallback only when Vulkan surface/frame rendering
-does not succeed. Qt still draws empty-scene grid/debug aids, labels, and fallback content;
-it is not the final 3D renderer.
-Until renderer-owned grid/debug/overlay passes exist, an empty Scene View does not
-present a Vulkan clear-only frame over the Qt Scene View aids.
+does not succeed. Qt still draws empty-scene fallback content and text labels; it is not
+the final 3D renderer. Until renderer-owned label/text overlay passes exist, an empty
+Scene View does not present a Vulkan clear-only frame over the Qt Scene View aids.
 
 ## Degradation Reverted
 
@@ -38,11 +42,12 @@ present a Vulkan clear-only frame over the Qt Scene View aids.
 
 ## Vulkan Work Remaining
 
-- Generate and sample texture mipmaps instead of the current base mip only.
-- Expand materials beyond base-color texture/base-color constants.
-- Move grid, labels, and debug rendering off QPainter and into renderer-owned passes.
-- Add frustum culling plus broader resource lifetime/cache policy around descriptors,
-  materials, and renderer-owned passes.
+- Expand materials beyond current factor-only PBR approximation into normal maps,
+  metallic-roughness textures, occlusion, alpha modes, IBL, and real scene lights.
+- Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
+- Move labels/text overlays off QPainter and into renderer-owned passes.
+- Add broader resource lifetime/cache policy around descriptors, materials, and
+  renderer-owned passes.
 - Add RenderDoc debug markers around frame, pass, and draw scopes.
 
 ## Bugs Fixed
@@ -63,6 +68,24 @@ present a Vulkan clear-only frame over the Qt Scene View aids.
   files exported as several transformed mesh nodes.
 - `MainWindow` smoke coverage was split into `MainWindowSmoke.cpp`, keeping the editor app
   source under the 800-line project rule without dropping tests.
+- Scene View no longer asks QPainter to redraw world-space editor aids after a Vulkan
+  mesh frame is presented. Those aids are now part of the Vulkan color mesh submission,
+  which avoids the visible one-frame flash when switching back to Scene View.
+- The first Vulkan color guide pass incorrectly submitted the whole debug frame,
+  including camera frustum geometry, which produced a huge translucent Scene View shape.
+  The GPU Scene View aid pass now submits a bounded grid, axes, hierarchy links, and
+  gizmo geometry only.
+- The first combined Scene View color buffer reused tinygizmo indices without adding the
+  existing grid vertex offset. Rotate/move/scale triangles could point into grid vertices,
+  creating huge malformed translucent handles. Gizmo indices are now rebased before upload.
+- Base-color textures now generate mip levels during Vulkan upload when linear blitting
+  is supported by `VK_FORMAT_R8G8B8A8_UNORM`; unsupported devices fall back to base mip
+  upload without corrupting the texture.
+- Mesh primitive bounds are computed at import time, updated after glTF node transforms,
+  and used by Scene/Game viewport submission for conservative camera culling.
+- glTF material `metallicFactor`, `roughnessFactor`, and `emissiveFactor` are now
+  imported, tested, pushed to Vulkan, and used by the preview shader. This is a
+  factor-only PBR approximation, not the final full glTF material model.
 
 ## Verification Notes
 

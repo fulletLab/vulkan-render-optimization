@@ -85,6 +85,7 @@ private:
     enum class DragMode {
         None,
         Orbit,
+        Look,
         Pan,
     };
 
@@ -132,7 +133,9 @@ private:
     void drawGizmo(QPainter& painter);
     void drawOverlay(QPainter& painter) const;
     void orbitCamera(QPoint delta);
+    void lookCamera(QPoint delta);
     void panCamera(QPoint delta);
+    void moveCameraLocal(math::Vec3 localDirection, bool fastMode);
     void zoomCamera(float wheelSteps);
 
     ViewportMode mode_;

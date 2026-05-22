@@ -21,6 +21,7 @@
 
 - Scene View and Game View are real editor viewport widgets, not static labels.
 - The viewport uses one camera model for drawing, labels, screen rays, and picking.
+- Scene View navigation supports Alt-left orbit, middle/hand pan, wheel zoom, focus selected, and Unity-style right-mouse look with WASD fly movement.
 - Picking is performed by building a ray from the camera through the mouse position and intersecting 3D entity bounds.
 - The Phase 3 viewport is editor UI infrastructure. It is not the final runtime renderer and does not introduce renderer dependencies into engine runtime code.
 
@@ -43,8 +44,8 @@
 - Scene entities store a `MeshRendererComponent` with only a stable model asset ID; `engine/scene` does not import files or know TinyGLTF internals.
 - TinyGLTF and its single compiled stb image implementation load glTF/GLB scenes, nodes, meshes, and images. glTF node transforms are applied before MikkTSpace generates imported tangent bases, and meshoptimizer reorders indices/vertices and emits simplification LOD data when a primitive has enough indices.
 - The Qt editor imports assets asynchronously from Project Browser. Imported model records create mesh-renderer entities and the viewport resolves model/material data through `IAssetManager`.
-- The first Phase 6 GPU path builds imported primitive draw items in the editor viewport, uploads vertex/index buffers and base-color textures through the renderer module, and renders textured mesh draws into a Vulkan viewport target. Selected tinygizmo geometry is also submitted through a renderer-owned Vulkan color mesh path when imported meshes are presented.
-- Material expansion, mipmap generation, culling, grid/debug/label overlay passes, and full scene lighting remain open renderer work; Qt must not become the primary 3D renderer.
+- The first Phase 6 GPU path builds imported primitive draw items in the editor viewport, uses import-time primitive bounds for conservative camera culling, uploads vertex/index buffers and base-color textures through the renderer module, preserves glTF base-color/metallic/roughness/emissive factors, generates base-color texture mip chains when supported, and renders textured mesh draws into a Vulkan viewport target. Selected tinygizmo geometry plus bounded Scene View grid/axes/hierarchy guides are also submitted through a renderer-owned Vulkan color mesh path when imported meshes are presented.
+- Material expansion, full debug/label overlay passes, and full scene lighting remain open renderer work; Qt must not become the primary 3D renderer.
 
 ## Future Module Boundaries
 

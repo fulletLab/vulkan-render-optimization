@@ -529,6 +529,13 @@ bool VulkanViewportTarget::recordFrameCommand(
         push.modelViewProjection = draw.modelViewProjection.values;
         if (draw.material != nullptr) {
             push.baseColor = draw.material->baseColor;
+            push.pbrFactors = {draw.material->metallicFactor, draw.material->roughnessFactor, 0.0F, 0.0F};
+            push.emissiveColor = {
+                draw.material->emissiveColor[0],
+                draw.material->emissiveColor[1],
+                draw.material->emissiveColor[2],
+                0.0F,
+            };
         }
         const VkDeviceSize vertexOffset = 0;
         const auto vertexBuffer = mesh->vertices.buffer();

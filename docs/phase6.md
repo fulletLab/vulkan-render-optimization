@@ -18,9 +18,9 @@ Status: PARCIAL
 ## Blocking Renderer Status
 
 - The GLB/glTF importer keeps the full source mesh and material data. The default Scene View path must use the full primitive index buffers, not preview triangle budgets or automatic destructive LODs.
-- The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, GPU base-color texture upload, textured imported mesh draws, and a selected-gizmo color mesh pass.
+- The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, GPU base-color texture upload with generated mip chains, conservative bounds culling, glTF material factor preservation, textured imported mesh draws, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
 - The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails or when only empty-scene editor aids are being shown. Qt is not the final 3D renderer.
-- Phase 6 remains partial until representative imported GLB/glTF content is visually verified with broader material/lights coverage, mipmaps, culling, and profiling.
+- Phase 6 remains partial until representative imported GLB/glTF content is visually verified with normal maps, metallic-roughness textures, alpha modes, broader material/lights coverage, and profiling.
 
 ## Implemented
 
@@ -29,13 +29,15 @@ Status: PARCIAL
 - Texture import for PNG/JPG through stb image.
 - Model import for `.gltf` and `.glb` through TinyGLTF with validation for accessors, index bounds, triangle primitive mode, images, missing files, and default scene node hierarchy traversal.
 - glTF node matrix/TRS transforms are applied during import so multi-object exports keep their authored positions, rotations, and scale instead of collapsing raw mesh primitives.
+- Mesh primitive bounds are computed at import time and refreshed after glTF node transforms for viewport culling.
+- glTF material `baseColorFactor`, `metallicFactor`, `roughnessFactor`, and `emissiveFactor` are preserved in `MaterialAsset`.
 - MikkTSpace tangent generation for imported primitives with logged fallback tangent basis on unusable data.
 - meshoptimizer vertex-cache, overdraw, vertex-fetch optimization, and simplification LOD generation when primitive index counts permit it.
 - `MeshRendererComponent` scene serialization that stores only the model asset ID.
 - Project Browser import table and asynchronous Qt import command.
 - Imported model entities created in scene data after a successful editor import.
 - Scene/Game viewport CPU fallback mesh drawing from `IAssetManager`, including base-color textured triangle mapping for the Phase 6 editor bridge.
-- Initial `engine/renderer` Vulkan module with instance/device creation, validation-layer discovery, debug-utils availability check, VMA allocator creation, Win32 viewport surface/swapchain preparation, render pass/pipeline creation, staged vertex/index/texture upload caches, textured mesh draw path, selected editor color mesh draw path, renderer stats, and renderer tests.
+- Initial `engine/renderer` Vulkan module with instance/device creation, validation-layer discovery, debug-utils availability check, VMA allocator creation, Win32 viewport surface/swapchain preparation, render pass/pipeline creation, staged vertex/index/texture upload caches, generated base-color texture mip chains, conservative viewport culling, factor-only PBR preview shading, textured mesh draw path, controlled Scene View editor color mesh draw path, renderer stats, and renderer tests.
 - Example textured asset at `examples/basic_assets/TexturedTriangle.gltf`.
 
 ## Files Involved
@@ -50,6 +52,8 @@ Status: PARCIAL
 - `engine/assets/src/AssetManager.cpp`
 - `engine/assets/src/GltfNodeTransforms.cpp`
 - `engine/assets/src/GltfNodeTransforms.hpp`
+- `engine/assets/src/MeshBounds.cpp`
+- `engine/assets/src/MeshBounds.hpp`
 - `engine/assets/src/StbTextureImport.cpp`
 - `engine/assets/src/StbTextureImport.hpp`
 - `engine/assets/src/TinyGltfImplementation.cpp`
@@ -121,7 +125,7 @@ Status: PARCIAL
 - The editor imports in a Qt background task and updates Project Browser/UI only on completion.
 - Viewport fallback code resolves imported models through `IAssetManager`; it does not call TinyGLTF, stb, MikkTSpace, or meshoptimizer.
 - Qt owns editor UI, docking, menus, panels, and input dispatch. The renderer module is independent of Qt and is injected into editor viewports through `IRenderer`.
-- The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured base-color mesh draws, selected editor gizmo color mesh draws, and the upload caches needed by imported primitives/textures. Full material features, mipmap generation, renderer-owned grid/debug/label overlays, and culling are not claimed as complete here.
+- The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured base-color mesh draws, generated base-color texture mip chains, conservative bounds culling, factor-only PBR preview shading, Scene View grid/axes/hierarchy/gizmo color mesh draws, and the upload caches needed by imported primitives/textures. Full material features and renderer-owned text labels are not claimed as complete here.
 - Assimp stays unintegrated in this phase because GLB/glTF coverage is real through TinyGLTF and no FBX/OBJ DoD was claimed.
 
 ## Build And Test
@@ -140,12 +144,12 @@ ctest --preset dev-editor-local-qt
 
 - `cmake --preset dev-core`: configured successfully with Visual Studio 18 2026.
 - `cmake --build --preset dev-core`: built successfully.
-- `ctest --preset dev-core`: 7/7 tests passed in 1.60 seconds after the glTF node transform and Vulkan color mesh updates.
+- `ctest --preset dev-core`: 7/7 tests passed in 2.27 seconds after glTF material factor import and preview shading were added.
 - `cmake --preset dev-editor-local-qt`: configured successfully with Visual Studio 18 2026, Qt, ADS, Vulkan, tinygizmo, Im3d, TinyGLTF, MikkTSpace, and meshoptimizer.
 - `cmake --build --preset dev-editor-local-qt`: built successfully and deployed Qt/ADS runtime dependencies.
-- `ctest --preset dev-editor-local-qt`: 8/8 offscreen tests passed in 5.21 seconds after the glTF node transform and Vulkan color mesh updates.
-- Visible Windows `projectunity_editor --smoke-test`: passed with exit code 0 and requires imported textured mesh plus selected gizmo color mesh draws to reach Vulkan. The same assertion is skipped under Qt's offscreen platform because it presents no Win32 Vulkan frames.
-- `projectunity_asset_tests` generates a real temporary GLB with a node transform, imports it, verifies that the transform is preserved, validates tangent data, imports a PNG, verifies cache records, imports the textured glTF example, and rejects a missing asset.
+- `ctest --preset dev-editor-local-qt`: 8/8 offscreen tests passed in 9.52 seconds after glTF material factor import and preview shading were added.
+- Visible Windows `projectunity_editor --smoke-test`: passed with exit code 0 and requires imported textured mesh plus Scene View color mesh draws to reach Vulkan. The same assertion is skipped under Qt's offscreen platform because it presents no Win32 Vulkan frames.
+- `projectunity_asset_tests` generates a real temporary GLB with a node transform and PBR material factors, imports it, verifies that the transform, transformed bounds, and material factors are preserved, validates tangent data, imports a PNG, verifies cache records, imports the textured glTF example, and rejects a missing asset.
 - `projectunity_scene_tests` verifies `MeshRendererComponent` scene roundtrip.
 - `projectunity_renderer_tests` creates the Vulkan renderer, verifies ready state, GPU name, VMA allocator creation, surface descriptor validation, and invalid surface rejection.
 - `projectunity_source_rule_tests` verifies code files stay at or below the 800-line project rule.
@@ -169,8 +173,8 @@ Date: 2026-05-22
 - Viewport, editor window, and asset manager implementation files were split so code files stay under the 800-line project rule.
 - `MainWindowSmoke.cpp` now owns editor smoke coverage so `MainWindow.cpp` stays under the 800-line rule.
 - Added `projectunity_source_rule_tests` to fail the build if a C/C++ source file exceeds 800 lines.
-- `ctest --preset dev-core`: 7/7 tests passed in 1.60 seconds.
-- `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 5.21 seconds.
+- `ctest --preset dev-core`: 7/7 tests passed in 2.27 seconds.
+- `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 9.52 seconds.
 
 ## Bugs Fixed During Phase
 
@@ -183,7 +187,7 @@ Date: 2026-05-22
 ## Known Bugs
 
 - A CPU/QPainter Scene/Game fallback still exists when Vulkan cannot present a viewport frame, including Qt offscreen tests. That fallback is not the final renderer path and remains too slow for real imported scenes.
-- Vulkan imported mesh draws, base-color texture uploads, texture descriptor binding, and selected editor gizmo color mesh draws exist. Phase 6 still stays partial because the renderer path lacks mipmap generation, broader glTF/PBR material coverage, scene lights/cameras, shadows, renderer-owned grid/debug/label passes, real performance profiling of imported scenes, and user-facing visual verification on representative imported GLB/glTF content.
+- Vulkan imported mesh draws, base-color texture uploads with generated mip chains, conservative viewport culling, texture descriptor binding, factor-only PBR preview shading, and Scene View color mesh draws exist. Phase 6 still stays partial because the renderer path lacks normal maps, metallic-roughness textures, alpha modes, broader glTF/PBR material coverage, scene lights/cameras, shadows, renderer-owned text labels, real performance profiling of imported scenes, and user-facing visual verification on representative imported GLB/glTF content.
 
 ## Renderer Refactor Notes
 
@@ -204,6 +208,25 @@ Date: 2026-05-22
 - The selected gizmo disappeared over Vulkan-presented mesh frames because the Qt
   overlay was not reliably visible over the swapchain. A Vulkan editor color mesh
   pass now draws the selected tinygizmo geometry during imported mesh frames.
+- Scene View grid/debug lines could flash for one Qt paint and then disappear after
+  switching from Game View because Vulkan presented over the QPainter overlay. The
+  viewport now submits controlled grid/axes/hierarchy lines as Vulkan color geometry and
+  skips QPainter world-space overlay draws after a successful Vulkan mesh frame.
+- The first GPU Scene View aid pass accidentally rendered camera frustum debug geometry
+  as a large translucent shape. That path now submits only bounded grid, axes, hierarchy,
+  and gizmo geometry until a proper debug-line render pass exists.
+- The combined Scene View color draw initially appended tinygizmo vertices after grid
+  vertices but did not rebase tinygizmo triangle indices. Rotate/move/scale handles could
+  connect to grid vertices and form huge broken translucent triangles. The gizmo indices
+  are now offset to their appended vertex range.
+- Vulkan texture uploads now generate mip chains with `vkCmdBlitImage` when the base
+  color format supports linear blits, and use a base-mip fallback otherwise.
+- Mesh primitive bounds are now cached during import and refreshed after glTF node
+  transforms. The editor viewport uses those bounds for conservative camera culling
+  before submitting Vulkan mesh draws.
+- glTF material factors were previously ignored except base color. The importer now
+  preserves metallic, roughness, and emissive factors; the Vulkan mesh push constants
+  and shader use them for a first material preview approximation.
 
 ## Later Phase Work
 

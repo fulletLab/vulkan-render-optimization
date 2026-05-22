@@ -1,6 +1,8 @@
 #include "VulkanTextureCache.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 
 namespace projectunity::renderer {
@@ -36,7 +38,9 @@ struct TextureStagingBuffer {
     VkImageLayout oldLayout,
     VkImageLayout newLayout,
     VkAccessFlags sourceAccess,
-    VkAccessFlags destinationAccess)
+    VkAccessFlags destinationAccess,
+    std::uint32_t baseMipLevel,
+    std::uint32_t levelCount)
 {
     VkImageMemoryBarrier barrier {};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -46,11 +50,33 @@ struct TextureStagingBuffer {
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseMipLevel = baseMipLevel;
+    barrier.subresourceRange.levelCount = levelCount;
     barrier.subresourceRange.layerCount = 1;
     barrier.srcAccessMask = sourceAccess;
     barrier.dstAccessMask = destinationAccess;
     return barrier;
+}
+
+[[nodiscard]] std::uint32_t mipLevelCount(std::uint32_t width, std::uint32_t height)
+{
+    std::uint32_t levels = 1;
+    auto size = std::max(width, height);
+    while (size > 1U) {
+        size /= 2U;
+        ++levels;
+    }
+    return levels;
+}
+
+[[nodiscard]] bool supportsLinearMipBlit(VkPhysicalDevice physicalDevice)
+{
+    VkFormatProperties properties {};
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &properties);
+    constexpr auto required = VK_FORMAT_FEATURE_BLIT_SRC_BIT
+        | VK_FORMAT_FEATURE_BLIT_DST_BIT
+        | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    return (properties.optimalTilingFeatures & required) == required;
 }
 
 } // namespace
@@ -145,16 +171,20 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     TextureResource next;
     next.context = context;
     next.handle.key = key;
+    const auto mipLevels = supportsLinearMipBlit(context.physicalDevice) ? mipLevelCount(width, height) : 1U;
     VkImageCreateInfo imageInfo {};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     imageInfo.extent = {width, height, 1};
-    imageInfo.mipLevels = 1;
+    imageInfo.mipLevels = mipLevels;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    if (mipLevels > 1U) {
+        imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     VmaAllocationCreateInfo imageAlloc {};
@@ -172,7 +202,9 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
                 VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 0,
-                VK_ACCESS_TRANSFER_WRITE_BIT);
+                VK_ACCESS_TRANSFER_WRITE_BIT,
+                0,
+                mipLevels);
             vkCmdPipelineBarrier(
                 commandBuffer,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -197,12 +229,104 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
                 1,
                 &copy);
 
-            auto toShader = imageBarrier(
+            if (mipLevels == 1U) {
+                auto toShader = imageBarrier(
+                    next.handle.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_ACCESS_SHADER_READ_BIT,
+                    0,
+                    1);
+                vkCmdPipelineBarrier(
+                    commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    0,
+                    0,
+                    nullptr,
+                    0,
+                    nullptr,
+                    1,
+                    &toShader);
+                return;
+            }
+
+            std::int32_t sourceWidth = static_cast<std::int32_t>(width);
+            std::int32_t sourceHeight = static_cast<std::int32_t>(height);
+            for (std::uint32_t level = 1; level < mipLevels; ++level) {
+                auto sourceToBlit = imageBarrier(
+                    next.handle.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_ACCESS_TRANSFER_WRITE_BIT,
+                    VK_ACCESS_TRANSFER_READ_BIT,
+                    level - 1U,
+                    1);
+                vkCmdPipelineBarrier(
+                    commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    0,
+                    0,
+                    nullptr,
+                    0,
+                    nullptr,
+                    1,
+                    &sourceToBlit);
+
+                const auto destinationWidth = std::max(sourceWidth / 2, 1);
+                const auto destinationHeight = std::max(sourceHeight / 2, 1);
+                VkImageBlit blit {};
+                blit.srcOffsets[1] = {sourceWidth, sourceHeight, 1};
+                blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.srcSubresource.mipLevel = level - 1U;
+                blit.srcSubresource.layerCount = 1;
+                blit.dstOffsets[1] = {destinationWidth, destinationHeight, 1};
+                blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.dstSubresource.mipLevel = level;
+                blit.dstSubresource.layerCount = 1;
+                vkCmdBlitImage(
+                    commandBuffer,
+                    next.handle.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    next.handle.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &blit,
+                    VK_FILTER_LINEAR);
+
+                auto sourceToShader = imageBarrier(
+                    next.handle.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_ACCESS_TRANSFER_READ_BIT,
+                    VK_ACCESS_SHADER_READ_BIT,
+                    level - 1U,
+                    1);
+                vkCmdPipelineBarrier(
+                    commandBuffer,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    0,
+                    0,
+                    nullptr,
+                    0,
+                    nullptr,
+                    1,
+                    &sourceToShader);
+                sourceWidth = destinationWidth;
+                sourceHeight = destinationHeight;
+            }
+
+            auto lastToShader = imageBarrier(
                 next.handle.image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_ACCESS_TRANSFER_WRITE_BIT,
-                VK_ACCESS_SHADER_READ_BIT);
+                VK_ACCESS_SHADER_READ_BIT,
+                mipLevels - 1U,
+                1);
             vkCmdPipelineBarrier(
                 commandBuffer,
                 VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -213,7 +337,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
                 0,
                 nullptr,
                 1,
-                &toShader);
+                &lastToShader);
         },
         errorMessage)) {
         destroy(next);
@@ -226,7 +350,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.layerCount = 1;
     if (vkCreateImageView(context.device, &viewInfo, nullptr, &next.handle.view) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
@@ -244,7 +368,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.maxLod = 1.0F;
+    samplerInfo.maxLod = static_cast<float>(mipLevels);
     if (vkCreateSampler(context.device, &samplerInfo, nullptr, &next.handle.sampler) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to create Vulkan texture sampler";

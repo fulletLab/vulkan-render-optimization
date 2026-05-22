@@ -20,6 +20,8 @@ add_library(projectunity_assets STATIC
     src/AssetManager.cpp
     src/GltfNodeTransforms.cpp
     src/GltfNodeTransforms.hpp
+    src/MeshBounds.cpp
+    src/MeshBounds.hpp
     src/StbTextureImport.cpp
     src/StbTextureImport.hpp
     src/TinyGltfImplementation.cpp

@@ -68,6 +68,9 @@ bool ViewportWidget::runSelfTest(QString* errorMessage)
         orbitCamera(QPoint(20, -10));
         panCamera(QPoint(8, 4));
         zoomCamera(1.0F);
+        lookCamera(QPoint(12, -6));
+        moveCameraLocal({0.0F, 0.0F, 1.0F}, false);
+        moveCameraLocal({-1.0F, 0.0F, 0.0F}, true);
         const auto movedRay = screenPointToRay(QPointF(width() * 0.5, height() * 0.5));
         const auto changedDirection = math::distanceSquared(savedRay.direction, movedRay.direction) > 0.00001F;
         const auto changedOrigin = math::distanceSquared(savedRay.origin, movedRay.origin) > 0.00001F;

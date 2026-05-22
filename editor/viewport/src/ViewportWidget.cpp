@@ -233,12 +233,13 @@ void ViewportWidget::paintEvent(QPaintEvent* event)
     Q_UNUSED(event);
 
     const bool rendererFrameRendered = renderRendererFrame();
+    if (rendererFrameRendered) {
+        return;
+    }
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, false);
-    if (!rendererFrameRendered) {
-        drawBackground(painter);
-    }
+    drawBackground(painter);
     drawDebugGeometry(painter);
     drawAxes(painter);
     drawHierarchyLinks(painter);
@@ -260,6 +261,12 @@ void ViewportWidget::mousePressEvent(QMouseEvent* event)
     const auto isAltOrbit = event->button() == Qt::LeftButton && event->modifiers().testFlag(Qt::AltModifier);
     if (isAltOrbit) {
         dragMode_ = DragMode::Orbit;
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::RightButton) {
+        dragMode_ = DragMode::Look;
         event->accept();
         return;
     }
@@ -309,6 +316,12 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
+    if (dragMode_ == DragMode::Look) {
+        lookCamera(delta);
+        event->accept();
+        return;
+    }
+
     if (dragMode_ == DragMode::Pan) {
         panCamera(delta);
         event->accept();
@@ -328,7 +341,22 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event)
 
 void ViewportWidget::mouseReleaseEvent(QMouseEvent* event)
 {
-    dragMode_ = DragMode::None;
+    if (event->button() == Qt::RightButton && dragMode_ == DragMode::Look) {
+        dragMode_ = DragMode::None;
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::MiddleButton && dragMode_ == DragMode::Pan) {
+        dragMode_ = DragMode::None;
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton && (dragMode_ == DragMode::Orbit || dragMode_ == DragMode::Pan)) {
+        dragMode_ = DragMode::None;
+    }
+
     if (event->button() == Qt::LeftButton) {
         const bool endedGizmoInteraction = gizmoCaptured_;
         gizmoMouseLeft_ = false;
@@ -370,6 +398,30 @@ void ViewportWidget::keyPressEvent(QKeyEvent* event)
     if (mode_ == ViewportMode::Game) {
         QWidget::keyPressEvent(event);
         return;
+    }
+
+    if (dragMode_ == DragMode::Look) {
+        const auto fastMode = event->modifiers().testFlag(Qt::ShiftModifier);
+        switch (event->key()) {
+        case Qt::Key_W:
+            moveCameraLocal({0.0F, 0.0F, 1.0F}, fastMode);
+            event->accept();
+            return;
+        case Qt::Key_S:
+            moveCameraLocal({0.0F, 0.0F, -1.0F}, fastMode);
+            event->accept();
+            return;
+        case Qt::Key_A:
+            moveCameraLocal({-1.0F, 0.0F, 0.0F}, fastMode);
+            event->accept();
+            return;
+        case Qt::Key_D:
+            moveCameraLocal({1.0F, 0.0F, 0.0F}, fastMode);
+            event->accept();
+            return;
+        default:
+            break;
+        }
     }
 
     switch (event->key()) {

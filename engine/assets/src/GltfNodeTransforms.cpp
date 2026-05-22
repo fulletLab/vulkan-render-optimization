@@ -1,5 +1,7 @@
 #include "GltfNodeTransforms.hpp"
 
+#include "MeshBounds.hpp"
+
 #include <tiny_gltf.h>
 
 #include <algorithm>
@@ -107,6 +109,7 @@ void applyGltfTransform(MeshPrimitive& primitive, GltfMatrix4 transform)
             vertex.tangent = {1.0F, 0.0F, 0.0F};
         }
     }
+    updateMeshBounds(primitive);
 }
 
 } // namespace projectunity::assets::detail
