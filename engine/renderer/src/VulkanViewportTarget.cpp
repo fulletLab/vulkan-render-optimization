@@ -19,6 +19,7 @@ std::size_t VulkanMaterialTextureKeyHash::operator()(const VulkanMaterialTexture
     mix(key.normal);
     mix(key.metallicRoughness);
     mix(key.occlusion);
+    mix(key.emissive);
     return hash;
 }
 
@@ -365,7 +366,7 @@ void VulkanViewportTarget::createDescriptors()
 {
     VkDescriptorPoolSize poolSize {};
     poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 4096;
+    poolSize.descriptorCount = 5120;
     VkDescriptorPoolCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     info.maxSets = 1024;
@@ -418,9 +419,10 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
     const VulkanTextureHandle& normal,
     const VulkanTextureHandle& metallicRoughness,
     const VulkanTextureHandle& occlusion,
+    const VulkanTextureHandle& emissive,
     std::string* errorMessage)
 {
-    const VulkanMaterialTextureKey key {baseColor.key, normal.key, metallicRoughness.key, occlusion.key};
+    const VulkanMaterialTextureKey key {baseColor.key, normal.key, metallicRoughness.key, occlusion.key, emissive.key};
     if (const auto existing = textureDescriptors_.find(key); existing != textureDescriptors_.end()) {
         return existing->second;
     }
@@ -439,11 +441,12 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
         return VK_NULL_HANDLE;
     }
 
-    const std::array<VkDescriptorImageInfo, 4> imageInfos {{
+    const std::array<VkDescriptorImageInfo, 5> imageInfos {{
         {baseColor.sampler, baseColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {normal.sampler, normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {metallicRoughness.sampler, metallicRoughness.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {occlusion.sampler, occlusion.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {emissive.sampler, emissive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
     }};
     std::array<VkWriteDescriptorSet, imageInfos.size()> writes {};
     for (std::uint32_t index = 0; index < writes.size(); ++index) {
@@ -485,7 +488,7 @@ bool VulkanViewportTarget::recordFrameCommand(
         if (meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage) == nullptr) {
             return false;
         }
-        const auto* baseColor = textureCache.ensureUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
+        const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
         const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
         const auto* metallicRoughness = textureCache.ensureUploaded(
             context_.resources(),
@@ -493,11 +496,13 @@ bool VulkanViewportTarget::recordFrameCommand(
             draw.metallicRoughnessTexture,
             errorMessage);
         const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
+        const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
         if (baseColor == nullptr
             || normal == nullptr
             || metallicRoughness == nullptr
             || occlusion == nullptr
-            || textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, errorMessage) == VK_NULL_HANDLE) {
+            || emissive == nullptr
+            || textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage) == VK_NULL_HANDLE) {
             return false;
         }
     }
@@ -558,7 +563,7 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
         const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
         const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
-        const auto* baseColor = textureCache.ensureUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
+        const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
         const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
         const auto* metallicRoughness = textureCache.ensureUploaded(
             context_.resources(),
@@ -566,11 +571,17 @@ bool VulkanViewportTarget::recordFrameCommand(
             draw.metallicRoughnessTexture,
             errorMessage);
         const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
-        if (mesh == nullptr || baseColor == nullptr || normal == nullptr || metallicRoughness == nullptr || occlusion == nullptr) {
+        const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
+        if (mesh == nullptr
+            || baseColor == nullptr
+            || normal == nullptr
+            || metallicRoughness == nullptr
+            || occlusion == nullptr
+            || emissive == nullptr) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;
         }
-        const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, errorMessage);
+        const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage);
         if (descriptor == VK_NULL_HANDLE) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;

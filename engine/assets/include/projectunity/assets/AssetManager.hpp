@@ -78,6 +78,7 @@ struct MaterialAsset {
     std::optional<std::size_t> normalTexture;
     std::optional<std::size_t> metallicRoughnessTexture;
     std::optional<std::size_t> occlusionTexture;
+    std::optional<std::size_t> emissiveTexture;
 };
 
 struct ModelAsset {

@@ -70,10 +70,17 @@ struct TextureStagingBuffer {
     return levels;
 }
 
-[[nodiscard]] bool supportsLinearMipBlit(VkPhysicalDevice physicalDevice)
+[[nodiscard]] VkFormat textureFormat(VulkanTextureColorSpace colorSpace)
+{
+    return colorSpace == VulkanTextureColorSpace::Srgb
+        ? VK_FORMAT_R8G8B8A8_SRGB
+        : VK_FORMAT_R8G8B8A8_UNORM;
+}
+
+[[nodiscard]] bool supportsLinearMipBlit(VkPhysicalDevice physicalDevice, VkFormat format)
 {
     VkFormatProperties properties {};
-    vkGetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_R8G8B8A8_UNORM, &properties);
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
     constexpr auto required = VK_FORMAT_FEATURE_BLIT_SRC_BIT
         | VK_FORMAT_FEATURE_BLIT_DST_BIT
         | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
@@ -87,6 +94,13 @@ VulkanTextureCache::~VulkanTextureCache()
     clear();
 }
 
+std::size_t VulkanTextureCache::TextureKeyHash::operator()(const TextureKey& key) const noexcept
+{
+    auto hash = static_cast<std::size_t>(key.source);
+    hash ^= static_cast<std::size_t>(key.colorSpace) + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
+    return hash;
+}
+
 const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     VulkanResourceContext context,
     VulkanUploadContext& uploads,
@@ -96,7 +110,31 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     if (!textureUsable(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const auto key = texture->id.value();
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear};
+    if (const auto existing = textures_.find(key); existing != textures_.end()) {
+        return &existing->second.handle;
+    }
+    return uploadTexture(
+        context,
+        uploads,
+        key,
+        texture->width,
+        texture->height,
+        texture->rgba8.data(),
+        texture->rgba8.size(),
+        errorMessage);
+}
+
+const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
+    VulkanResourceContext context,
+    VulkanUploadContext& uploads,
+    const assets::TextureAsset* texture,
+    std::string* errorMessage)
+{
+    if (!textureUsable(texture)) {
+        return ensureWhiteTexture(context, uploads, errorMessage);
+    }
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -130,6 +168,7 @@ void VulkanTextureCache::clear() noexcept
         destroy(texture);
     }
     textures_.clear();
+    nextHandleKey_ = 1;
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
@@ -137,11 +176,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    if (const auto existing = textures_.find(kWhiteTextureKey); existing != textures_.end()) {
+    const TextureKey key {kWhiteTextureKey, VulkanTextureColorSpace::Linear};
+    if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
     constexpr std::array<std::uint8_t, 4> white {255U, 255U, 255U, 255U};
-    return uploadTexture(context, uploads, kWhiteTextureKey, 1, 1, white.data(), white.size(), errorMessage);
+    return uploadTexture(context, uploads, key, 1, 1, white.data(), white.size(), errorMessage);
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
@@ -149,14 +189,15 @@ const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    if (const auto existing = textures_.find(kFlatNormalTextureKey); existing != textures_.end()) {
+    const TextureKey key {kFlatNormalTextureKey, VulkanTextureColorSpace::Linear};
+    if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
     constexpr std::array<std::uint8_t, 4> flatNormal {128U, 128U, 255U, 255U};
     return uploadTexture(
         context,
         uploads,
-        kFlatNormalTextureKey,
+        key,
         1,
         1,
         flatNormal.data(),
@@ -167,7 +208,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
 const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     VulkanResourceContext context,
     VulkanUploadContext& uploads,
-    std::uint64_t key,
+    TextureKey key,
     std::uint32_t width,
     std::uint32_t height,
     const std::uint8_t* rgba8,
@@ -203,12 +244,13 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
 
     TextureResource next;
     next.context = context;
-    next.handle.key = key;
-    const auto mipLevels = supportsLinearMipBlit(context.physicalDevice) ? mipLevelCount(width, height) : 1U;
+    next.handle.key = nextHandleKey_++;
+    const auto format = textureFormat(key.colorSpace);
+    const auto mipLevels = supportsLinearMipBlit(context.physicalDevice, format) ? mipLevelCount(width, height) : 1U;
     VkImageCreateInfo imageInfo {};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.format = format;
     imageInfo.extent = {width, height, 1};
     imageInfo.mipLevels = mipLevels;
     imageInfo.arrayLayers = 1;
@@ -381,7 +423,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = next.handle.image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.layerCount = 1;

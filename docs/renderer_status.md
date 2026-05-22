@@ -17,10 +17,12 @@ The imported mesh path now builds Vulkan draw items from `Scene` and `ModelAsset
 uploads vertex/index buffers through VMA staging buffers, caches them by model primitive,
 uploads material RGBA textures once, generates GPU mip chains when the format supports
 linear blits, preserves glTF base-color/metallic/roughness/emissive factors, binds
-base-color/normal/metallic-roughness/occlusion texture descriptors, preserves glTF
+base-color/normal/metallic-roughness/occlusion/emissive texture descriptors, preserves glTF
 occlusion strength, `COLOR_0` vertex colors, and alpha mode/cutoff state, orders
 `BLEND` primitive draws back-to-front after opaque/masked draws, and draws through
 a textured mesh pipeline with opaque and transparent depth-write behavior.
+Base-color and emissive texture uploads use sRGB cache entries while normal,
+metallic-roughness, and occlusion uploads keep linear cache entries.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
@@ -80,9 +82,9 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - The first combined Scene View color buffer reused tinygizmo indices without adding the
   existing grid vertex offset. Rotate/move/scale triangles could point into grid vertices,
   creating huge malformed translucent handles. Gizmo indices are now rebased before upload.
-- Base-color textures now generate mip levels during Vulkan upload when linear blitting
-  is supported by `VK_FORMAT_R8G8B8A8_UNORM`; unsupported devices fall back to base mip
-  upload without corrupting the texture.
+- Material textures now generate mip levels during Vulkan upload when linear blitting
+  is supported by their chosen RGBA8 linear or sRGB format; unsupported devices fall
+  back to base mip upload without corrupting the texture.
 - Mesh primitive bounds are computed at import time, updated after glTF node transforms,
   and used by Scene/Game viewport submission for conservative camera culling.
 - glTF material `metallicFactor`, `roughnessFactor`, and `emissiveFactor` are now
@@ -100,6 +102,12 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - glTF occlusion textures and strength are now preserved in `MaterialAsset`, carried
   into the Vulkan material descriptor set, and used to attenuate the current ambient
   material term without dropping the imported base-color or metallic-roughness maps.
+- glTF emissive textures are now preserved in `MaterialAsset`, passed through the
+  Vulkan material descriptor set with a white fallback, and multiplied by the
+  imported emissive factor in the current material shader.
+- Vulkan material texture caching now keeps sRGB uploads for glTF base-color and
+  emissive color inputs separate from linear normal, metallic-roughness, and
+  occlusion uploads, even if a source glTF reuses the same image in both roles.
 - glTF alpha mode and cutoff now survive import. The Vulkan mesh shader writes
   opaque alpha for `OPAQUE`, discards `MASK` fragments at the imported cutoff, and
   forwards `BLEND` alpha to the transparent mesh path.

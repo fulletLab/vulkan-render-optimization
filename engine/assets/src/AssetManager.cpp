@@ -545,6 +545,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
                 sourceMaterial.pbrMetallicRoughness.metallicRoughnessTexture.index,
                 material.metallicRoughnessTexture);
             mapTexture(sourceMaterial.occlusionTexture.index, material.occlusionTexture);
+            mapTexture(sourceMaterial.emissiveTexture.index, material.emissiveTexture);
             material.normalScale = static_cast<float>(sourceMaterial.normalTexture.scale);
             material.occlusionStrength = std::clamp(static_cast<float>(sourceMaterial.occlusionTexture.strength), 0.0F, 1.0F);
             model->materials.push_back(std::move(material));

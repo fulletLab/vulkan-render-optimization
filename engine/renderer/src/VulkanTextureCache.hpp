@@ -5,11 +5,17 @@
 
 #include <projectunity/assets/AssetManager.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 
 namespace projectunity::renderer {
+
+enum class VulkanTextureColorSpace : std::uint8_t {
+    Linear,
+    Srgb,
+};
 
 struct VulkanTextureHandle {
     std::uint64_t key {0};
@@ -27,6 +33,11 @@ public:
         VulkanUploadContext& uploads,
         const assets::TextureAsset* texture,
         std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* ensureSrgbUploaded(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        const assets::TextureAsset* texture,
+        std::string* errorMessage);
     [[nodiscard]] const VulkanTextureHandle* ensureNormalUploaded(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
@@ -35,6 +46,17 @@ public:
     void clear() noexcept;
 
 private:
+    struct TextureKey {
+        std::uint64_t source {0};
+        VulkanTextureColorSpace colorSpace {VulkanTextureColorSpace::Linear};
+
+        [[nodiscard]] bool operator==(const TextureKey&) const noexcept = default;
+    };
+
+    struct TextureKeyHash {
+        [[nodiscard]] std::size_t operator()(const TextureKey& key) const noexcept;
+    };
+
     struct TextureResource {
         VulkanResourceContext context;
         VulkanTextureHandle handle;
@@ -52,7 +74,7 @@ private:
     [[nodiscard]] const VulkanTextureHandle* uploadTexture(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
-        std::uint64_t key,
+        TextureKey key,
         std::uint32_t width,
         std::uint32_t height,
         const std::uint8_t* rgba8,
@@ -60,7 +82,8 @@ private:
         std::string* errorMessage);
     void destroy(TextureResource& texture) noexcept;
 
-    std::unordered_map<std::uint64_t, TextureResource> textures_;
+    std::unordered_map<TextureKey, TextureResource, TextureKeyHash> textures_;
+    std::uint64_t nextHandleKey_ {1};
 };
 
 } // namespace projectunity::renderer

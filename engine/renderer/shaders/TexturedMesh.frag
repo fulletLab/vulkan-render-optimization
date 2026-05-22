@@ -4,6 +4,7 @@ layout(set = 0, binding = 0) uniform sampler2D baseColorTexture;
 layout(set = 0, binding = 1) uniform sampler2D normalTexture;
 layout(set = 0, binding = 2) uniform sampler2D metallicRoughnessTexture;
 layout(set = 0, binding = 3) uniform sampler2D occlusionTexture;
+layout(set = 0, binding = 4) uniform sampler2D emissiveTexture;
 
 layout(location = 0) in vec2 inTexCoord;
 layout(location = 1) in vec3 inNormal;
@@ -43,7 +44,7 @@ void main()
     vec3 diffuse = sampledBase.rgb * (0.36 * occlusion + lambert * mix(0.64, 0.28, metallic));
     float specularPower = mix(96.0, 12.0, roughness);
     float specularTerm = pow(max(lambert, 0.0), specularPower) * mix(0.08, 0.55, metallic);
-    vec3 emissive = pushData.emissiveColor.rgb;
+    vec3 emissive = texture(emissiveTexture, inTexCoord).rgb * pushData.emissiveColor.rgb;
     float outputAlpha = alphaMode == 2 ? sampledBase.a : 1.0;
     outColor = vec4(diffuse + vec3(specularTerm) + emissive, outputAlpha);
 }

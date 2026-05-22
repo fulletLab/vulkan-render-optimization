@@ -37,6 +37,7 @@ struct VulkanMaterialTextureKey {
     std::uint64_t normal {0};
     std::uint64_t metallicRoughness {0};
     std::uint64_t occlusion {0};
+    std::uint64_t emissive {0};
 
     [[nodiscard]] bool operator==(const VulkanMaterialTextureKey&) const noexcept = default;
 };
@@ -76,6 +77,7 @@ private:
         const VulkanTextureHandle& normal,
         const VulkanTextureHandle& metallicRoughness,
         const VulkanTextureHandle& occlusion,
+        const VulkanTextureHandle& emissive,
         std::string* errorMessage);
     [[nodiscard]] bool recordFrameCommand(
         std::uint32_t imageIndex,

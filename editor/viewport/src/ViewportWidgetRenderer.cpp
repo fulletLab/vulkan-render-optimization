@@ -374,6 +374,7 @@ bool ViewportWidget::renderRendererFrame()
                     modelTexture(material.normalTexture),
                     modelTexture(material.metallicRoughnessTexture),
                     modelTexture(material.occlusionTexture),
+                    modelTexture(material.emissiveTexture),
                     math::dot(boundsCenter - eye, forward),
                     mvp,
                 });

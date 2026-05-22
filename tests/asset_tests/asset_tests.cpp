@@ -119,6 +119,7 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
             },
             "normalTexture":{"index":0,"scale":0.75},
             "occlusionTexture":{"index":0,"strength":0.4},
+            "emissiveTexture":{"index":0},
             "alphaMode":"MASK",
             "alphaCutoff":0.33,
             "emissiveFactor":[0.05,0.1,0.15]
@@ -236,6 +237,7 @@ int main()
         || !material.normalTexture.has_value()
         || !material.metallicRoughnessTexture.has_value()
         || !material.occlusionTexture.has_value()
+        || !material.emissiveTexture.has_value()
         || material.occlusionStrength < 0.39F
         || material.occlusionStrength > 0.41F) {
         return fail("imported GLB PBR material factors were not preserved");
