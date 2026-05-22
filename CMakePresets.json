@@ -1,0 +1,106 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 26,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev-editor",
+      "displayName": "Developer build with editor",
+      "description": "Builds the Qt/ADS editor, engine foundation, and tests.",
+      "binaryDir": "${sourceDir}/build/dev-editor",
+      "cacheVariables": {
+        "PROJECTUNITY_BUILD_EDITOR": "ON",
+        "PROJECTUNITY_BUILD_TESTS": "ON",
+        "PROJECTUNITY_FETCH_QTADS": "ON"
+      }
+    },
+    {
+      "name": "dev-editor-qt-env",
+      "displayName": "Developer editor build using QT_PREFIX",
+      "description": "Builds the editor using the Qt prefix exposed through QT_PREFIX.",
+      "inherits": "dev-editor",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "$env{QT_PREFIX}"
+      }
+    },
+    {
+      "name": "dev-editor-local-qt",
+      "displayName": "Developer editor build using local .deps Qt",
+      "description": "Builds the editor using Qt installed under .deps/qt.",
+      "inherits": "dev-editor",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "${sourceDir}/.deps/qt/6.8.3/msvc2022_64"
+      }
+    },
+    {
+      "name": "dev-core",
+      "displayName": "Developer build without editor",
+      "description": "Builds core/math/tests only. Useful when Qt is not installed.",
+      "binaryDir": "${sourceDir}/build/dev-core",
+      "cacheVariables": {
+        "PROJECTUNITY_BUILD_EDITOR": "OFF",
+        "PROJECTUNITY_BUILD_TESTS": "ON",
+        "PROJECTUNITY_FETCH_QTADS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev-editor",
+      "configurePreset": "dev-editor",
+      "configuration": "Debug"
+    },
+    {
+      "name": "dev-editor-qt-env",
+      "configurePreset": "dev-editor-qt-env",
+      "configuration": "Debug"
+    },
+    {
+      "name": "dev-editor-local-qt",
+      "configurePreset": "dev-editor-local-qt",
+      "configuration": "Debug"
+    },
+    {
+      "name": "dev-core",
+      "configurePreset": "dev-core",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev-editor",
+      "configurePreset": "dev-editor",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev-editor-qt-env",
+      "configurePreset": "dev-editor-qt-env",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev-editor-local-qt",
+      "configurePreset": "dev-editor-local-qt",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev-core",
+      "configurePreset": "dev-core",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

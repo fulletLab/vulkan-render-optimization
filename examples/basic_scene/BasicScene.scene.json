@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "Basic Scene",
+  "entities": [
+    {
+      "id": 1,
+      "parent": null,
+      "name": "Root",
+      "transform": {
+        "position": [0.0, 0.0, 0.0],
+        "rotationEuler": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "name": "Child",
+      "transform": {
+        "position": [1.0, 2.0, 3.0],
+        "rotationEuler": [0.0, 45.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+add_subdirectory(core_tests)
+add_subdirectory(math_tests)
+add_subdirectory(debug_tests)
+add_subdirectory(scene_tests)
+add_subdirectory(asset_tests)
+add_subdirectory(renderer_tests)
+add_subdirectory(source_rule_tests)

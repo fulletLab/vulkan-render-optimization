@@ -1,0 +1,10 @@
+{
+  "displayName": "TexturedTriangle",
+  "id": 8910347706678127458,
+  "indices": 3,
+  "sourceName": "TexturedTriangle.gltf",
+  "textures": 1,
+  "type": "Model",
+  "version": 1,
+  "vertices": 3
+}

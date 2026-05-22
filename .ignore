@@ -1,0 +1,7 @@
+build/
+out/
+.deps/
+.vs/
+.vscode/
+.idea/
+*.log
