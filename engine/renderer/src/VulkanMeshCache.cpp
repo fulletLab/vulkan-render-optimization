@@ -37,6 +37,10 @@ namespace {
         gpuVertex.normal[2] = vertex.normal.z;
         gpuVertex.texCoord[0] = vertex.texCoord[0];
         gpuVertex.texCoord[1] = vertex.texCoord[1];
+        gpuVertex.color[0] = vertex.color[0];
+        gpuVertex.color[1] = vertex.color[1];
+        gpuVertex.color[2] = vertex.color[2];
+        gpuVertex.color[3] = vertex.color[3];
         packed.push_back(gpuVertex);
     }
     return packed;

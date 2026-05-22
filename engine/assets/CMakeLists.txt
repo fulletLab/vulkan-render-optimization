@@ -18,6 +18,8 @@ add_library(projectunity_assets STATIC
     src/AssetCache.cpp
     src/AssetImport.cpp
     src/AssetManager.cpp
+    src/GltfAttributeReader.cpp
+    src/GltfAttributeReader.hpp
     src/GltfNodeTransforms.cpp
     src/GltfNodeTransforms.hpp
     src/MeshBounds.cpp

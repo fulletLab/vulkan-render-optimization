@@ -17,7 +17,8 @@ The imported mesh path now builds Vulkan draw items from `Scene` and `ModelAsset
 uploads vertex/index buffers through VMA staging buffers, caches them by model primitive,
 uploads base-color RGBA textures once, generates GPU mip chains when the format supports
 linear blits, preserves glTF base-color/metallic/roughness/emissive factors, binds
-texture descriptors, and draws through a textured mesh pipeline with a depth target.
+texture descriptors, preserves glTF `COLOR_0` vertex colors, and draws through a
+textured mesh pipeline with a depth target.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
@@ -86,6 +87,12 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - glTF material `metallicFactor`, `roughnessFactor`, and `emissiveFactor` are now
   imported, tested, pushed to Vulkan, and used by the preview shader. This is a
   factor-only PBR approximation, not the final full glTF material model.
+- glTF `COLOR_0` vertex colors are now imported, tested, kept through meshoptimizer
+  vertex reordering, uploaded as part of the Vulkan vertex buffer, and multiplied
+  with base-color texture/material output in the textured mesh shader.
+- The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
+  development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
+  the source-rule test passes again.
 
 ## Verification Notes
 

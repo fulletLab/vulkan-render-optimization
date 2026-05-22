@@ -28,6 +28,7 @@ struct MeshVertex {
     math::Vec3 tangent {1.0F, 0.0F, 0.0F};
     float tangentSign {1.0F};
     std::array<float, 2> texCoord {};
+    std::array<float, 4> color {1.0F, 1.0F, 1.0F, 1.0F};
 };
 
 struct MeshLod {

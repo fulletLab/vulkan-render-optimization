@@ -45,7 +45,7 @@ Status: COMPLETA
 ## Verification
 
 - 2026-05-22: `cmake --build --preset dev-editor-local-qt` passed.
-- 2026-05-22: `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 5.14 seconds.
+- 2026-05-22: `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 7.18 seconds.
 - 2026-05-22: `projectunity_editor.exe --smoke-test` passed with exit code 0.
 - Clean removed `build/dev-core` and `build/dev-editor`.
 - `cmake --preset dev-core`

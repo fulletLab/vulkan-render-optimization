@@ -60,6 +60,15 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
         appendFloat(bytes, value);
     }
 
+    const std::array<float, 12> colors {{
+        1.0F, 0.25F, 0.0F, 1.0F,
+        0.0F, 1.0F, 0.25F, 1.0F,
+        0.25F, 0.0F, 1.0F, 1.0F,
+    }};
+    for (const auto value : colors) {
+        appendFloat(bytes, value);
+    }
+
     appendU16(bytes, 0);
     appendU16(bytes, 1);
     appendU16(bytes, 2);
@@ -81,18 +90,20 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
     auto binary = makeTriangleBuffer();
     const std::string json = R"({
         "asset":{"version":"2.0"},
-        "buffers":[{"byteLength":102}],
+        "buffers":[{"byteLength":150}],
         "bufferViews":[
             {"buffer":0,"byteOffset":0,"byteLength":36},
             {"buffer":0,"byteOffset":36,"byteLength":36},
             {"buffer":0,"byteOffset":72,"byteLength":24},
-            {"buffer":0,"byteOffset":96,"byteLength":6}
+            {"buffer":0,"byteOffset":96,"byteLength":48},
+            {"buffer":0,"byteOffset":144,"byteLength":6}
         ],
         "accessors":[
             {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-1,-1,0],"max":[1,1,0]},
             {"bufferView":1,"componentType":5126,"count":3,"type":"VEC3"},
             {"bufferView":2,"componentType":5126,"count":3,"type":"VEC2"},
-            {"bufferView":3,"componentType":5123,"count":3,"type":"SCALAR"}
+            {"bufferView":3,"componentType":5126,"count":3,"type":"VEC4"},
+            {"bufferView":4,"componentType":5123,"count":3,"type":"SCALAR"}
         ],
         "materials":[{
             "pbrMetallicRoughness":{
@@ -102,7 +113,7 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
             },
             "emissiveFactor":[0.05,0.1,0.15]
         }],
-        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3,"material":0}]}],
+        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2,"COLOR_0":3},"indices":4,"material":0}]}],
         "nodes":[{"translation":[6,0,0],"mesh":0}],
         "scenes":[{"nodes":[0]}],
         "scene":0
@@ -174,6 +185,18 @@ int main()
     }
     if (model->primitives.front().vertices.front().tangent.lengthSquared() <= 0.1F) {
         return fail("imported GLB tangent generation produced invalid data");
+    }
+    const auto colorPreserved = std::any_of(
+        model->primitives.front().vertices.begin(),
+        model->primitives.front().vertices.end(),
+        [](const MeshVertex& vertex) {
+            return vertex.color[0] > 0.99F
+                && vertex.color[1] > 0.24F
+                && vertex.color[2] < 0.01F
+                && vertex.color[3] > 0.99F;
+        });
+    if (!colorPreserved) {
+        return fail("imported GLB vertex colors were not preserved");
     }
     const auto nodeTransformApplied = std::all_of(
         model->primitives.front().vertices.begin(),

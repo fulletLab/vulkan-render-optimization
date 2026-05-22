@@ -171,10 +171,11 @@ void VulkanMeshPipeline::createPipeline()
         binding.binding = 0;
         binding.stride = sizeof(VulkanGpuVertex);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        std::array<VkVertexInputAttributeDescription, 3> attributes {};
+        std::array<VkVertexInputAttributeDescription, 4> attributes {};
         attributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanGpuVertex, position)};
         attributes[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanGpuVertex, normal)};
         attributes[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(VulkanGpuVertex, texCoord)};
+        attributes[3] = {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(VulkanGpuVertex, color)};
         VkPipelineVertexInputStateCreateInfo vertexInput {};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
