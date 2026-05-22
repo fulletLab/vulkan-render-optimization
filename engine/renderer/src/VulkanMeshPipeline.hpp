@@ -25,6 +25,7 @@ public:
 
     [[nodiscard]] VkRenderPass renderPass() const noexcept;
     [[nodiscard]] VkPipeline pipeline() const noexcept;
+    [[nodiscard]] VkPipeline transparentPipeline() const noexcept;
     [[nodiscard]] VkPipelineLayout layout() const noexcept;
     [[nodiscard]] VkDescriptorSetLayout textureLayout() const noexcept;
     [[nodiscard]] VkFormat depthFormat() const noexcept;
@@ -42,6 +43,7 @@ private:
     VkRenderPass renderPass_ {VK_NULL_HANDLE};
     VkPipelineLayout layout_ {VK_NULL_HANDLE};
     VkPipeline pipeline_ {VK_NULL_HANDLE};
+    VkPipeline transparentPipeline_ {VK_NULL_HANDLE};
 };
 
 } // namespace projectunity::renderer

@@ -2,6 +2,8 @@
 
 #include "VulkanSupport.hpp"
 
+#include <projectunity/renderer/RenderDrawOrdering.hpp>
+
 #include <algorithm>
 #include <array>
 #include <stdexcept>
@@ -534,7 +536,6 @@ bool VulkanViewportTarget::recordFrameCommand(
     renderPass.clearValueCount = static_cast<std::uint32_t>(clears.size());
     renderPass.pClearValues = clears.data();
     vkCmdBeginRenderPass(commandBuffer_, &renderPass, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->pipeline());
     VkViewport viewport {};
     viewport.width = static_cast<float>(extent_.width);
     viewport.height = static_cast<float>(extent_.height);
@@ -544,7 +545,17 @@ bool VulkanViewportTarget::recordFrameCommand(
     vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
 
-    for (const auto& draw : frame.meshDraws) {
+    VkPipeline activeMeshPipeline = VK_NULL_HANDLE;
+    orderMeshDraws(frame.meshDraws, orderedMeshDraws_);
+    for (const auto* drawPointer : orderedMeshDraws_) {
+        const auto& draw = *drawPointer;
+        const auto drawPipeline = isTransparentMeshDraw(draw)
+            ? meshPipeline_->transparentPipeline()
+            : meshPipeline_->pipeline();
+        if (drawPipeline != activeMeshPipeline) {
+            vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
+            activeMeshPipeline = drawPipeline;
+        }
         const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
         const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
         const auto* baseColor = textureCache.ensureUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);

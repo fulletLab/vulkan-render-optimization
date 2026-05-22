@@ -61,6 +61,7 @@ struct RenderMeshDraw {
     const assets::TextureAsset* normalTexture {nullptr};
     const assets::TextureAsset* metallicRoughnessTexture {nullptr};
     const assets::TextureAsset* occlusionTexture {nullptr};
+    float sortDepth {0.0F};
     RenderMatrix4 modelViewProjection;
 };
 

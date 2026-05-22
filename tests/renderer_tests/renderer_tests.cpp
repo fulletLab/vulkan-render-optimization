@@ -1,7 +1,10 @@
 #include <projectunity/renderer/VulkanRenderer.hpp>
+#include <projectunity/renderer/RenderDrawOrdering.hpp>
 
+#include <array>
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 namespace {
 
@@ -16,6 +19,36 @@ int fail(const char* message)
 int main()
 {
     using namespace projectunity::renderer;
+
+    projectunity::assets::MaterialAsset opaqueMaterial;
+    projectunity::assets::MaterialAsset maskMaterial;
+    maskMaterial.alphaMode = projectunity::assets::MaterialAlphaMode::Mask;
+    projectunity::assets::MaterialAsset blendMaterial;
+    blendMaterial.alphaMode = projectunity::assets::MaterialAlphaMode::Blend;
+    std::array<RenderMeshDraw, 5> unsortedDraws {};
+    unsortedDraws[0].primitiveIndex = 10;
+    unsortedDraws[0].material = &blendMaterial;
+    unsortedDraws[0].sortDepth = 2.0F;
+    unsortedDraws[1].primitiveIndex = 20;
+    unsortedDraws[1].material = &opaqueMaterial;
+    unsortedDraws[2].primitiveIndex = 30;
+    unsortedDraws[2].material = &blendMaterial;
+    unsortedDraws[2].sortDepth = 8.0F;
+    unsortedDraws[3].primitiveIndex = 40;
+    unsortedDraws[3].material = &maskMaterial;
+    unsortedDraws[4].primitiveIndex = 50;
+    unsortedDraws[4].material = &blendMaterial;
+    unsortedDraws[4].sortDepth = 5.0F;
+    std::vector<const RenderMeshDraw*> orderedDraws;
+    orderMeshDraws(unsortedDraws, orderedDraws);
+    if (orderedDraws.size() != unsortedDraws.size()
+        || orderedDraws[0]->primitiveIndex != 20
+        || orderedDraws[1]->primitiveIndex != 40
+        || orderedDraws[2]->primitiveIndex != 30
+        || orderedDraws[3]->primitiveIndex != 50
+        || orderedDraws[4]->primitiveIndex != 10) {
+        return fail("Renderer mesh draw ordering did not keep opaque draws before back-to-front blended draws");
+    }
 
     std::string error;
     RendererConfig config;

@@ -17,9 +17,10 @@ The imported mesh path now builds Vulkan draw items from `Scene` and `ModelAsset
 uploads vertex/index buffers through VMA staging buffers, caches them by model primitive,
 uploads material RGBA textures once, generates GPU mip chains when the format supports
 linear blits, preserves glTF base-color/metallic/roughness/emissive factors, binds
-base-color/normal/metallic-roughness texture descriptors, preserves glTF `COLOR_0`
-vertex colors and alpha mode/cutoff state, and draws through a textured mesh
-pipeline with a depth target.
+base-color/normal/metallic-roughness/occlusion texture descriptors, preserves glTF
+occlusion strength, `COLOR_0` vertex colors, and alpha mode/cutoff state, orders
+`BLEND` primitive draws back-to-front after opaque/masked draws, and draws through
+a textured mesh pipeline with opaque and transparent depth-write behavior.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
@@ -44,10 +45,7 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 
 ## Vulkan Work Remaining
 
-- Expand materials beyond current texture/factor pass into occlusion, IBL, and real
-  scene lights.
-- Add back-to-front sorting or an equivalent transparent path for overlapping glTF
-  `BLEND` draws.
+- Expand materials beyond current texture/factor pass into IBL and real scene lights.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
 - Move labels/text overlays off QPainter and into renderer-owned passes.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
@@ -99,10 +97,16 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
   texture descriptors, and sampled by the Vulkan mesh shader. Materials without a
   normal map use a cached flat-normal texture, so the fallback does not flatten or
   replace their base-color content.
+- glTF occlusion textures and strength are now preserved in `MaterialAsset`, carried
+  into the Vulkan material descriptor set, and used to attenuate the current ambient
+  material term without dropping the imported base-color or metallic-roughness maps.
 - glTF alpha mode and cutoff now survive import. The Vulkan mesh shader writes
   opaque alpha for `OPAQUE`, discards `MASK` fragments at the imported cutoff, and
-  forwards `BLEND` alpha to the existing blend state. Overlapping blended draw
-  sorting remains open renderer work.
+  forwards `BLEND` alpha to the transparent mesh path.
+- Vulkan draw ordering now keeps opaque and masked primitive draws in submission
+  order, defers glTF `BLEND` primitives, sorts them back-to-front from camera depth,
+  and uses a transparent mesh pipeline that keeps depth tests while disabling depth
+  writes for those blended draws.
 - The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
   development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
   the source-rule test passes again.

@@ -98,6 +98,7 @@ private:
     VkImageView depthView_ {VK_NULL_HANDLE};
     std::unique_ptr<VulkanMeshPipeline> meshPipeline_;
     std::unique_ptr<VulkanColorPipeline> colorPipeline_;
+    std::vector<const RenderMeshDraw*> orderedMeshDraws_;
     std::vector<VulkanColorMeshBuffers> colorMeshes_;
     std::vector<VkFramebuffer> framebuffers_;
     VkDescriptorPool descriptorPool_ {VK_NULL_HANDLE};

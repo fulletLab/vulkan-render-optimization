@@ -54,6 +54,11 @@ VkPipeline VulkanMeshPipeline::pipeline() const noexcept
     return pipeline_;
 }
 
+VkPipeline VulkanMeshPipeline::transparentPipeline() const noexcept
+{
+    return transparentPipeline_;
+}
+
 VkPipelineLayout VulkanMeshPipeline::layout() const noexcept
 {
     return layout_;
@@ -258,6 +263,10 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan mesh graphics pipeline");
         }
+        depth.depthWriteEnable = VK_FALSE;
+        if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentPipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan transparent mesh graphics pipeline");
+        }
     } catch (...) {
         vkDestroyShaderModule(context_.device, fragmentModule, nullptr);
         vkDestroyShaderModule(context_.device, vertexModule, nullptr);
@@ -269,6 +278,10 @@ void VulkanMeshPipeline::createPipeline()
 
 void VulkanMeshPipeline::destroy() noexcept
 {
+    if (transparentPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, transparentPipeline_, nullptr);
+        transparentPipeline_ = VK_NULL_HANDLE;
+    }
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
