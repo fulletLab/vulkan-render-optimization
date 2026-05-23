@@ -67,6 +67,7 @@ private:
     struct TextureKey {
         std::uint64_t source {0};
         VulkanTextureColorSpace colorSpace {VulkanTextureColorSpace::Linear};
+        assets::TextureGpuFormat gpuFormat {assets::TextureGpuFormat::Rgba8Unorm};
         assets::TextureSamplerAsset sampler;
 
         [[nodiscard]] bool operator==(const TextureKey&) const noexcept = default;
@@ -98,6 +99,12 @@ private:
         std::uint32_t height,
         const std::uint8_t* rgba8,
         std::size_t byteCount,
+        std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* uploadGpuMipTexture(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        TextureKey key,
+        const assets::TextureAsset& texture,
         std::string* errorMessage);
     [[nodiscard]] bool uploadCubeMap(
         VulkanResourceContext context,

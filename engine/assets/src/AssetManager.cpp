@@ -1,8 +1,11 @@
 #include <projectunity/assets/AssetManager.hpp>
 #include "AssetImportUtils.hpp"
 #include "GltfAttributeReader.hpp"
+#include "GltfImageLoader.hpp"
 #include "GltfNodeTransforms.hpp"
 #include "GltfSceneObjects.hpp"
+#include "GltfTextureImport.hpp"
+#include "KtxTextureImport.hpp"
 #include "MeshBounds.hpp"
 #include "MeshPrimitiveBatcher.hpp"
 #include "MeshPrimitiveSignature.hpp"
@@ -17,17 +20,14 @@
 #include <limits>
 #include <sstream>
 #include <span>
+#include <utility>
 namespace projectunity::assets {
 namespace {
 constexpr float kTangentEpsilon = 0.000001F;
 using detail::makeId;
-using detail::makeTextureId;
-using detail::readBytes;
-using detail::readColorAttribute;
-using detail::readFloatAttribute;
-using detail::readIndices;
-using detail::setError;
-using detail::GltfMatrix4;
+using detail::readBytes; using detail::readColorAttribute;
+using detail::readFloatAttribute; using detail::readIndices;
+using detail::setError; using detail::GltfMatrix4;
 using detail::applyGltfTransform;
 using detail::gltfToEngineMatrix;
 using detail::gltfToEngineInstanceMatrix;
@@ -54,6 +54,12 @@ struct ImportedPrimitiveSignature {
         return static_cast<char>(std::tolower(value));
     });
     return extension;
+}
+void reportProgress(const AssetImportProgressCallback& progress, int percent, std::string stage)
+{
+    if (progress) {
+        progress({std::clamp(percent, 1, 100), std::move(stage)});
+    }
 }
 [[nodiscard]] bool normalize(math::Vec3& value)
 {
@@ -262,37 +268,6 @@ void optimizePrimitive(MeshPrimitive& primitive)
     }
     detail::updateMeshBounds(primitive);
     return primitive.bounds;
-}
-[[nodiscard]] bool convertTexture(
-    const tinygltf::Image& image,
-    std::string name,
-    TextureAsset& output,
-    std::string* errorMessage)
-{
-    if (image.width <= 0 || image.height <= 0 || image.component <= 0 || image.image.empty()) {
-        setError(errorMessage, "glTF texture image is empty or invalid");
-        return false;
-    }
-    const auto width = static_cast<std::uint32_t>(image.width);
-    const auto height = static_cast<std::uint32_t>(image.height);
-    const auto pixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-    const auto component = static_cast<std::size_t>(image.component);
-    if (component > 4 || image.image.size() < pixels * component) {
-        setError(errorMessage, "glTF texture image channel data is invalid");
-        return false;
-    }
-    output.name = name.empty() ? "Texture" : std::move(name);
-    output.width = width;
-    output.height = height;
-    output.rgba8.assign(pixels * 4U, 255U);
-    for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
-        output.rgba8[pixel * 4U] = image.image[pixel * component];
-        output.rgba8[pixel * 4U + 1U] = component > 1 ? image.image[pixel * component + 1U] : image.image[pixel * component];
-        output.rgba8[pixel * 4U + 2U] = component > 2 ? image.image[pixel * component + 2U] : image.image[pixel * component];
-        output.rgba8[pixel * 4U + 3U] = component > 3 ? image.image[pixel * component + 3U] : 255U;
-    }
-    output.id = makeTextureId(output);
-    return true;
 }
 [[nodiscard]] TextureWrapMode textureWrapMode(int value)
 {
@@ -550,9 +525,11 @@ void optimizePrimitive(MeshPrimitive& primitive)
 [[nodiscard]] ImportedModel importGltfModel(
     const std::filesystem::path& sourcePath,
     std::span<const std::uint8_t> sourceBytes,
+    const AssetImportProgressCallback& progress,
     std::string* errorMessage)
 {
     tinygltf::TinyGLTF loader;
+    detail::configureGltfImageLoader(loader);
     tinygltf::Model gltf;
     std::string warning;
     std::string loaderError;
@@ -561,6 +538,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         setError(errorMessage, "Asset source file is too large for TinyGLTF memory import");
         return {};
     }
+    reportProgress(progress, 18, "Parsing glTF");
     const auto baseDirectory = sourcePath.parent_path().string();
     const bool loaded = extension == ".glb"
         ? loader.LoadBinaryFromMemory(
@@ -584,6 +562,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         setError(errorMessage, loaderError.empty() ? "TinyGLTF failed to load the model" : loaderError);
         return {};
     }
+    reportProgress(progress, 30, "Importing textures");
     auto model = std::make_shared<ModelAsset>();
     model->id = makeId(sourceBytes, AssetType::Model);
     model->name = sourcePath.stem().string().empty() ? "Imported Model" : sourcePath.stem().string();
@@ -594,13 +573,22 @@ void optimizePrimitive(MeshPrimitive& primitive)
             continue;
         }
         TextureAsset texture;
-        if (!convertTexture(gltf.images[static_cast<std::size_t>(sourceIndex)], gltf.textures[textureIndex].name, texture, errorMessage)) {
+        if (!detail::importGltfTexture(
+                gltf,
+                gltf.images[static_cast<std::size_t>(sourceIndex)],
+                gltf.textures[textureIndex].name,
+                sourcePath.parent_path(),
+                texture,
+                errorMessage)) {
             return {};
         }
         texture.sampler = textureSampler(gltf, gltf.textures[textureIndex]);
         textureMap[textureIndex] = static_cast<int>(model->textures.size());
         model->textures.push_back(std::move(texture));
+        const auto textureProgress = 30 + static_cast<int>((textureIndex + 1U) * 20U / std::max<std::size_t>(gltf.textures.size(), 1U));
+        reportProgress(progress, textureProgress, "Importing textures");
     }
+    reportProgress(progress, 55, "Processing materials");
     if (gltf.materials.empty()) {
         model->materials.push_back(defaultMaterial());
     } else {
@@ -649,6 +637,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         }
     }
     if (!gltf.scenes.empty()) {
+        reportProgress(progress, 62, "Processing scene nodes");
         const auto sceneIndex = gltf.defaultScene >= 0 ? gltf.defaultScene : 0;
         if (static_cast<std::size_t>(sceneIndex) >= gltf.scenes.size()) {
             setError(errorMessage, "glTF default scene index is invalid");
@@ -677,6 +666,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
             }
         }
     } else {
+        reportProgress(progress, 62, "Processing meshes");
         std::vector<ImportedPrimitiveKey> primitiveMap;
         std::vector<ImportedPrimitiveSignature> primitiveSignatures;
         for (std::size_t meshIndex = 0; meshIndex < gltf.meshes.size(); ++meshIndex) {
@@ -706,6 +696,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         setError(errorMessage, "glTF model contains no supported mesh primitives");
         return {};
     }
+    reportProgress(progress, 82, "Batching and optimizing meshes");
     detail::batchModelPrimitives(*model);
     AssetRecord record;
     record.id = model->id;
@@ -721,19 +712,24 @@ void optimizePrimitive(MeshPrimitive& primitive)
     return {std::move(model), std::move(record)};
 }
 } // namespace
-AssetImportResult AssetManager::importModel(const std::filesystem::path& sourcePath)
+AssetImportResult AssetManager::importModel(
+    const std::filesystem::path& sourcePath,
+    const AssetImportProgressCallback& progress)
 {
     std::string error;
+    reportProgress(progress, 5, "Reading model source");
     const auto bytes = readBytes(sourcePath, &error);
     if (bytes.empty()) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
     }
-    auto imported = importGltfModel(sourcePath, bytes, &error);
+    reportProgress(progress, 12, "Source file loaded");
+    auto imported = importGltfModel(sourcePath, bytes, progress, &error);
     if (imported.asset == nullptr) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
     }
+    reportProgress(progress, 92, "Writing asset cache");
     if (!writeCacheRecord(imported.record, &error)) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
@@ -750,18 +746,26 @@ AssetImportResult AssetManager::importModel(const std::filesystem::path& sourceP
         }
     }
     storeRecord(imported.record);
+    reportProgress(progress, 100, "Model imported");
     core::logInfo(core::LogCategory::Assets, "Model asset imported and cached");
     return {true, imported.record, {}};
 }
-AssetImportResult AssetManager::importTexture(const std::filesystem::path& sourcePath)
+AssetImportResult AssetManager::importTexture(
+    const std::filesystem::path& sourcePath,
+    const AssetImportProgressCallback& progress)
 {
     std::string error;
+    reportProgress(progress, 5, "Reading texture source");
     const auto bytes = readBytes(sourcePath, &error);
     if (bytes.empty()) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
     }
-    auto textureAsset = std::make_shared<TextureAsset>(detail::importStbTexture(sourcePath, bytes, &error));
+    reportProgress(progress, 30, "Decoding texture");
+    auto textureAsset = std::make_shared<TextureAsset>(
+        detail::isKtxTextureExtension(sourcePath)
+            ? detail::importKtxTexture(sourcePath, bytes, &error)
+            : detail::importStbTexture(sourcePath, bytes, &error));
     if (!textureAsset->id.isValid()) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
@@ -772,6 +776,7 @@ AssetImportResult AssetManager::importTexture(const std::filesystem::path& sourc
     record.displayName = textureAsset->name;
     record.sourceName = sourcePath.filename().string();
     record.cacheFile = std::to_string(record.id.value()) + ".asset.json";
+    reportProgress(progress, 88, "Writing asset cache");
     if (!writeCacheRecord(record, &error)) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
@@ -788,6 +793,7 @@ AssetImportResult AssetManager::importTexture(const std::filesystem::path& sourc
         }
     }
     storeRecord(record);
+    reportProgress(progress, 100, "Texture imported");
     core::logInfo(core::LogCategory::Assets, "Texture asset imported and cached");
     return {true, std::move(record), {}};
 }

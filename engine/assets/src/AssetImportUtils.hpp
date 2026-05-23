@@ -72,6 +72,9 @@ inline void setError(std::string* errorMessage, std::string message)
     auto hash = hashBytes(texture.rgba8, hashBytes(
         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(texture.name.data()), texture.name.size()),
         kFnvOffsetBasis));
+    for (const auto& mip : texture.gpuMipLevels) {
+        hash = hashBytes(mip.bytes, hash);
+    }
     const std::array<std::uint8_t, 8> dimensionBytes {{
         static_cast<std::uint8_t>(texture.width & 0xffU),
         static_cast<std::uint8_t>((texture.width >> 8U) & 0xffU),
@@ -83,6 +86,11 @@ inline void setError(std::string* errorMessage, std::string message)
         static_cast<std::uint8_t>((texture.height >> 24U) & 0xffU),
     }};
     hash = hashBytes(dimensionBytes, hash);
+    const std::array<std::uint8_t, 2> formatBytes {{
+        static_cast<std::uint8_t>(static_cast<std::uint16_t>(texture.gpuFormat) & 0xffU),
+        static_cast<std::uint8_t>((static_cast<std::uint16_t>(texture.gpuFormat) >> 8U) & 0xffU),
+    }};
+    hash = hashBytes(formatBytes, hash);
     return AssetId(hash == 0 ? 1 : hash);
 }
 

@@ -99,7 +99,7 @@ private:
     void restoreLightingSettings();
     void saveLightingSettings();
     void updateLightingPanelControls();
-    void updateAssetImportPanel(const QString& message, bool busy);
+    void updateAssetImportPanel(const QString& message, bool busy, int percent = -1);
     void useSelectedTextureAsEnvironment();
     void clearEnvironmentTexture();
     void resetLightingDefaults();

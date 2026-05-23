@@ -144,7 +144,7 @@ struct Vec3 {
     const auto right = stableRight(forward);
     const auto up = safeNormalized(cross(forward, right), {0.0F, 1.0F, 0.0F});
     const auto halfExtent = std::clamp(std::max(boundsRadius, 1.0F) * 1.35F, 12.0F, 640.0F);
-    constexpr float shadowMapSize = 2048.0F;
+    constexpr float shadowMapSize = 4096.0F;
     const auto texelWorldSize = (halfExtent * 2.0F) / shadowMapSize;
     const auto snapAxis = [texelWorldSize](float value) {
         return std::floor(value / texelWorldSize) * texelWorldSize;

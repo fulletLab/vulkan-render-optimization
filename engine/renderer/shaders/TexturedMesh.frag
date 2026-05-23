@@ -5,7 +5,7 @@ layout(set = 0, binding = 2) uniform sampler2D normalTexture;
 layout(set = 0, binding = 3) uniform sampler2D metallicRoughnessTexture;
 layout(set = 0, binding = 4) uniform sampler2D occlusionTexture;
 layout(set = 0, binding = 5) uniform sampler2D emissiveTexture;
-layout(set = 0, binding = 6) uniform sampler2D shadowMap;
+layout(set = 0, binding = 6) uniform sampler2DShadow shadowMap;
 layout(set = 0, binding = 7) uniform sampler2D brdfLutTexture;
 layout(set = 0, binding = 8) uniform samplerCube irradianceMap;
 layout(set = 0, binding = 9) uniform samplerCube prefilteredEnvironmentMap;
@@ -106,15 +106,15 @@ float shadowVisibility(int lightIndex, vec3 normal, vec3 lightDirection)
     if (any(lessThan(shadowCoord, vec3(0.0))) || any(greaterThan(shadowCoord, vec3(1.0)))) {
         return 1.0;
     }
-    float bias = max(frameData.shadowSettings.z * (1.0 - dot(normal, lightDirection)), 0.00025);
+    float slope = clamp(1.0 - dot(normal, lightDirection), 0.0, 1.0);
+    float bias = max(frameData.shadowSettings.z * (1.0 + slope * 2.0), 0.00035);
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float visibility = 0.0;
     float totalWeight = 0.0;
     for (int y = -2; y <= 2; ++y) {
         for (int x = -2; x <= 2; ++x) {
             float weight = 1.0 / (1.0 + 0.55 * float(abs(x) + abs(y)));
-            float sampledDepth = texture(shadowMap, shadowCoord.xy + vec2(x, y) * texel).r;
-            visibility += (shadowCoord.z - bias <= sampledDepth ? 1.0 : 0.0) * weight;
+            visibility += texture(shadowMap, vec3(shadowCoord.xy + vec2(x, y) * texel, shadowCoord.z - bias)) * weight;
             totalWeight += weight;
         }
     }

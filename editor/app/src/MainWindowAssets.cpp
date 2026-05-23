@@ -4,6 +4,8 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QLabel>
+#include <QMetaObject>
+#include <QPointer>
 #include <QProgressBar>
 #include <QStatusBar>
 #include <QTableWidget>
@@ -29,7 +31,7 @@ void MainWindow::importAsset()
         this,
         QStringLiteral("Import Asset"),
         QString(),
-        QStringLiteral("Models (*.glb *.gltf);;Textures (*.png *.jpg *.jpeg)"));
+        QStringLiteral("Models (*.glb *.gltf);;Textures (*.png *.jpg *.jpeg *.ktx *.ktx2)"));
     if (!path.isEmpty()) {
         importAssetAsync(path);
     }
@@ -40,7 +42,7 @@ void MainWindow::importAssetAsync(const QString& path)
     auto* watcher = new QFutureWatcher<assets::AssetImportResult>(this);
     ++activeAssetImports_;
     const auto displayName = QFileInfo(path).fileName();
-    updateAssetImportPanel(QStringLiteral("Importing %1").arg(displayName), true);
+    updateAssetImportPanel(QStringLiteral("Importing %1").arg(displayName), true, 1);
     connect(watcher, &QFutureWatcher<assets::AssetImportResult>::finished, this, [this, watcher, displayName]() {
         const auto result = watcher->result();
         watcher->deleteLater();
@@ -49,16 +51,34 @@ void MainWindow::importAssetAsync(const QString& path)
         const auto message = result.success
             ? QStringLiteral("Imported %1").arg(displayName)
             : QStringLiteral("Failed %1").arg(displayName);
-        updateAssetImportPanel(message, activeAssetImports_ > 0);
+        updateAssetImportPanel(message, activeAssetImports_ > 0, 100);
     });
-    watcher->setFuture(QtConcurrent::run([this, path]() {
-        return assetManager_.importAsset(pathFromQString(path));
+    QPointer<MainWindow> window(this);
+    watcher->setFuture(QtConcurrent::run([this, path, window, displayName]() {
+        const assets::AssetImportProgressCallback progress = [window, displayName](const assets::AssetImportProgress& update) {
+            if (window == nullptr) {
+                return;
+            }
+            const auto stage = QString::fromStdString(update.stage);
+            QMetaObject::invokeMethod(
+                window,
+                [window, displayName, stage, percent = update.percent]() {
+                    if (window != nullptr) {
+                        window->updateAssetImportPanel(
+                            QStringLiteral("%1: %2").arg(displayName, stage),
+                            true,
+                            percent);
+                    }
+                },
+                Qt::QueuedConnection);
+        };
+        return assetManager_.importAsset(pathFromQString(path), progress);
     }));
     statusBar()->showMessage(QStringLiteral("Importing asset"));
     core::logInfo(core::LogCategory::Assets, "Editor asset import queued");
 }
 
-void MainWindow::updateAssetImportPanel(const QString& message, bool busy)
+void MainWindow::updateAssetImportPanel(const QString& message, bool busy, int percent)
 {
     if (assetImportStatus_ != nullptr) {
         assetImportStatus_->setText(message);
@@ -67,11 +87,13 @@ void MainWindow::updateAssetImportPanel(const QString& message, bool busy)
         return;
     }
     if (busy) {
-        assetImportProgress_->setRange(0, 0);
-        assetImportProgress_->setFormat(QStringLiteral("Importing"));
+        const auto value = std::clamp(percent < 0 ? 1 : percent, 1, 99);
+        assetImportProgress_->setRange(0, 100);
+        assetImportProgress_->setValue(value);
+        assetImportProgress_->setFormat(QStringLiteral("%p%"));
     } else {
-        assetImportProgress_->setRange(0, 1);
-        assetImportProgress_->setValue(1);
+        assetImportProgress_->setRange(0, 100);
+        assetImportProgress_->setValue(percent > 0 ? std::clamp(percent, 0, 100) : 0);
         assetImportProgress_->setFormat(message);
     }
 }

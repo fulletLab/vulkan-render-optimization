@@ -76,6 +76,31 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
     return bytes;
 }
 
+[[nodiscard]] std::vector<std::uint8_t> makeKtx1Astc4x4Texture()
+{
+    std::vector<std::uint8_t> bytes {
+        0xAB, 0x4B, 0x54, 0x58, 0x20, 0x31, 0x31, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A,
+    };
+    appendU32(bytes, 0x04030201U);
+    appendU32(bytes, 0U);
+    appendU32(bytes, 1U);
+    appendU32(bytes, 0U);
+    appendU32(bytes, 0x93B0U);
+    appendU32(bytes, 0x1908U);
+    appendU32(bytes, 4U);
+    appendU32(bytes, 4U);
+    appendU32(bytes, 0U);
+    appendU32(bytes, 0U);
+    appendU32(bytes, 1U);
+    appendU32(bytes, 1U);
+    appendU32(bytes, 0U);
+    appendU32(bytes, 16U);
+    for (std::uint8_t value = 0; value < 16U; ++value) {
+        bytes.push_back(value);
+    }
+    return bytes;
+}
+
 [[nodiscard]] bool writeBinary(const std::filesystem::path& path, const std::vector<std::uint8_t>& bytes)
 {
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
@@ -299,7 +324,11 @@ int main()
     const auto glbPath = root / "triangle.glb";
     const auto spatialGlbPath = root / "spatial.glb";
     const auto pngPath = root / "tiny.png";
-    if (!writeTriangleGlb(glbPath) || !writeSpatialGlb(spatialGlbPath) || !writeTinyPng(pngPath)) {
+    const auto ktxPath = root / "astc.ktx";
+    if (!writeTriangleGlb(glbPath)
+        || !writeSpatialGlb(spatialGlbPath)
+        || !writeTinyPng(pngPath)
+        || !writeBinary(ktxPath, makeKtx1Astc4x4Texture())) {
         return fail("unable to write generated asset fixtures");
     }
 
@@ -407,6 +436,27 @@ int main()
     const auto cachePath = manager.cacheRoot() / modelResult.record.cacheFile;
     if (!std::filesystem::exists(cachePath) || manager.records().size() != 2) {
         return fail("asset cache records were not written");
+    }
+
+    std::vector<int> progressValues;
+    const auto ktxResult = manager.importTexture(ktxPath, [&progressValues](const AssetImportProgress& progress) {
+        progressValues.push_back(progress.percent);
+    });
+    const auto ktxTexture = manager.texture(ktxResult.record.id);
+    if (!ktxResult.success
+        || ktxTexture == nullptr
+        || ktxTexture->gpuFormat != TextureGpuFormat::Astc4x4Unorm
+        || ktxTexture->gpuMipLevels.size() != 1
+        || !ktxTexture->rgba8.empty()
+        || ktxTexture->gpuMipLevels.front().bytes.size() != 16U) {
+        std::cerr << ktxResult.error << '\n';
+        return fail("KTX1 ASTC texture import did not preserve GPU mip data");
+    }
+    if (progressValues.empty()
+        || progressValues.front() < 1
+        || progressValues.back() != 100
+        || !std::is_sorted(progressValues.begin(), progressValues.end())) {
+        return fail("asset import progress did not report monotonic 1-100 updates");
     }
 
     const auto spatialResult = manager.importModel(spatialGlbPath);

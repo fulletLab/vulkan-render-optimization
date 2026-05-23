@@ -27,12 +27,32 @@ AssetManager::AssetManager(std::filesystem::path cacheRoot)
 
 AssetImportResult AssetManager::importAsset(const std::filesystem::path& sourcePath)
 {
+    return importAsset(sourcePath, {});
+}
+
+AssetImportResult AssetManager::importModel(const std::filesystem::path& sourcePath)
+{
+    return importModel(sourcePath, {});
+}
+
+AssetImportResult AssetManager::importTexture(const std::filesystem::path& sourcePath)
+{
+    return importTexture(sourcePath, {});
+}
+
+AssetImportResult AssetManager::importAsset(
+    const std::filesystem::path& sourcePath,
+    const AssetImportProgressCallback& progress)
+{
+    if (progress) {
+        progress({1, "Classifying asset"});
+    }
     const auto extension = lowerExtension(sourcePath);
     if (extension == ".glb" || extension == ".gltf") {
-        return importModel(sourcePath);
+        return importModel(sourcePath, progress);
     }
-    if (extension == ".png" || extension == ".jpg" || extension == ".jpeg") {
-        return importTexture(sourcePath);
+    if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".ktx" || extension == ".ktx2") {
+        return importTexture(sourcePath, progress);
     }
 
     core::logWarning(core::LogCategory::Assets, "Asset import rejected an unsupported file extension");

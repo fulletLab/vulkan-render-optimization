@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -39,6 +40,53 @@ enum class TextureFilterMode : std::uint8_t {
     Linear,
 };
 
+enum class TextureGpuFormat : std::uint16_t {
+    Rgba8Unorm,
+    Rgba8Srgb,
+    Bc1RgbUnorm,
+    Bc1RgbSrgb,
+    Bc1RgbaUnorm,
+    Bc1RgbaSrgb,
+    Bc2Unorm,
+    Bc2Srgb,
+    Bc3Unorm,
+    Bc3Srgb,
+    Bc5Unorm,
+    Bc5Snorm,
+    Bc7Unorm,
+    Bc7Srgb,
+    Etc2Rgba8Unorm,
+    Etc2Rgba8Srgb,
+    Astc4x4Unorm,
+    Astc4x4Srgb,
+    Astc5x4Unorm,
+    Astc5x4Srgb,
+    Astc5x5Unorm,
+    Astc5x5Srgb,
+    Astc6x5Unorm,
+    Astc6x5Srgb,
+    Astc6x6Unorm,
+    Astc6x6Srgb,
+    Astc8x5Unorm,
+    Astc8x5Srgb,
+    Astc8x6Unorm,
+    Astc8x6Srgb,
+    Astc8x8Unorm,
+    Astc8x8Srgb,
+    Astc10x5Unorm,
+    Astc10x5Srgb,
+    Astc10x6Unorm,
+    Astc10x6Srgb,
+    Astc10x8Unorm,
+    Astc10x8Srgb,
+    Astc10x10Unorm,
+    Astc10x10Srgb,
+    Astc12x10Unorm,
+    Astc12x10Srgb,
+    Astc12x12Unorm,
+    Astc12x12Srgb,
+};
+
 enum class ImportedLightType : std::uint8_t {
     Directional,
     Point,
@@ -59,6 +107,14 @@ struct TextureSamplerAsset {
     bool useMipmaps {true};
 
     [[nodiscard]] bool operator==(const TextureSamplerAsset&) const noexcept = default;
+};
+
+struct TextureMipLevel {
+    std::uint32_t width {0};
+    std::uint32_t height {0};
+    std::vector<std::uint8_t> bytes;
+
+    [[nodiscard]] bool operator==(const TextureMipLevel&) const noexcept = default;
 };
 
 struct MeshVertex {
@@ -107,8 +163,10 @@ struct TextureAsset {
     std::string name;
     std::uint32_t width {0};
     std::uint32_t height {0};
+    TextureGpuFormat gpuFormat {TextureGpuFormat::Rgba8Unorm};
     TextureSamplerAsset sampler;
     std::vector<std::uint8_t> rgba8;
+    std::vector<TextureMipLevel> gpuMipLevels;
 };
 
 struct MaterialAsset {
@@ -184,6 +242,13 @@ struct AssetImportResult {
     std::string error;
 };
 
+struct AssetImportProgress {
+    int percent {1};
+    std::string stage;
+};
+
+using AssetImportProgressCallback = std::function<void(const AssetImportProgress&)>;
+
 class IAssetManager {
 public:
     virtual ~IAssetManager() = default;
@@ -200,6 +265,15 @@ public:
     [[nodiscard]] AssetImportResult importAsset(const std::filesystem::path& sourcePath);
     [[nodiscard]] AssetImportResult importModel(const std::filesystem::path& sourcePath);
     [[nodiscard]] AssetImportResult importTexture(const std::filesystem::path& sourcePath);
+    [[nodiscard]] AssetImportResult importAsset(
+        const std::filesystem::path& sourcePath,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] AssetImportResult importModel(
+        const std::filesystem::path& sourcePath,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] AssetImportResult importTexture(
+        const std::filesystem::path& sourcePath,
+        const AssetImportProgressCallback& progress);
 
     [[nodiscard]] std::shared_ptr<const ModelAsset> model(AssetId id) const override;
     [[nodiscard]] std::shared_ptr<const TextureAsset> texture(AssetId id) const override;

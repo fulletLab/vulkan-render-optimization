@@ -13,7 +13,7 @@ public:
         VulkanResourceContext context,
         VkDescriptorSetLayout materialLayout,
         VkFormat depthFormat,
-        std::uint32_t mapSize = 2048);
+        std::uint32_t mapSize = 4096);
     ~VulkanShadowPipeline();
 
     VulkanShadowPipeline(const VulkanShadowPipeline&) = delete;

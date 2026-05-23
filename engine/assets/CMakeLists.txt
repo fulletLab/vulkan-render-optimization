@@ -20,10 +20,16 @@ add_library(projectunity_assets STATIC
     src/AssetManager.cpp
     src/GltfAttributeReader.cpp
     src/GltfAttributeReader.hpp
+    src/GltfImageLoader.cpp
+    src/GltfImageLoader.hpp
     src/GltfNodeTransforms.cpp
     src/GltfNodeTransforms.hpp
     src/GltfSceneObjects.cpp
     src/GltfSceneObjects.hpp
+    src/GltfTextureImport.cpp
+    src/GltfTextureImport.hpp
+    src/KtxTextureImport.cpp
+    src/KtxTextureImport.hpp
     src/MeshBounds.cpp
     src/MeshBounds.hpp
     src/MeshPrimitiveBatcher.cpp

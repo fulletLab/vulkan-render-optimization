@@ -1,11 +1,14 @@
 #include "VulkanTextureCache.hpp"
 
+#include "VulkanTextureFormat.hpp"
+
 #include <projectunity/renderer/RenderBrdfLut.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace projectunity::renderer {
 namespace {
@@ -28,13 +31,25 @@ struct TextureStagingBuffer {
     }
 };
 
-[[nodiscard]] bool textureUsable(const assets::TextureAsset* texture)
+[[nodiscard]] bool textureHasRgba8(const assets::TextureAsset* texture)
 {
     return texture != nullptr
         && texture->id.isValid()
         && texture->width > 0
         && texture->height > 0
         && texture->rgba8.size() >= static_cast<std::size_t>(texture->width) * texture->height * 4U;
+}
+
+[[nodiscard]] bool textureHasGpuMips(const assets::TextureAsset* texture)
+{
+    return texture != nullptr
+        && texture->id.isValid()
+        && texture->width > 0
+        && texture->height > 0
+        && !texture->gpuMipLevels.empty()
+        && std::all_of(texture->gpuMipLevels.begin(), texture->gpuMipLevels.end(), [](const assets::TextureMipLevel& mip) {
+            return mip.width > 0 && mip.height > 0 && !mip.bytes.empty();
+        });
 }
 
 [[nodiscard]] VkImageMemoryBarrier imageBarrier(
@@ -128,6 +143,7 @@ std::size_t VulkanTextureCache::TextureKeyHash::operator()(const TextureKey& key
         hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
     };
     mix(static_cast<std::size_t>(key.colorSpace));
+    mix(static_cast<std::size_t>(key.gpuFormat));
     mix(static_cast<std::size_t>(key.sampler.magnificationFilter));
     mix(static_cast<std::size_t>(key.sampler.minificationFilter));
     mix(static_cast<std::size_t>(key.sampler.mipmapFilter));
@@ -143,10 +159,17 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     const assets::TextureAsset* texture,
     std::string* errorMessage)
 {
-    if (!textureUsable(texture)) {
+    if (textureHasGpuMips(texture)) {
+        const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
+        if (const auto existing = textures_.find(key); existing != textures_.end()) {
+            return &existing->second.handle;
+        }
+        return uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+    }
+    if (!textureHasRgba8(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->sampler};
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -167,10 +190,17 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
     const assets::TextureAsset* texture,
     std::string* errorMessage)
 {
-    if (!textureUsable(texture)) {
+    if (textureHasGpuMips(texture)) {
+        const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
+        if (const auto existing = textures_.find(key); existing != textures_.end()) {
+            return &existing->second.handle;
+        }
+        return uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+    }
+    if (!textureHasRgba8(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb, texture->sampler};
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb, texture->gpuFormat, texture->sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -191,7 +221,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureNormalUploaded(
     const assets::TextureAsset* texture,
     std::string* errorMessage)
 {
-    if (!textureUsable(texture)) {
+    if (!textureHasGpuMips(texture) && !textureHasRgba8(texture)) {
         return ensureFlatNormalTexture(context, uploads, errorMessage);
     }
     return ensureUploaded(context, uploads, texture, errorMessage);
@@ -206,7 +236,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureBrdfLutUploaded(
     sampler.wrapU = assets::TextureWrapMode::ClampToEdge;
     sampler.wrapV = assets::TextureWrapMode::ClampToEdge;
     sampler.useMipmaps = false;
-    const TextureKey key {kBrdfLutTextureKey, VulkanTextureColorSpace::Linear, sampler};
+    const TextureKey key {kBrdfLutTextureKey, VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -243,7 +273,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    const TextureKey key {kWhiteTextureKey, VulkanTextureColorSpace::Linear, {}};
+    const TextureKey key {kWhiteTextureKey, VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, {}};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -256,7 +286,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    const TextureKey key {kFlatNormalTextureKey, VulkanTextureColorSpace::Linear, {}};
+    const TextureKey key {kFlatNormalTextureKey, VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, {}};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -516,6 +546,165 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     if (vkCreateSampler(context.device, &samplerInfo, nullptr, &next.handle.sampler) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to create Vulkan texture sampler";
+        }
+        destroy(next);
+        return nullptr;
+    }
+
+    const auto [it, inserted] = textures_.try_emplace(key, std::move(next));
+    if (inserted) {
+        ++uploadCount_;
+        uploadedBytes_ += static_cast<std::uint64_t>(byteCount);
+    }
+    return inserted ? &it->second.handle : nullptr;
+}
+
+const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
+    VulkanResourceContext context,
+    VulkanUploadContext& uploads,
+    TextureKey key,
+    const assets::TextureAsset& texture,
+    std::string* errorMessage)
+{
+    const auto format = toVkTextureFormat(texture.gpuFormat);
+    if (!format.has_value() || !textureFormatCanBeSampled(context.physicalDevice, *format)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Vulkan device does not support this KTX/KTX2 texture format for sampled images";
+        }
+        return nullptr;
+    }
+    std::size_t byteCount = 0;
+    for (const auto& mip : texture.gpuMipLevels) {
+        byteCount += mip.bytes.size();
+    }
+    if (byteCount == 0U) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "KTX/KTX2 texture has no uploadable mip data";
+        }
+        return nullptr;
+    }
+
+    TextureStagingBuffer staging;
+    staging.context = context;
+    VkBufferCreateInfo stagingBufferInfo {};
+    stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stagingBufferInfo.size = static_cast<VkDeviceSize>(byteCount);
+    stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo stagingAlloc {};
+    stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+    stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    if (vmaCreateBuffer(context.allocator, &stagingBufferInfo, &stagingAlloc, &staging.buffer, &staging.allocation, &staging.info)
+            != VK_SUCCESS
+        || staging.info.pMappedData == nullptr) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Failed to create Vulkan KTX texture staging buffer";
+        }
+        return nullptr;
+    }
+    auto* mapped = static_cast<std::uint8_t*>(staging.info.pMappedData);
+    std::vector<VkBufferImageCopy> copies;
+    copies.reserve(texture.gpuMipLevels.size());
+    VkDeviceSize offset = 0;
+    for (std::uint32_t level = 0; level < texture.gpuMipLevels.size(); ++level) {
+        const auto& mip = texture.gpuMipLevels[level];
+        std::memcpy(mapped + offset, mip.bytes.data(), mip.bytes.size());
+        VkBufferImageCopy copy {};
+        copy.bufferOffset = offset;
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.mipLevel = level;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageExtent = {mip.width, mip.height, 1};
+        copies.push_back(copy);
+        offset += static_cast<VkDeviceSize>(mip.bytes.size());
+    }
+    vmaFlushAllocation(context.allocator, staging.allocation, 0, byteCount);
+
+    TextureResource next;
+    next.context = context;
+    next.handle.key = nextHandleKey_++;
+    const auto mipLevels = static_cast<std::uint32_t>(texture.gpuMipLevels.size());
+    VkImageCreateInfo imageInfo {};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = *format;
+    imageInfo.extent = {texture.width, texture.height, 1};
+    imageInfo.mipLevels = mipLevels;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo imageAlloc {};
+    imageAlloc.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    if (vmaCreateImage(context.allocator, &imageInfo, &imageAlloc, &next.handle.image, &next.allocation, nullptr) != VK_SUCCESS) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Failed to create Vulkan KTX/KTX2 texture image";
+        }
+        return nullptr;
+    }
+
+    if (!uploads.submit([&](VkCommandBuffer commandBuffer) {
+            auto toTransfer = imageBarrier(
+                next.handle.image,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                0,
+                VK_ACCESS_TRANSFER_WRITE_BIT,
+                0,
+                mipLevels);
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toTransfer);
+            vkCmdCopyBufferToImage(
+                commandBuffer,
+                staging.buffer,
+                next.handle.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                static_cast<std::uint32_t>(copies.size()),
+                copies.data());
+            auto toShader = imageBarrier(
+                next.handle.image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_ACCESS_SHADER_READ_BIT,
+                0,
+                mipLevels);
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toShader);
+        },
+        errorMessage)) {
+        destroy(next);
+        return nullptr;
+    }
+
+    VkImageViewCreateInfo viewInfo {};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = next.handle.image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = *format;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = mipLevels;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(context.device, &viewInfo, nullptr, &next.handle.view) != VK_SUCCESS) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Failed to create Vulkan KTX/KTX2 texture image view";
+        }
+        destroy(next);
+        return nullptr;
+    }
+
+    VkSamplerCreateInfo samplerInfo {};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = textureFilter(key.sampler.magnificationFilter);
+    samplerInfo.minFilter = textureFilter(key.sampler.minificationFilter);
+    samplerInfo.mipmapMode = textureMipmapMode(key.sampler.mipmapFilter);
+    samplerInfo.addressModeU = textureAddressMode(key.sampler.wrapU);
+    samplerInfo.addressModeV = textureAddressMode(key.sampler.wrapV);
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.maxLod = static_cast<float>(mipLevels);
+    if (vkCreateSampler(context.device, &samplerInfo, nullptr, &next.handle.sampler) != VK_SUCCESS) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Failed to create Vulkan KTX/KTX2 texture sampler";
         }
         destroy(next);
         return nullptr;

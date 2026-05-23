@@ -172,6 +172,8 @@ void VulkanShadowPipeline::createShadowTarget()
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    samplerInfo.compareEnable = VK_TRUE;
+    samplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     samplerInfo.maxLod = 1.0F;
     if (vkCreateSampler(context_.device, &samplerInfo, nullptr, &sampler_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan shadow map sampler");

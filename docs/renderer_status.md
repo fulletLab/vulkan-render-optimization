@@ -1,6 +1,6 @@
 # Renderer Status
 
-Date: 2026-05-22
+Date: 2026-05-23
 
 ## Current State
 
@@ -28,13 +28,19 @@ Base-color and emissive texture uploads use sRGB cache entries while normal,
 metallic-roughness, and occlusion uploads keep linear cache entries.
 The Vulkan texture cache also keeps imported glTF wrap/filter sampler state in the
 cache key and maps it onto the `VkSampler` used by each descriptor.
+The asset pipeline now recognizes standalone and glTF-referenced `.ktx`/`.ktx2`
+textures, preserves KTX1/KTX2 GPU mip payloads for RGBA8, BC, ETC2 RGBA8, and ASTC
+2D textures without destructive decode/resampling, and the Vulkan texture cache uploads
+those explicit mip levels through VMA staging when the selected device reports sampled
+image support for the stored format. KTX2 BasisLZ/Zstd supercompression is rejected with
+a clear error instead of being treated as decoded pixels.
 The textured mesh shader now reads a frame uniform buffer with view projection,
 camera position, imported punctual lights, and the selected shadow transform instead
 of using a fixed shader-local light direction.
 Direct lighting uses a Cook-Torrance-style metallic/roughness path, ambient lighting
 uses RenderFrame-controlled renderer-generated irradiance/prefiltered environment
 cubemaps plus a generated split-sum BRDF integration LUT, and the viewport records a
-VMA-backed 2048-square 2D shadow map before the main pass.
+VMA-backed 4096-square 2D shadow map before the main pass.
 The editor Lighting / Bake panel now owns sky color, ground color, and IBL intensity
 controls that feed `RenderFrame::environment`; Vulkan regenerates the generated IBL
 cube resources only when that environment key changes, and the editor persists those
@@ -48,7 +54,7 @@ The shadow pass now has a small fragment shader that samples base-color alpha an
 respects imported `MASK` cutoff values for opaque/masked casters. Shadow-map selection
 lives in `engine/renderer`, prefers a visible-bounds directional map, falls back to a
 perspective 2D spot-light map when no directional light exists, and filters shadow
-lookups with weighted PCF in the mesh shader. Opaque shadow casters share a default
+lookups with a Vulkan comparison sampler plus weighted PCF in the mesh shader. Opaque shadow casters share a default
 descriptor instead of preparing full material texture descriptors per caster; `MASK`
 casters still bind base-color alpha for correct cutoff silhouettes.
 Imported glTF light nodes are instantiated from model data, and Game View can render
@@ -87,16 +93,18 @@ color path when a real viewport surface is available.
 
 ## Vulkan Work Remaining
 
-- Add imported/user-selectable HDR or KTX2 environment assets on top of the current
-  RenderFrame-controlled generated cubemaps and RGBA8 texture environment source.
+- Add imported/user-selectable HDR environment assets and KTX/KTX2 environment sampling
+  on top of the current RenderFrame-controlled generated cubemaps and RGBA8 texture
+  environment source.
 - Add editor/scene-owned lights and camera components beyond imported glTF model data.
 - Expand shadows beyond the current directional/spot 2D map with point-light cubemaps,
   cascaded directional shadows, higher quality filtering controls, and transparent
   caster policy.
-- Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
-- Treat glTF scenes with external `.ktx` textures, such as the local Vulkan Samples
-  `vokselia` pack, as partial geometry/structure tests until KTX/KTX2 upload support
-  is implemented. They are not valid full-texture performance baselines yet.
+- Add anisotropic filtering and KTX2 BasisLZ/Zstd transcoding when a compatible
+  non-GPL decoder/transcoder is selected.
+- Verify glTF scenes with external `.ktx` textures, such as the local Vulkan Samples
+  `vokselia` pack, on hardware that supports the stored compressed formats; unsupported
+  formats now fail loudly instead of being silently replaced.
 - Expand renderer-owned labels/text overlays beyond the current Scene View entity labels.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
   renderer-owned passes.

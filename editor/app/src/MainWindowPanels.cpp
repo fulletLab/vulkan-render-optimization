@@ -419,7 +419,7 @@ QWidget* MainWindow::createAssetImportPanel()
     layout->addWidget(assetImportStatus_);
 
     assetImportProgress_ = new QProgressBar;
-    assetImportProgress_->setRange(0, 1);
+    assetImportProgress_->setRange(0, 100);
     assetImportProgress_->setValue(0);
     assetImportProgress_->setFormat(QStringLiteral("Idle"));
     layout->addWidget(assetImportProgress_);

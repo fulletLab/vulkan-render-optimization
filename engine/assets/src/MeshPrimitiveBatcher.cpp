@@ -57,8 +57,10 @@ struct BatchTarget {
 {
     return lhs.width == rhs.width
         && lhs.height == rhs.height
+        && lhs.gpuFormat == rhs.gpuFormat
         && lhs.sampler == rhs.sampler
-        && lhs.rgba8 == rhs.rgba8;
+        && lhs.rgba8 == rhs.rgba8
+        && lhs.gpuMipLevels == rhs.gpuMipLevels;
 }
 void remapTexture(std::optional<std::size_t>& index, const std::vector<std::size_t>& remap)
 {
