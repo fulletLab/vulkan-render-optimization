@@ -567,6 +567,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
             material.roughnessFactor = static_cast<float>(sourceMaterial.pbrMetallicRoughness.roughnessFactor);
             material.alphaMode = materialAlphaMode(sourceMaterial.alphaMode);
             material.alphaCutoff = std::clamp(static_cast<float>(sourceMaterial.alphaCutoff), 0.0F, 1.0F);
+            material.doubleSided = sourceMaterial.doubleSided;
             const auto& factor = sourceMaterial.pbrMetallicRoughness.baseColorFactor;
             if (factor.size() == 4U) {
                 material.baseColor = {

@@ -124,6 +124,7 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
             "emissiveTexture":{"index":0},
             "alphaMode":"MASK",
             "alphaCutoff":0.33,
+            "doubleSided":true,
             "emissiveFactor":[0.05,0.1,0.15]
         }],
         "cameras":[{
@@ -351,6 +352,7 @@ int main()
         || material.alphaMode != MaterialAlphaMode::Mask
         || material.alphaCutoff < 0.32F
         || material.alphaCutoff > 0.34F
+        || !material.doubleSided
         || !material.baseColorTexture.has_value()
         || !material.normalTexture.has_value()
         || !material.metallicRoughnessTexture.has_value()

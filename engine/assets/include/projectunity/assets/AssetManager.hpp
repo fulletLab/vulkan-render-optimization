@@ -108,6 +108,7 @@ struct MaterialAsset {
     float occlusionStrength {1.0F};
     MaterialAlphaMode alphaMode {MaterialAlphaMode::Opaque};
     float alphaCutoff {0.5F};
+    bool doubleSided {false};
     std::optional<std::size_t> baseColorTexture;
     std::optional<std::size_t> normalTexture;
     std::optional<std::size_t> metallicRoughnessTexture;

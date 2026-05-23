@@ -54,9 +54,19 @@ VkPipeline VulkanMeshPipeline::pipeline() const noexcept
     return pipeline_;
 }
 
+VkPipeline VulkanMeshPipeline::doubleSidedPipeline() const noexcept
+{
+    return doubleSidedPipeline_;
+}
+
 VkPipeline VulkanMeshPipeline::transparentPipeline() const noexcept
 {
     return transparentPipeline_;
+}
+
+VkPipeline VulkanMeshPipeline::transparentDoubleSidedPipeline() const noexcept
+{
+    return transparentDoubleSidedPipeline_;
 }
 
 VkPipelineLayout VulkanMeshPipeline::layout() const noexcept
@@ -206,7 +216,7 @@ void VulkanMeshPipeline::createPipeline()
         raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         raster.polygonMode = VK_POLYGON_MODE_FILL;
         raster.lineWidth = 1.0F;
-        raster.cullMode = VK_CULL_MODE_NONE;
+        raster.cullMode = VK_CULL_MODE_BACK_BIT;
         raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         VkPipelineMultisampleStateCreateInfo multisample {};
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -267,9 +277,19 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan mesh graphics pipeline");
         }
+        raster.cullMode = VK_CULL_MODE_NONE;
+        depth.depthWriteEnable = VK_TRUE;
+        if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &doubleSidedPipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan double-sided mesh graphics pipeline");
+        }
+        raster.cullMode = VK_CULL_MODE_BACK_BIT;
         depth.depthWriteEnable = VK_FALSE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent mesh graphics pipeline");
+        }
+        raster.cullMode = VK_CULL_MODE_NONE;
+        if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentDoubleSidedPipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan transparent double-sided mesh graphics pipeline");
         }
     } catch (...) {
         vkDestroyShaderModule(context_.device, fragmentModule, nullptr);
@@ -282,9 +302,17 @@ void VulkanMeshPipeline::createPipeline()
 
 void VulkanMeshPipeline::destroy() noexcept
 {
+    if (transparentDoubleSidedPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, transparentDoubleSidedPipeline_, nullptr);
+        transparentDoubleSidedPipeline_ = VK_NULL_HANDLE;
+    }
     if (transparentPipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, transparentPipeline_, nullptr);
         transparentPipeline_ = VK_NULL_HANDLE;
+    }
+    if (doubleSidedPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, doubleSidedPipeline_, nullptr);
+        doubleSidedPipeline_ = VK_NULL_HANDLE;
     }
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, pipeline_, nullptr);

@@ -708,7 +708,10 @@ bool VulkanViewportTarget::recordFrameCommand(
         VulkanScopedLabel meshLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Mesh Pass", {0.12F, 0.75F, 0.38F, 1.0F});
         for (const auto* drawPointer : orderedMeshDraws_) {
             const auto& draw = *drawPointer;
-            const auto drawPipeline = isTransparentMeshDraw(draw) ? meshPipeline_->transparentPipeline() : meshPipeline_->pipeline();
+            const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
+            const auto drawPipeline = isTransparentMeshDraw(draw)
+                ? (doubleSided ? meshPipeline_->transparentDoubleSidedPipeline() : meshPipeline_->transparentPipeline())
+                : (doubleSided ? meshPipeline_->doubleSidedPipeline() : meshPipeline_->pipeline());
             if (drawPipeline != activeMeshPipeline) {
                 vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
                 activeMeshPipeline = drawPipeline;

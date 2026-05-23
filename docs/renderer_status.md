@@ -142,6 +142,9 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - glTF alpha mode and cutoff now survive import. The Vulkan mesh shader writes
   opaque alpha for `OPAQUE`, discards `MASK` fragments at the imported cutoff, and
   forwards `BLEND` alpha to the transparent mesh path.
+- glTF `doubleSided` now survives import. The mesh renderer binds single-sided
+  pipelines with back-face culling by default and switches to no-cull variants only
+  for materials that explicitly request two-sided rendering.
 - Vulkan draw ordering now keeps opaque and masked primitive draws in submission
   order, defers glTF `BLEND` primitives, sorts them back-to-front from camera depth,
   and uses a transparent mesh pipeline that keeps depth tests while disabling depth

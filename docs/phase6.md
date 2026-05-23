@@ -277,6 +277,10 @@ Date: 2026-05-22
 - glTF alpha state was not preserved after import. `MaterialAsset` now keeps alpha
   mode/cutoff, and the Vulkan mesh shader treats opaque, masked, and blended
   material output distinctly.
+- glTF `doubleSided` state is now preserved in `MaterialAsset`. Vulkan uses
+  back-face culling for single-sided opaque/transparent materials and separate
+  no-cull pipelines for imported double-sided materials, avoiding both unnecessary
+  overdraw and incorrect removal of intentional two-sided surfaces.
 - The first alpha pass forwarded glTF `BLEND` values but kept the draw list in
   raw submission order with depth writes enabled. Renderer draw ordering now
   keeps opaque/masked primitives first, sorts blended primitive draws
