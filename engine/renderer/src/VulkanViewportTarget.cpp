@@ -1,5 +1,6 @@
 #include "VulkanViewportTarget.hpp"
 #include "VulkanDebugLabels.hpp"
+#include "VulkanMaterialTextureSet.hpp"
 #include "VulkanSupport.hpp"
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
 #include <algorithm>
@@ -7,18 +8,6 @@
 #include <cstddef>
 #include <stdexcept>
 namespace projectunity::renderer {
-std::size_t VulkanMaterialTextureKeyHash::operator()(const VulkanMaterialTextureKey& key) const noexcept
-{
-    auto hash = static_cast<std::size_t>(key.baseColor);
-    const auto mix = [&hash](std::uint64_t value) {
-        hash ^= static_cast<std::size_t>(value) + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
-    };
-    mix(key.normal);
-    mix(key.metallicRoughness);
-    mix(key.occlusion);
-    mix(key.emissive);
-    return hash;
-}
 namespace {
 [[nodiscard]] std::span<const std::byte> instanceBytes(const std::vector<VulkanGpuInstance>& instances)
 {
@@ -373,7 +362,7 @@ void VulkanViewportTarget::createDescriptors()
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1024;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = 6144;
+    poolSizes[1].descriptorCount = 10240;
     VkDescriptorPoolCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     info.maxSets = 1024;
@@ -419,62 +408,6 @@ void VulkanViewportTarget::createSync()
     if (vkCreateFence(context_.device, &fenceInfo, nullptr, &inFlight_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport fence");
     }
-}
-VkDescriptorSet VulkanViewportTarget::textureDescriptor(
-    const VulkanTextureHandle& baseColor,
-    const VulkanTextureHandle& normal,
-    const VulkanTextureHandle& metallicRoughness,
-    const VulkanTextureHandle& occlusion,
-    const VulkanTextureHandle& emissive,
-    std::string* errorMessage)
-{
-    const VulkanMaterialTextureKey key {baseColor.key, normal.key, metallicRoughness.key, occlusion.key, emissive.key};
-    if (const auto existing = textureDescriptors_.find(key); existing != textureDescriptors_.end()) {
-        return existing->second;
-    }
-    VkDescriptorSetAllocateInfo allocInfo {};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = descriptorPool_;
-    allocInfo.descriptorSetCount = 1;
-    const auto layout = meshPipeline_->textureLayout();
-    allocInfo.pSetLayouts = &layout;
-    VkDescriptorSet descriptor = VK_NULL_HANDLE;
-    if (vkAllocateDescriptorSets(context_.device, &allocInfo, &descriptor) != VK_SUCCESS) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "Failed to allocate Vulkan texture descriptor set";
-        }
-        return VK_NULL_HANDLE;
-    }
-    VkDescriptorBufferInfo frameInfo {};
-    frameInfo.buffer = frameData_.buffer();
-    frameInfo.range = sizeof(VulkanFrameUniforms);
-    const std::array<VkDescriptorImageInfo, 6> imageInfos {{
-        {baseColor.sampler, baseColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {normal.sampler, normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {metallicRoughness.sampler, metallicRoughness.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {occlusion.sampler, occlusion.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {emissive.sampler, emissive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {shadowPipeline_->sampler(), shadowPipeline_->imageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-    }};
-    std::array<VkWriteDescriptorSet, imageInfos.size() + 1U> writes {};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = descriptor;
-    writes[0].dstBinding = 0;
-    writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[0].pBufferInfo = &frameInfo;
-    for (std::uint32_t index = 0; index < imageInfos.size(); ++index) {
-        auto& write = writes[index + 1U];
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = descriptor;
-        write.dstBinding = index + 1U;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.pImageInfo = &imageInfos[index];
-    }
-    vkUpdateDescriptorSets(context_.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    textureDescriptors_.emplace(key, descriptor);
-    return descriptor;
 }
 bool VulkanViewportTarget::buildMeshBatches(
     std::span<const RenderMeshDraw> draws,
@@ -554,25 +487,27 @@ bool VulkanViewportTarget::recordShadowPass(
         }
         const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
         const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
-        const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
-        const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
-        const auto* metallicRoughness = textureCache.ensureUploaded(
+        const auto textures = uploadMaterialTextureSet(
             context_.resources(),
             uploads,
-            draw.metallicRoughnessTexture,
+            textureCache,
+            draw,
+            frame.environment,
             errorMessage);
-        const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
-        const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
-        if (mesh == nullptr
-            || baseColor == nullptr
-            || normal == nullptr
-            || metallicRoughness == nullptr
-            || occlusion == nullptr
-            || emissive == nullptr) {
+        if (mesh == nullptr || !textures.complete()) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;
         }
-        const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage);
+        const auto descriptor = textureDescriptor(
+            *textures.baseColor,
+            *textures.normal,
+            *textures.metallicRoughness,
+            *textures.occlusion,
+            *textures.emissive,
+            *textures.brdfLut,
+            *textures.irradianceCube,
+            *textures.prefilteredEnvironment,
+            errorMessage);
         if (descriptor == VK_NULL_HANDLE) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;
@@ -649,21 +584,24 @@ bool VulkanViewportTarget::recordFrameCommand(
         if (meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage) == nullptr) {
             return false;
         }
-        const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
-        const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
-        const auto* metallicRoughness = textureCache.ensureUploaded(
+        const auto textures = uploadMaterialTextureSet(
             context_.resources(),
             uploads,
-            draw.metallicRoughnessTexture,
+            textureCache,
+            draw,
+            frame.environment,
             errorMessage);
-        const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
-        const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
-        if (baseColor == nullptr
-            || normal == nullptr
-            || metallicRoughness == nullptr
-            || occlusion == nullptr
-            || emissive == nullptr
-            || textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage) == VK_NULL_HANDLE) {
+        if (!textures.complete()
+            || textureDescriptor(
+                *textures.baseColor,
+                *textures.normal,
+                *textures.metallicRoughness,
+                *textures.occlusion,
+                *textures.emissive,
+                *textures.brdfLut,
+                *textures.irradianceCube,
+                *textures.prefilteredEnvironment,
+                errorMessage) == VK_NULL_HANDLE) {
             return false;
         }
     }
@@ -736,16 +674,27 @@ bool VulkanViewportTarget::recordFrameCommand(
             }
             const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
             const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
-            const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
-            const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
-            const auto* metallicRoughness = textureCache.ensureUploaded(context_.resources(), uploads, draw.metallicRoughnessTexture, errorMessage);
-            const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
-            const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
-            if (mesh == nullptr || baseColor == nullptr || normal == nullptr || metallicRoughness == nullptr || occlusion == nullptr || emissive == nullptr) {
+            const auto textures = uploadMaterialTextureSet(
+                context_.resources(),
+                uploads,
+                textureCache,
+                draw,
+                frame.environment,
+                errorMessage);
+            if (mesh == nullptr || !textures.complete()) {
                 vkCmdEndRenderPass(commandBuffer_);
                 return false;
             }
-            const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage);
+            const auto descriptor = textureDescriptor(
+                *textures.baseColor,
+                *textures.normal,
+                *textures.metallicRoughness,
+                *textures.occlusion,
+                *textures.emissive,
+                *textures.brdfLut,
+                *textures.irradianceCube,
+                *textures.prefilteredEnvironment,
+                errorMessage);
             if (descriptor == VK_NULL_HANDLE) {
                 vkCmdEndRenderPass(commandBuffer_);
                 return false;

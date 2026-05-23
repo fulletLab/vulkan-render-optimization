@@ -58,6 +58,7 @@ public:
 
     void setAssetManager(const assets::IAssetManager* assetManager);
     void setRenderer(renderer::IRenderer* renderer);
+    void setEnvironmentSettings(renderer::RenderEnvironmentSettings settings);
     void setScene(scene::Scene* scene);
     void setSelectedEntity(scene::EntityId id);
     void setSelectionCallback(std::function<void(scene::EntityId)> callback);
@@ -141,6 +142,7 @@ private:
     ViewportMode mode_;
     const assets::IAssetManager* assetManager_ {nullptr};
     renderer::IRenderer* renderer_ {nullptr};
+    renderer::RenderEnvironmentSettings environmentSettings_;
     scene::Scene* scene_ {nullptr};
     scene::EntityId selectedEntityId_;
     std::function<void(scene::EntityId)> selectionCallback_;

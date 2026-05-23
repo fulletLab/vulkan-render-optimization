@@ -41,6 +41,9 @@ struct VulkanMaterialTextureKey {
     std::uint64_t metallicRoughness {0};
     std::uint64_t occlusion {0};
     std::uint64_t emissive {0};
+    std::uint64_t brdfLut {0};
+    std::uint64_t irradianceCube {0};
+    std::uint64_t prefilteredEnvironment {0};
 
     [[nodiscard]] bool operator==(const VulkanMaterialTextureKey&) const noexcept = default;
 };
@@ -87,6 +90,9 @@ private:
         const VulkanTextureHandle& metallicRoughness,
         const VulkanTextureHandle& occlusion,
         const VulkanTextureHandle& emissive,
+        const VulkanTextureHandle& brdfLut,
+        const VulkanTextureHandle& irradianceCube,
+        const VulkanTextureHandle& prefilteredEnvironment,
         std::string* errorMessage);
     [[nodiscard]] bool recordFrameCommand(
         std::uint32_t imageIndex,

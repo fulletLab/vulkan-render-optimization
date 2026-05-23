@@ -66,6 +66,12 @@ struct RenderClearColor {
     float alpha {1.0F};
 };
 
+struct RenderEnvironmentSettings {
+    std::array<float, 3> skyColor {0.30F, 0.38F, 0.55F};
+    std::array<float, 3> groundColor {0.08F, 0.07F, 0.055F};
+    float intensity {1.0F};
+};
+
 struct RenderMatrix4 {
     std::array<float, 16> values {
         1.0F, 0.0F, 0.0F, 0.0F,
@@ -128,6 +134,7 @@ struct RenderFrame {
     float visibleBoundsRadius {0.0F};
     std::array<float, 3> ambientSkyColor {0.22F, 0.28F, 0.40F};
     std::array<float, 3> ambientGroundColor {0.07F, 0.06F, 0.05F};
+    RenderEnvironmentSettings environment;
     std::span<const RenderLight> lights;
     bool shadowsEnabled {false};
     std::uint32_t shadowLightIndex {0};

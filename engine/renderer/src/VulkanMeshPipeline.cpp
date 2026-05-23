@@ -102,7 +102,7 @@ VkFormat VulkanMeshPipeline::chooseDepthFormat() const
 
 void VulkanMeshPipeline::createTextureLayout()
 {
-    std::array<VkDescriptorSetLayoutBinding, 7> bindings {};
+    std::array<VkDescriptorSetLayoutBinding, 10> bindings {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;

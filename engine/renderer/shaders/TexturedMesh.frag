@@ -6,6 +6,9 @@ layout(set = 0, binding = 3) uniform sampler2D metallicRoughnessTexture;
 layout(set = 0, binding = 4) uniform sampler2D occlusionTexture;
 layout(set = 0, binding = 5) uniform sampler2D emissiveTexture;
 layout(set = 0, binding = 6) uniform sampler2D shadowMap;
+layout(set = 0, binding = 7) uniform sampler2D brdfLutTexture;
+layout(set = 0, binding = 8) uniform samplerCube irradianceMap;
+layout(set = 0, binding = 9) uniform samplerCube prefilteredEnvironmentMap;
 
 layout(location = 0) in vec2 inTexCoord;
 layout(location = 1) in vec3 inNormal;
@@ -118,25 +121,6 @@ float shadowVisibility(int lightIndex, vec3 normal, vec3 lightDirection)
     return visibility / max(totalWeight, 0.0001);
 }
 
-vec3 sampleProceduralEnvironment(vec3 direction, float roughness)
-{
-    float skyWeight = smoothstep(-0.18, 0.78, direction.y);
-    float horizonWeight = pow(clamp(1.0 - abs(direction.y), 0.0, 1.0), 2.0);
-    vec3 sky = frameData.ambientSky.rgb * mix(1.35, 0.82, roughness);
-    vec3 ground = frameData.ambientGround.rgb * mix(1.12, 0.92, roughness);
-    vec3 horizon = mix(ground, sky, 0.5) * 1.22;
-    return mix(mix(ground, sky, skyWeight), horizon, horizonWeight * 0.45);
-}
-
-vec2 environmentBRDFApprox(float roughness, float nDotV)
-{
-    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-    vec4 r = roughness * c0 + c1;
-    float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
-    return vec2(-1.04, 1.04) * a004 + r.zw;
-}
-
 void main()
 {
     vec4 sampledBase = texture(baseColorTexture, inTexCoord) * pushData.baseColor * inColorFactor;
@@ -198,10 +182,10 @@ void main()
 
     float nDotV = max(dot(normal, viewDirection), 0.0);
     vec3 ambientFresnel = fresnelSchlick(nDotV, f0);
-    vec3 diffuseIrradiance = sampleProceduralEnvironment(normal, 1.0);
+    vec3 diffuseIrradiance = texture(irradianceMap, normal).rgb;
     vec3 reflectionDirection = reflect(-viewDirection, normal);
-    vec3 specularIrradiance = sampleProceduralEnvironment(reflectionDirection, roughness);
-    vec2 envBRDF = environmentBRDFApprox(roughness, nDotV);
+    vec3 specularIrradiance = textureLod(prefilteredEnvironmentMap, reflectionDirection, roughness * 4.0).rgb;
+    vec2 envBRDF = texture(brdfLutTexture, vec2(nDotV, roughness)).rg;
     vec3 ambientDiffuse = diffuseIrradiance * sampledBase.rgb * (1.0 - metallic);
     vec3 ambientSpecular = specularIrradiance * clamp(ambientFresnel * envBRDF.x + vec3(envBRDF.y), vec3(0.0), vec3(1.0));
     vec3 emissive = texture(emissiveTexture, inTexCoord).rgb * pushData.emissiveColor.rgb;

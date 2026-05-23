@@ -226,10 +226,24 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented))
             .arg(consoleView_->toPlainText().right(1200)));
     }
+    if (skyColorR_ == nullptr || groundColorB_ == nullptr || environmentIntensity_ == nullptr) {
+        return fail(QStringLiteral("Lighting panel environment controls were not created"));
+    }
     if (!offscreenPlatform) {
-        const auto meshUploadsBefore = stats.totalMeshUploadCount;
-        const auto textureUploadsBefore = stats.totalTextureUploadCount;
-        const auto staticBytesBefore = stats.totalStaticUploadBytes;
+        const auto textureUploadsBeforeLighting = renderer_->stats().totalTextureUploadCount;
+        skyColorR_->setValue(0.65);
+        groundColorB_->setValue(0.10);
+        environmentIntensity_->setValue(1.15);
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        if (renderer_->stats().totalTextureUploadCount <= textureUploadsBeforeLighting) {
+            return fail(QStringLiteral("Lighting environment controls did not refresh Vulkan IBL textures"));
+        }
+    }
+    if (!offscreenPlatform) {
+        const auto meshUploadsBefore = renderer_->stats().totalMeshUploadCount;
+        const auto textureUploadsBefore = renderer_->stats().totalTextureUploadCount;
+        const auto staticBytesBefore = renderer_->stats().totalStaticUploadBytes;
         sceneViewport_->repaint();
         QApplication::processEvents();
         const auto& cachedStats = renderer_->stats();

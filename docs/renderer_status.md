@@ -26,11 +26,16 @@ metallic-roughness, and occlusion uploads keep linear cache entries.
 The Vulkan texture cache also keeps imported glTF wrap/filter sampler state in the
 cache key and maps it onto the `VkSampler` used by each descriptor.
 The textured mesh shader now reads a frame uniform buffer with view projection,
-camera position, imported punctual lights, ambient environment terms, and the first
-directional shadow transform instead of using a fixed shader-local light direction.
+camera position, imported punctual lights, and the selected shadow transform instead
+of using a fixed shader-local light direction.
 Direct lighting uses a Cook-Torrance-style metallic/roughness path, ambient lighting
-uses a procedural environment/BRDF approximation, and the viewport records a VMA-backed
-2048-square 2D shadow map before the main pass.
+uses RenderFrame-controlled renderer-generated irradiance/prefiltered environment
+cubemaps plus a generated split-sum BRDF integration LUT, and the viewport records a
+VMA-backed 2048-square 2D shadow map before the main pass.
+The editor Lighting / Bake panel now owns sky color, ground color, and IBL intensity
+controls that feed `RenderFrame::environment`; Vulkan regenerates the generated IBL
+cube resources only when that environment key changes, and the editor persists those
+values through `QSettings`.
 The shadow pass now has a small fragment shader that samples base-color alpha and
 respects imported `MASK` cutoff values for opaque/masked casters. Shadow-map selection
 lives in `engine/renderer`, prefers a visible-bounds directional map, falls back to a
@@ -72,7 +77,8 @@ color path when a real viewport surface is available.
 
 ## Vulkan Work Remaining
 
-- Replace the procedural ambient environment term with prefiltered IBL resources.
+- Add imported/user-selectable HDR or KTX2 environment assets on top of the current
+  RenderFrame-controlled renderer-generated IBL cubemaps.
 - Add editor/scene-owned lights and camera components beyond imported glTF model data.
 - Expand shadows beyond the current directional/spot 2D map with point-light cubemaps,
   cascaded directional shadows, higher quality filtering controls, and transparent
@@ -190,9 +196,16 @@ color path when a real viewport surface is available.
   chooses the first directional light, or the first spot light if no directional light
   exists, and deliberately leaves point-light cubemap and cascaded directional shadows
   disabled until those renderer passes exist.
-- The mesh shader now uses a procedural environment/BRDF approximation for diffuse and
-  specular ambient lighting. This is still not full prefiltered IBL, but it is a better
-  renderer-side lighting path than flat ambient color.
+- The mesh shader now samples generated Vulkan irradiance and prefiltered environment
+  cubemaps plus the generated BRDF integration LUT for split-sum ambient lighting. The
+  generated cubemaps are keyed by `RenderFrame::environment`, so future Lighting panel
+  edits regenerate IBL resources without shader-local constants or stale descriptors.
+  This is still not user-authored IBL because HDR/KTX2 environment assets remain pending.
+- The Lighting / Bake panel now exposes sky RGB, ground RGB, and IBL intensity controls.
+  Scene View and Game View both receive those values through `ViewportWidget`, and the
+  values are saved/restored through editor settings. The visible smoke test verifies
+  that editing them refreshes Vulkan IBL textures while the following frame reuses
+  cached static resources.
 - Vulkan command buffers now emit debug labels for the viewport frame, shadow pass,
   mesh pass, and Scene View aid pass when `VK_EXT_debug_utils` entry points are available,
   so RenderDoc captures have useful pass boundaries without requiring the extension.
@@ -217,12 +230,15 @@ color path when a real viewport surface is available.
   `Project/Assets/VisualVerification` and documented in
   `docs/phase6_visual_verification_assets.md`; they cover orientation, negative
   scale, UVs, tangents, alpha modes, lights, PBR response, and large-node profiling.
-- Latest verification after moving shadow setup into `engine/renderer`: `cmake --build
-  --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7,
-  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
-  dev-editor-local-qt --output-on-failure` passed 8/8, visible
-  `projectunity_editor --smoke-test` passed, and `git diff --check` reported only
-  expected line-ending warnings.
+- Latest verification after adding renderer-owned IBL cubemaps, the BRDF LUT, moving
+  shadow setup into `engine/renderer`, and keying generated environment cubemaps by
+  `RenderFrame::environment`: `cmake --preset dev-core` passed, `cmake --build
+  --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7
+  in 29.41 seconds, `cmake --preset dev-editor-local-qt` passed, `cmake --build
+  --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt
+  --output-on-failure` passed 8/8 in 34.67 seconds, visible `projectunity_editor
+  --smoke-test` passed with Lighting panel IBL refresh coverage, source files stayed
+  under the 800-line rule, and `git diff --check` reported no whitespace errors.
 - The NodePerformance-style worst case no longer relies on one CPU/UI draw path or
   one unique Vulkan draw for every imported node. The asset importer preserves visual
   fidelity while deduplicating identical texture/material data, baking scalar material

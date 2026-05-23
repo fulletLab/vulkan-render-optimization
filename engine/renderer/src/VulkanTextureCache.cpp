@@ -1,5 +1,7 @@
 #include "VulkanTextureCache.hpp"
 
+#include <projectunity/renderer/RenderBrdfLut.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -10,6 +12,7 @@ namespace {
 
 constexpr std::uint64_t kWhiteTextureKey = UINT64_MAX;
 constexpr std::uint64_t kFlatNormalTextureKey = UINT64_MAX - 1ULL;
+constexpr std::uint64_t kBrdfLutTextureKey = UINT64_MAX - 2ULL;
 
 struct TextureStagingBuffer {
     VulkanResourceContext context;
@@ -41,7 +44,8 @@ struct TextureStagingBuffer {
     VkAccessFlags sourceAccess,
     VkAccessFlags destinationAccess,
     std::uint32_t baseMipLevel,
-    std::uint32_t levelCount)
+    std::uint32_t levelCount,
+    std::uint32_t layerCount = 1)
 {
     VkImageMemoryBarrier barrier {};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -53,7 +57,7 @@ struct TextureStagingBuffer {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel = baseMipLevel;
     barrier.subresourceRange.levelCount = levelCount;
-    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.layerCount = layerCount;
     barrier.srcAccessMask = sourceAccess;
     barrier.dstAccessMask = destinationAccess;
     return barrier;
@@ -193,6 +197,31 @@ const VulkanTextureHandle* VulkanTextureCache::ensureNormalUploaded(
     return ensureUploaded(context, uploads, texture, errorMessage);
 }
 
+const VulkanTextureHandle* VulkanTextureCache::ensureBrdfLutUploaded(
+    VulkanResourceContext context,
+    VulkanUploadContext& uploads,
+    std::string* errorMessage)
+{
+    assets::TextureSamplerAsset sampler;
+    sampler.wrapU = assets::TextureWrapMode::ClampToEdge;
+    sampler.wrapV = assets::TextureWrapMode::ClampToEdge;
+    sampler.useMipmaps = false;
+    const TextureKey key {kBrdfLutTextureKey, VulkanTextureColorSpace::Linear, sampler};
+    if (const auto existing = textures_.find(key); existing != textures_.end()) {
+        return &existing->second.handle;
+    }
+    const auto lut = generateBrdfIntegrationLut(128U, 128U);
+    return uploadTexture(
+        context,
+        uploads,
+        key,
+        lut.width,
+        lut.height,
+        lut.rgba8.data(),
+        lut.rgba8.size(),
+        errorMessage);
+}
+
 void VulkanTextureCache::clear() noexcept
 {
     for (auto& [key, texture] : textures_) {
@@ -200,6 +229,10 @@ void VulkanTextureCache::clear() noexcept
         destroy(texture);
     }
     textures_.clear();
+    destroy(irradianceCube_);
+    destroy(prefilteredEnvironmentCube_);
+    irradianceCubeEnvironmentKey_ = 0;
+    prefilteredEnvironmentCubeEnvironmentKey_ = 0;
     nextHandleKey_ = 1;
     uploadCount_ = 0;
     uploadedBytes_ = 0;

@@ -430,6 +430,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.clearColor.green = mode_ == ViewportMode::Scene ? 0.13F : 0.02F;
     frame.clearColor.blue = mode_ == ViewportMode::Scene ? 0.15F : 0.025F;
     frame.clearColor.alpha = 1.0F;
+    frame.environment = environmentSettings_;
     rendererMeshDraws_.clear();
     rendererLights_.clear();
     bool hasMeshSceneContent = false;

@@ -20,6 +20,8 @@
 #include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
@@ -40,6 +42,16 @@ constexpr int kEntityIdRole = Qt::UserRole + 1;
     auto* button = new QPushButton(text);
     button->setMinimumHeight(28);
     return button;
+}
+
+[[nodiscard]] QDoubleSpinBox* makeLightingSpinBox(double maximum)
+{
+    auto* spinBox = new QDoubleSpinBox;
+    spinBox->setDecimals(3);
+    spinBox->setRange(0.0, maximum);
+    spinBox->setSingleStep(0.05);
+    spinBox->setMinimumWidth(72);
+    return spinBox;
 }
 
 [[nodiscard]] scene::EntityId entityIdFromItem(const QTreeWidgetItem* item)
@@ -173,9 +185,7 @@ void MainWindow::createDockLayout()
     auto* terrainDock = createDockWidget(QStringLiteral("Terrain"), createTextPanel(
         QStringLiteral("Terrain"),
         {QStringLiteral("Generator"), QStringLiteral("Brushes"), QStringLiteral("Chunks and LOD")}));
-    auto* lightingDock = createDockWidget(QStringLiteral("Lighting / Bake"), createTextPanel(
-        QStringLiteral("Lighting / Bake"),
-        {QStringLiteral("Lights"), QStringLiteral("Bake jobs"), QStringLiteral("Cache")}));
+    auto* lightingDock = createDockWidget(QStringLiteral("Lighting / Bake"), createLightingPanel());
     auto* physicsDock = createDockWidget(QStringLiteral("Physics Debug"), createTextPanel(
         QStringLiteral("Physics Debug"),
         {QStringLiteral("Bodies"), QStringLiteral("Colliders"), QStringLiteral("Queries")}));
@@ -225,6 +235,7 @@ QWidget* MainWindow::createSceneViewPanel()
     sceneViewport_->setScene(&scene_);
     sceneViewport_->setAssetManager(&assetManager_);
     sceneViewport_->setRenderer(renderer_.get());
+    sceneViewport_->setEnvironmentSettings(environmentSettings_);
     sceneViewport_->setSelectionCallback([this](scene::EntityId id) {
         if (id.isValid()) {
             selectEntity(id);
@@ -255,6 +266,7 @@ QWidget* MainWindow::createGameViewPanel()
     gameViewport_->setScene(&scene_);
     gameViewport_->setAssetManager(&assetManager_);
     gameViewport_->setRenderer(renderer_.get());
+    gameViewport_->setEnvironmentSettings(environmentSettings_);
     layout->addWidget(gameViewport_);
     return frame;
 }
@@ -454,6 +466,108 @@ QWidget* MainWindow::createProfilerPanel()
     layout->addWidget(profilerTable_);
     updateProfilerPanel();
     return panel;
+}
+
+QWidget* MainWindow::createLightingPanel()
+{
+    auto* panel = new QWidget;
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(8, 8, 8, 8);
+
+    auto* header = new QLabel(QStringLiteral("Lighting / Bake"));
+    header->setObjectName(QStringLiteral("PanelHeader"));
+    layout->addWidget(header);
+
+    auto* form = new QFormLayout;
+    const auto makeRgbRow = [this](QDoubleSpinBox*& r, QDoubleSpinBox*& g, QDoubleSpinBox*& b, const std::array<float, 3>& values) {
+        auto* row = new QWidget;
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        r = makeLightingSpinBox(8.0);
+        g = makeLightingSpinBox(8.0);
+        b = makeLightingSpinBox(8.0);
+        r->setValue(values[0]);
+        g->setValue(values[1]);
+        b->setValue(values[2]);
+        rowLayout->addWidget(r);
+        rowLayout->addWidget(g);
+        rowLayout->addWidget(b);
+        return row;
+    };
+
+    form->addRow(
+        QStringLiteral("Sky RGB"),
+        makeRgbRow(skyColorR_, skyColorG_, skyColorB_, environmentSettings_.skyColor));
+    form->addRow(
+        QStringLiteral("Ground RGB"),
+        makeRgbRow(groundColorR_, groundColorG_, groundColorB_, environmentSettings_.groundColor));
+    environmentIntensity_ = makeLightingSpinBox(16.0);
+    environmentIntensity_->setValue(environmentSettings_.intensity);
+    form->addRow(QStringLiteral("IBL Intensity"), environmentIntensity_);
+    layout->addLayout(form);
+    layout->addStretch();
+
+    const std::array<QDoubleSpinBox*, 7> spinBoxes {
+        skyColorR_, skyColorG_, skyColorB_,
+        groundColorR_, groundColorG_, groundColorB_,
+        environmentIntensity_,
+    };
+    for (auto* spinBox : spinBoxes) {
+        connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this](double) {
+            applyLightingSettings();
+        });
+    }
+    return panel;
+}
+
+void MainWindow::restoreLightingSettings()
+{
+    QSettings settings;
+    environmentSettings_.skyColor = {
+        settings.value(QStringLiteral("editor/lighting/skyR"), environmentSettings_.skyColor[0]).toFloat(),
+        settings.value(QStringLiteral("editor/lighting/skyG"), environmentSettings_.skyColor[1]).toFloat(),
+        settings.value(QStringLiteral("editor/lighting/skyB"), environmentSettings_.skyColor[2]).toFloat(),
+    };
+    environmentSettings_.groundColor = {
+        settings.value(QStringLiteral("editor/lighting/groundR"), environmentSettings_.groundColor[0]).toFloat(),
+        settings.value(QStringLiteral("editor/lighting/groundG"), environmentSettings_.groundColor[1]).toFloat(),
+        settings.value(QStringLiteral("editor/lighting/groundB"), environmentSettings_.groundColor[2]).toFloat(),
+    };
+    environmentSettings_.intensity = settings.value(
+        QStringLiteral("editor/lighting/intensity"),
+        environmentSettings_.intensity).toFloat();
+    updateLightingPanelControls();
+    pushLightingSettingsToViewports();
+}
+
+void MainWindow::saveLightingSettings()
+{
+    QSettings settings;
+    settings.setValue(QStringLiteral("editor/lighting/skyR"), environmentSettings_.skyColor[0]);
+    settings.setValue(QStringLiteral("editor/lighting/skyG"), environmentSettings_.skyColor[1]);
+    settings.setValue(QStringLiteral("editor/lighting/skyB"), environmentSettings_.skyColor[2]);
+    settings.setValue(QStringLiteral("editor/lighting/groundR"), environmentSettings_.groundColor[0]);
+    settings.setValue(QStringLiteral("editor/lighting/groundG"), environmentSettings_.groundColor[1]);
+    settings.setValue(QStringLiteral("editor/lighting/groundB"), environmentSettings_.groundColor[2]);
+    settings.setValue(QStringLiteral("editor/lighting/intensity"), environmentSettings_.intensity);
+}
+
+void MainWindow::updateLightingPanelControls()
+{
+    const auto setValue = [](QDoubleSpinBox* spinBox, float value) {
+        if (spinBox == nullptr) {
+            return;
+        }
+        const QSignalBlocker blocker(spinBox);
+        spinBox->setValue(value);
+    };
+    setValue(skyColorR_, environmentSettings_.skyColor[0]);
+    setValue(skyColorG_, environmentSettings_.skyColor[1]);
+    setValue(skyColorB_, environmentSettings_.skyColor[2]);
+    setValue(groundColorR_, environmentSettings_.groundColor[0]);
+    setValue(groundColorG_, environmentSettings_.groundColor[1]);
+    setValue(groundColorB_, environmentSettings_.groundColor[2]);
+    setValue(environmentIntensity_, environmentSettings_.intensity);
 }
 
 QWidget* MainWindow::createTextPanel(const QString& title, const QStringList& lines) const

@@ -2,6 +2,7 @@
 
 #include <projectunity/assets/AssetManager.hpp>
 #include <projectunity/core/Log.hpp>
+#include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
 
 #include <filesystem>
@@ -85,9 +86,15 @@ private:
     [[nodiscard]] QWidget* createProjectPanel();
     [[nodiscard]] QWidget* createBottomPanel();
     [[nodiscard]] QWidget* createProfilerPanel();
+    [[nodiscard]] QWidget* createLightingPanel();
     [[nodiscard]] QWidget* createTextPanel(const QString& title, const QStringList& lines) const;
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
     void updateProfilerPanel();
+    void applyLightingSettings();
+    void pushLightingSettingsToViewports();
+    void restoreLightingSettings();
+    void saveLightingSettings();
+    void updateLightingPanelControls();
 
     ads::CDockManager* dockManager_ {nullptr};
     QMenu* windowMenu_ {nullptr};
@@ -108,6 +115,13 @@ private:
     QPlainTextEdit* consoleView_ {nullptr};
     QTableWidget* assetTable_ {nullptr};
     QTableWidget* profilerTable_ {nullptr};
+    QDoubleSpinBox* skyColorR_ {nullptr};
+    QDoubleSpinBox* skyColorG_ {nullptr};
+    QDoubleSpinBox* skyColorB_ {nullptr};
+    QDoubleSpinBox* groundColorR_ {nullptr};
+    QDoubleSpinBox* groundColorG_ {nullptr};
+    QDoubleSpinBox* groundColorB_ {nullptr};
+    QDoubleSpinBox* environmentIntensity_ {nullptr};
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
     std::shared_ptr<core::MemoryLogSink> logSink_;
@@ -115,6 +129,7 @@ private:
     scene::Scene scene_;
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
+    renderer::RenderEnvironmentSettings environmentSettings_;
     scene::EntityId selectedEntityId_;
     std::filesystem::path currentScenePath_;
     QByteArray defaultDockState_;

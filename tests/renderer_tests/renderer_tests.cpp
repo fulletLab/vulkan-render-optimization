@@ -1,5 +1,7 @@
 #include <projectunity/renderer/VulkanRenderer.hpp>
+#include <projectunity/renderer/RenderBrdfLut.hpp>
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
+#include <projectunity/renderer/RenderEnvironmentMap.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 
 #include <array>
@@ -90,6 +92,41 @@ int main()
     const std::array<RenderLight, 1> pointOnlyLights {mixedLights[0]};
     if (chooseShadowMap(pointOnlyLights, {0.0F, 0.0F, 0.0F}, 4.0F).enabled) {
         return fail("Renderer shadow selection incorrectly enabled a 2D shadow map for point-only lights");
+    }
+
+    const auto brdfLut = generateBrdfIntegrationLut(16U, 32U);
+    if (brdfLut.width != 16U
+        || brdfLut.height != 16U
+        || brdfLut.rgba8.size() != 16U * 16U * 4U) {
+        return fail("Renderer BRDF integration LUT did not produce the requested RGBA8 texture");
+    }
+    if (brdfLut.rgba8[3] != 255U || brdfLut.rgba8[brdfLut.rgba8.size() - 1U] != 255U) {
+        return fail("Renderer BRDF integration LUT did not preserve opaque alpha");
+    }
+    if (brdfLut.rgba8[0] == 0U && brdfLut.rgba8[1] == 0U) {
+        return fail("Renderer BRDF integration LUT contains no low-roughness response");
+    }
+
+    const auto irradianceCube = generateProceduralIrradianceCube(8U);
+    if (irradianceCube.mips.size() != 1U
+        || irradianceCube.mips.front().faceSize != 8U
+        || irradianceCube.mips.front().rgba8.size() != 8U * 8U * 6U * 4U) {
+        return fail("Renderer irradiance cube generator produced invalid face data");
+    }
+    const auto prefilteredCube = generateProceduralPrefilteredCube(16U, 4U);
+    if (prefilteredCube.mips.size() != 4U
+        || prefilteredCube.mips[0].faceSize != 16U
+        || prefilteredCube.mips[3].faceSize != 2U
+        || prefilteredCube.mips[3].rgba8.size() != 2U * 2U * 6U * 4U) {
+        return fail("Renderer prefiltered environment cube generator produced invalid mip data");
+    }
+    RenderEnvironmentSettings warmEnvironment;
+    warmEnvironment.skyColor = {0.80F, 0.35F, 0.12F};
+    warmEnvironment.groundColor = {0.20F, 0.06F, 0.03F};
+    warmEnvironment.intensity = 1.4F;
+    const auto warmCube = generateProceduralIrradianceCube(8U, warmEnvironment);
+    if (warmCube.mips.front().rgba8 == irradianceCube.mips.front().rgba8) {
+        return fail("Renderer environment cube generator ignored RenderEnvironmentSettings");
     }
 
     std::string error;

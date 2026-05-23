@@ -4,6 +4,7 @@
 #include "VulkanUploadContext.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
+#include <projectunity/renderer/RenderEnvironmentMap.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -42,6 +43,20 @@ public:
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
         const assets::TextureAsset* texture,
+        std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* ensureBrdfLutUploaded(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* ensureIrradianceCubeUploaded(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        const RenderEnvironmentSettings& environment,
+        std::string* errorMessage);
+    [[nodiscard]] const VulkanTextureHandle* ensurePrefilteredEnvironmentCubeUploaded(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        const RenderEnvironmentSettings& environment,
         std::string* errorMessage);
     void clear() noexcept;
     [[nodiscard]] std::uint64_t uploadCount() const noexcept;
@@ -84,9 +99,20 @@ private:
         const std::uint8_t* rgba8,
         std::size_t byteCount,
         std::string* errorMessage);
+    [[nodiscard]] bool uploadCubeMap(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        TextureResource& destination,
+        std::uint64_t handleKey,
+        const RenderCubeMap& cube,
+        std::string* errorMessage);
     void destroy(TextureResource& texture) noexcept;
 
     std::unordered_map<TextureKey, TextureResource, TextureKeyHash> textures_;
+    TextureResource irradianceCube_;
+    TextureResource prefilteredEnvironmentCube_;
+    std::uint64_t irradianceCubeEnvironmentKey_ {0};
+    std::uint64_t prefilteredEnvironmentCubeEnvironmentKey_ {0};
     std::uint64_t nextHandleKey_ {1};
     std::uint64_t uploadCount_ {0};
     std::uint64_t uploadedBytes_ {0};

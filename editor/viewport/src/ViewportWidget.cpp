@@ -87,6 +87,12 @@ void ViewportWidget::setRenderer(renderer::IRenderer* renderer)
     update();
 }
 
+void ViewportWidget::setEnvironmentSettings(renderer::RenderEnvironmentSettings settings)
+{
+    environmentSettings_ = settings;
+    update();
+}
+
 void ViewportWidget::setScene(scene::Scene* scene)
 {
     scene_ = scene;

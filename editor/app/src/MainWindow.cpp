@@ -275,6 +275,7 @@ void MainWindow::restoreEditorLayout()
             core::logWarning(core::LogCategory::Editor, "Failed to restore editor dock layout");
         }
     }
+    restoreLightingSettings();
 }
 
 void MainWindow::resetEditorLayout()
@@ -301,6 +302,7 @@ void MainWindow::saveEditorLayout()
     if (dockManager_ != nullptr) {
         settings.setValue(QStringLiteral("editor/dockState"), dockManager_->saveState(kLayoutVersion));
     }
+    saveLightingSettings();
 }
 
 void MainWindow::appendPendingLogs()
@@ -701,8 +703,45 @@ void MainWindow::applyInspectorToSelection()
     selectEntity(selectedEntityId_);
 }
 
+void MainWindow::applyLightingSettings()
+{
+    if (skyColorR_ == nullptr
+        || skyColorG_ == nullptr
+        || skyColorB_ == nullptr
+        || groundColorR_ == nullptr
+        || groundColorG_ == nullptr
+        || groundColorB_ == nullptr
+        || environmentIntensity_ == nullptr) {
+        return;
+    }
+
+    environmentSettings_.skyColor = {
+        static_cast<float>(skyColorR_->value()),
+        static_cast<float>(skyColorG_->value()),
+        static_cast<float>(skyColorB_->value()),
+    };
+    environmentSettings_.groundColor = {
+        static_cast<float>(groundColorR_->value()),
+        static_cast<float>(groundColorG_->value()),
+        static_cast<float>(groundColorB_->value()),
+    };
+    environmentSettings_.intensity = static_cast<float>(environmentIntensity_->value());
+    pushLightingSettingsToViewports();
+}
+
+void MainWindow::pushLightingSettingsToViewports()
+{
+    if (sceneViewport_ != nullptr) {
+        sceneViewport_->setEnvironmentSettings(environmentSettings_);
+    }
+    if (gameViewport_ != nullptr) {
+        gameViewport_->setEnvironmentSettings(environmentSettings_);
+    }
+}
+
 void MainWindow::refreshViewports()
 {
+    pushLightingSettingsToViewports();
     if (sceneViewport_ != nullptr) {
         sceneViewport_->setScene(&scene_);
         sceneViewport_->setSelectedEntity(selectedEntityId_);
