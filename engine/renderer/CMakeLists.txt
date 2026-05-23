@@ -34,6 +34,8 @@ endfunction()
 
 projectunity_embed_renderer_shader(TexturedMesh.vert kTexturedMeshVertexSpirv TexturedMeshVertexSpv.hpp)
 projectunity_embed_renderer_shader(TexturedMesh.frag kTexturedMeshFragmentSpirv TexturedMeshFragmentSpv.hpp)
+projectunity_embed_renderer_shader(ShadowDepth.vert kShadowDepthVertexSpirv ShadowDepthVertexSpv.hpp)
+projectunity_embed_renderer_shader(ShadowDepth.frag kShadowDepthFragmentSpirv ShadowDepthFragmentSpv.hpp)
 projectunity_embed_renderer_shader(EditorColor.vert kEditorColorVertexSpirv EditorColorVertexSpv.hpp)
 projectunity_embed_renderer_shader(EditorColor.frag kEditorColorFragmentSpirv EditorColorFragmentSpv.hpp)
 
@@ -46,11 +48,15 @@ add_library(projectunity_renderer STATIC
     src/VulkanColorPipeline.hpp
     src/VulkanGpuBuffer.cpp
     src/VulkanGpuBuffer.hpp
+    src/VulkanFrameData.cpp
+    src/VulkanFrameData.hpp
     src/VulkanMeshCache.cpp
     src/VulkanMeshCache.hpp
     src/VulkanMeshPipeline.cpp
     src/VulkanMeshPipeline.hpp
     src/VulkanResourceContext.hpp
+    src/VulkanShadowPipeline.cpp
+    src/VulkanShadowPipeline.hpp
     src/VulkanSupport.cpp
     src/VulkanSupport.hpp
     src/VulkanPlatform.hpp

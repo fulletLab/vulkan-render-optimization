@@ -23,24 +23,6 @@ constexpr float kNormalizeEpsilon = 0.000001F;
     return true;
 }
 
-[[nodiscard]] math::Vec3 transformPoint(GltfMatrix4 matrix, math::Vec3 value)
-{
-    return {
-        static_cast<float>(matrix[0] * value.x + matrix[4] * value.y + matrix[8] * value.z + matrix[12]),
-        static_cast<float>(matrix[1] * value.x + matrix[5] * value.y + matrix[9] * value.z + matrix[13]),
-        static_cast<float>(matrix[2] * value.x + matrix[6] * value.y + matrix[10] * value.z + matrix[14]),
-    };
-}
-
-[[nodiscard]] math::Vec3 transformVector(GltfMatrix4 matrix, math::Vec3 value)
-{
-    return {
-        static_cast<float>(matrix[0] * value.x + matrix[4] * value.y + matrix[8] * value.z),
-        static_cast<float>(matrix[1] * value.x + matrix[5] * value.y + matrix[9] * value.z),
-        static_cast<float>(matrix[2] * value.x + matrix[6] * value.y + matrix[10] * value.z),
-    };
-}
-
 } // namespace
 
 GltfMatrix4 identityGltfMatrix()
@@ -96,15 +78,33 @@ GltfMatrix4 gltfNodeMatrix(const tinygltf::Node& node)
     return result;
 }
 
+math::Vec3 transformGltfPoint(GltfMatrix4 matrix, math::Vec3 value)
+{
+    return {
+        static_cast<float>(matrix[0] * value.x + matrix[4] * value.y + matrix[8] * value.z + matrix[12]),
+        static_cast<float>(matrix[1] * value.x + matrix[5] * value.y + matrix[9] * value.z + matrix[13]),
+        static_cast<float>(matrix[2] * value.x + matrix[6] * value.y + matrix[10] * value.z + matrix[14]),
+    };
+}
+
+math::Vec3 transformGltfVector(GltfMatrix4 matrix, math::Vec3 value)
+{
+    return {
+        static_cast<float>(matrix[0] * value.x + matrix[4] * value.y + matrix[8] * value.z),
+        static_cast<float>(matrix[1] * value.x + matrix[5] * value.y + matrix[9] * value.z),
+        static_cast<float>(matrix[2] * value.x + matrix[6] * value.y + matrix[10] * value.z),
+    };
+}
+
 void applyGltfTransform(MeshPrimitive& primitive, GltfMatrix4 transform)
 {
     for (auto& vertex : primitive.vertices) {
-        vertex.position = transformPoint(transform, vertex.position);
-        vertex.normal = transformVector(transform, vertex.normal);
+        vertex.position = transformGltfPoint(transform, vertex.position);
+        vertex.normal = transformGltfVector(transform, vertex.normal);
         if (!normalize(vertex.normal)) {
             vertex.normal = {0.0F, 1.0F, 0.0F};
         }
-        vertex.tangent = transformVector(transform, vertex.tangent);
+        vertex.tangent = transformGltfVector(transform, vertex.tangent);
         if (!normalize(vertex.tangent)) {
             vertex.tangent = {1.0F, 0.0F, 0.0F};
         }

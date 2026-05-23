@@ -3,8 +3,10 @@
 #include "VulkanPlatform.hpp"
 #include "VulkanColorMesh.hpp"
 #include "VulkanColorPipeline.hpp"
+#include "VulkanFrameData.hpp"
 #include "VulkanMeshCache.hpp"
 #include "VulkanMeshPipeline.hpp"
+#include "VulkanShadowPipeline.hpp"
 #include "VulkanTextureCache.hpp"
 
 #include <projectunity/renderer/RendererTypes.hpp>
@@ -86,6 +88,12 @@ private:
         VulkanMeshCache& meshCache,
         VulkanTextureCache& textureCache,
         std::string* errorMessage);
+    [[nodiscard]] bool recordShadowPass(
+        const RenderFrame& frame,
+        VulkanUploadContext& uploads,
+        VulkanMeshCache& meshCache,
+        VulkanTextureCache& textureCache,
+        std::string* errorMessage);
 
     VulkanViewportContext context_;
     ViewportRenderSurfaceDesc desc_;
@@ -99,7 +107,9 @@ private:
     VmaAllocation depthAllocation_ {VK_NULL_HANDLE};
     VkImageView depthView_ {VK_NULL_HANDLE};
     std::unique_ptr<VulkanMeshPipeline> meshPipeline_;
+    std::unique_ptr<VulkanShadowPipeline> shadowPipeline_;
     std::unique_ptr<VulkanColorPipeline> colorPipeline_;
+    VulkanFrameData frameData_;
     std::vector<const RenderMeshDraw*> orderedMeshDraws_;
     std::vector<VulkanColorMeshBuffers> colorMeshes_;
     std::vector<VkFramebuffer> framebuffers_;

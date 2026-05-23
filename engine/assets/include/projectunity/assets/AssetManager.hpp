@@ -28,6 +28,39 @@ enum class MaterialAlphaMode : std::uint8_t {
     Blend,
 };
 
+enum class TextureWrapMode : std::uint8_t {
+    Repeat,
+    MirroredRepeat,
+    ClampToEdge,
+};
+
+enum class TextureFilterMode : std::uint8_t {
+    Nearest,
+    Linear,
+};
+
+enum class ImportedLightType : std::uint8_t {
+    Directional,
+    Point,
+    Spot,
+};
+
+enum class ImportedCameraProjection : std::uint8_t {
+    Perspective,
+    Orthographic,
+};
+
+struct TextureSamplerAsset {
+    TextureFilterMode magnificationFilter {TextureFilterMode::Linear};
+    TextureFilterMode minificationFilter {TextureFilterMode::Linear};
+    TextureFilterMode mipmapFilter {TextureFilterMode::Linear};
+    TextureWrapMode wrapU {TextureWrapMode::Repeat};
+    TextureWrapMode wrapV {TextureWrapMode::Repeat};
+    bool useMipmaps {true};
+
+    [[nodiscard]] bool operator==(const TextureSamplerAsset&) const noexcept = default;
+};
+
 struct MeshVertex {
     math::Vec3 position;
     math::Vec3 normal {0.0F, 1.0F, 0.0F};
@@ -61,6 +94,7 @@ struct TextureAsset {
     std::string name;
     std::uint32_t width {0};
     std::uint32_t height {0};
+    TextureSamplerAsset sampler;
     std::vector<std::uint8_t> rgba8;
 };
 
@@ -81,12 +115,40 @@ struct MaterialAsset {
     std::optional<std::size_t> emissiveTexture;
 };
 
+struct ImportedLightAsset {
+    std::string name {"Light"};
+    ImportedLightType type {ImportedLightType::Directional};
+    math::Vec3 position;
+    math::Vec3 direction {0.0F, 0.0F, -1.0F};
+    std::array<float, 3> color {1.0F, 1.0F, 1.0F};
+    float intensity {1.0F};
+    float range {0.0F};
+    float innerConeAngle {0.0F};
+    float outerConeAngle {0.7853981634F};
+};
+
+struct ImportedCameraAsset {
+    std::string name {"Camera"};
+    ImportedCameraProjection projection {ImportedCameraProjection::Perspective};
+    math::Vec3 position;
+    math::Vec3 direction {0.0F, 0.0F, -1.0F};
+    math::Vec3 up {0.0F, 1.0F, 0.0F};
+    float verticalFovRadians {1.04719755F};
+    float aspectRatio {0.0F};
+    float xMagnitude {1.0F};
+    float yMagnitude {1.0F};
+    float nearPlane {0.05F};
+    float farPlane {4000.0F};
+};
+
 struct ModelAsset {
     AssetId id;
     std::string name;
     std::vector<MeshPrimitive> primitives;
     std::vector<MaterialAsset> materials;
     std::vector<TextureAsset> textures;
+    std::vector<ImportedLightAsset> lights;
+    std::vector<ImportedCameraAsset> cameras;
 };
 
 struct AssetRecord {

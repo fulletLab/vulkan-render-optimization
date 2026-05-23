@@ -23,6 +23,15 @@ occlusion strength, `COLOR_0` vertex colors, and alpha mode/cutoff state, orders
 a textured mesh pipeline with opaque and transparent depth-write behavior.
 Base-color and emissive texture uploads use sRGB cache entries while normal,
 metallic-roughness, and occlusion uploads keep linear cache entries.
+The Vulkan texture cache also keeps imported glTF wrap/filter sampler state in the
+cache key and maps it onto the `VkSampler` used by each descriptor.
+The textured mesh shader now reads a frame uniform buffer with view projection,
+camera position, imported punctual lights, ambient environment terms, and the first
+directional shadow transform instead of using a fixed shader-local light direction.
+Direct lighting uses a Cook-Torrance-style metallic/roughness path and the viewport
+records a VMA-backed 2048-square directional shadow map before the main pass.
+Imported glTF light nodes are instantiated from model data, and Game View can render
+through the first imported perspective camera while Scene View stays on the editor camera.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
@@ -47,7 +56,10 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 
 ## Vulkan Work Remaining
 
-- Expand materials beyond current texture/factor pass into IBL and real scene lights.
+- Replace the procedural ambient environment term with prefiltered IBL resources.
+- Add editor/scene-owned lights and camera components beyond imported glTF model data.
+- Expand shadows beyond the first directional map with masked-alpha caster handling,
+  point/spot shadows, filtering controls, and stable shadow-frustum policy.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
 - Move labels/text overlays off QPainter and into renderer-owned passes.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
@@ -108,6 +120,9 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - Vulkan material texture caching now keeps sRGB uploads for glTF base-color and
   emissive color inputs separate from linear normal, metallic-roughness, and
   occlusion uploads, even if a source glTF reuses the same image in both roles.
+- glTF texture sampler wrap and filter state now survives model import. Texture
+  uploads with no mipmap minification request skip extra mip generation, and Vulkan
+  cache entries keep sampler variants separate when a source image is reused.
 - glTF alpha mode and cutoff now survive import. The Vulkan mesh shader writes
   opaque alpha for `OPAQUE`, discards `MASK` fragments at the imported cutoff, and
   forwards `BLEND` alpha to the transparent mesh path.
@@ -115,6 +130,14 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
   order, defers glTF `BLEND` primitives, sorts them back-to-front from camera depth,
   and uses a transparent mesh pipeline that keeps depth tests while disabling depth
   writes for those blended draws.
+- glTF light and camera nodes were previously discarded after TinyGLTF parsed them.
+  `ModelAsset` now preserves `KHR_lights_punctual` nodes and camera node transforms,
+  the asset fixture tests those records, imported punctual lights enter the frame
+  light list, and Game View can select an imported perspective camera.
+- Mesh shading previously used a shader-local light vector and draw-level MVP only.
+  Render frames now carry camera, light, environment, model, and shadow state to
+  Vulkan through a frame UBO and model push constant, enabling world-space PBR
+  direct lighting plus the first directional shadow pass.
 - The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
   development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
   the source-rule test passes again.

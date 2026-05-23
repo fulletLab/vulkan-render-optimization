@@ -39,6 +39,55 @@ namespace {
     return result;
 }
 
+[[nodiscard]] renderer::RenderMatrix4 viewMatrix(
+    math::Vec3 eye,
+    math::Vec3 right,
+    math::Vec3 up,
+    math::Vec3 forward)
+{
+    renderer::RenderMatrix4 view;
+    view.values.fill(0.0F);
+    at(view, 0, 0) = right.x;
+    at(view, 0, 1) = right.y;
+    at(view, 0, 2) = right.z;
+    at(view, 0, 3) = -math::dot(right, eye);
+    at(view, 1, 0) = up.x;
+    at(view, 1, 1) = up.y;
+    at(view, 1, 2) = up.z;
+    at(view, 1, 3) = -math::dot(up, eye);
+    at(view, 2, 0) = forward.x;
+    at(view, 2, 1) = forward.y;
+    at(view, 2, 2) = forward.z;
+    at(view, 2, 3) = -math::dot(forward, eye);
+    at(view, 3, 3) = 1.0F;
+    return view;
+}
+
+[[nodiscard]] renderer::RenderMatrix4 perspectiveMatrix(float verticalFovRadians, float aspect, float nearPlane, float farPlane)
+{
+    renderer::RenderMatrix4 projection;
+    projection.values.fill(0.0F);
+    const auto focal = 1.0F / std::tan(verticalFovRadians * 0.5F);
+    at(projection, 0, 0) = focal / std::max(aspect, 0.001F);
+    at(projection, 1, 1) = -focal;
+    at(projection, 2, 2) = farPlane / (farPlane - nearPlane);
+    at(projection, 2, 3) = -(nearPlane * farPlane) / (farPlane - nearPlane);
+    at(projection, 3, 2) = 1.0F;
+    return projection;
+}
+
+[[nodiscard]] renderer::RenderMatrix4 orthographicMatrix(float halfWidth, float halfHeight, float nearPlane, float farPlane)
+{
+    renderer::RenderMatrix4 projection;
+    projection.values.fill(0.0F);
+    at(projection, 0, 0) = 1.0F / std::max(halfWidth, 0.001F);
+    at(projection, 1, 1) = -1.0F / std::max(halfHeight, 0.001F);
+    at(projection, 2, 2) = 1.0F / std::max(farPlane - nearPlane, 0.001F);
+    at(projection, 2, 3) = -nearPlane / std::max(farPlane - nearPlane, 0.001F);
+    at(projection, 3, 3) = 1.0F;
+    return projection;
+}
+
 [[nodiscard]] float radians(float degrees)
 {
     return degrees * 0.01745329251994329577F;
@@ -130,6 +179,46 @@ namespace {
     }
     return value / length;
 }
+
+[[nodiscard]] renderer::RenderLightType renderLightType(assets::ImportedLightType type)
+{
+    switch (type) {
+    case assets::ImportedLightType::Directional:
+        return renderer::RenderLightType::Directional;
+    case assets::ImportedLightType::Point:
+        return renderer::RenderLightType::Point;
+    case assets::ImportedLightType::Spot:
+        return renderer::RenderLightType::Spot;
+    }
+    return renderer::RenderLightType::Directional;
+}
+
+[[nodiscard]] renderer::RenderMatrix4 shadowViewProjection(
+    math::Vec3 shadowDirection,
+    math::Vec3 target,
+    float cameraDistance)
+{
+    const auto forward = safeNormalized(shadowDirection, {0.35F, -0.82F, 0.45F});
+    const auto right = safeNormalized(math::cross({0.0F, 1.0F, 0.0F}, forward), {1.0F, 0.0F, 0.0F});
+    const auto up = safeNormalized(math::cross(forward, right), {0.0F, 1.0F, 0.0F});
+    const auto shadowDistance = std::max(80.0F, cameraDistance * 4.0F);
+    const auto halfExtent = std::clamp(cameraDistance * 3.0F, 24.0F, 320.0F);
+    const auto eye = target - forward * shadowDistance;
+    return multiply(
+        orthographicMatrix(halfExtent, halfExtent, 0.05F, shadowDistance * 2.0F),
+        viewMatrix(eye, right, up, forward));
+}
+
+struct ViewportCameraFrame {
+    math::Vec3 eye;
+    math::Vec3 right;
+    math::Vec3 up;
+    math::Vec3 forward;
+    float verticalFovRadians {1.04719755F};
+    float aspectRatio {1.0F};
+    float nearPlane {0.05F};
+    float farPlane {4000.0F};
+};
 
 void appendLineQuad(
     std::vector<renderer::RenderColorVertex>& vertices,
@@ -304,38 +393,62 @@ bool ViewportWidget::renderRendererFrame()
     frame.clearColor.blue = mode_ == ViewportMode::Scene ? 0.15F : 0.025F;
     frame.clearColor.alpha = 1.0F;
     rendererMeshDraws_.clear();
+    rendererLights_.clear();
     bool hasMeshSceneContent = false;
 
-    renderer::RenderMatrix4 view;
-    view.values.fill(0.0F);
-    const auto right = cameraRight();
-    const auto up = cameraUp();
-    const auto forward = cameraForward();
-    const auto eye = cameraPosition();
-    at(view, 0, 0) = right.x;
-    at(view, 0, 1) = right.y;
-    at(view, 0, 2) = right.z;
-    at(view, 0, 3) = -math::dot(right, eye);
-    at(view, 1, 0) = up.x;
-    at(view, 1, 1) = up.y;
-    at(view, 1, 2) = up.z;
-    at(view, 1, 3) = -math::dot(up, eye);
-    at(view, 2, 0) = forward.x;
-    at(view, 2, 1) = forward.y;
-    at(view, 2, 2) = forward.z;
-    at(view, 2, 3) = -math::dot(forward, eye);
-    at(view, 3, 3) = 1.0F;
-    renderer::RenderMatrix4 projection;
-    projection.values.fill(0.0F);
-    constexpr float nearPlane = 0.05F;
-    constexpr float farPlane = 4000.0F;
-    const auto focal = 1.0F / std::tan(camera_.verticalFovRadians * 0.5F);
-    at(projection, 0, 0) = focal / std::max(aspectRatio(), 0.001F);
-    at(projection, 1, 1) = -focal;
-    at(projection, 2, 2) = farPlane / (farPlane - nearPlane);
-    at(projection, 2, 3) = -(nearPlane * farPlane) / (farPlane - nearPlane);
-    at(projection, 3, 2) = 1.0F;
+    ViewportCameraFrame cameraFrame {
+        cameraPosition(),
+        cameraRight(),
+        cameraUp(),
+        cameraForward(),
+        camera_.verticalFovRadians,
+        aspectRatio(),
+    };
+    if (mode_ == ViewportMode::Game && scene_ != nullptr && assetManager_ != nullptr) {
+        for (const auto& entity : scene_->entities()) {
+            if (!entity.meshRenderer.has_value()) {
+                continue;
+            }
+            const auto model = assetManager_->model(entity.meshRenderer->modelAssetId);
+            const auto worldPosition = entityWorldPosition(entity.id);
+            if (model == nullptr || !worldPosition.has_value() || model->cameras.empty()) {
+                continue;
+            }
+            const auto imported = std::find_if(model->cameras.begin(), model->cameras.end(), [](const assets::ImportedCameraAsset& camera) {
+                return camera.projection == assets::ImportedCameraProjection::Perspective;
+            });
+            if (imported == model->cameras.end()) {
+                continue;
+            }
+            cameraFrame.eye = transformPoint(entity, *worldPosition, imported->position);
+            cameraFrame.forward = safeNormalized(
+                rotateEuler(imported->direction, entity.transform.rotationEuler),
+                cameraFrame.forward);
+            cameraFrame.up = safeNormalized(
+                rotateEuler(imported->up, entity.transform.rotationEuler),
+                cameraFrame.up);
+            cameraFrame.right = safeNormalized(math::cross(cameraFrame.up, cameraFrame.forward), cameraFrame.right);
+            cameraFrame.up = safeNormalized(math::cross(cameraFrame.forward, cameraFrame.right), cameraFrame.up);
+            cameraFrame.verticalFovRadians = imported->verticalFovRadians;
+            cameraFrame.aspectRatio = imported->aspectRatio > 0.0F ? imported->aspectRatio : aspectRatio();
+            cameraFrame.nearPlane = imported->nearPlane;
+            cameraFrame.farPlane = imported->farPlane;
+            break;
+        }
+    }
+    const auto& right = cameraFrame.right;
+    const auto& up = cameraFrame.up;
+    const auto& forward = cameraFrame.forward;
+    const auto& eye = cameraFrame.eye;
+    const auto view = viewMatrix(eye, right, up, forward);
+    const auto projection = perspectiveMatrix(
+        cameraFrame.verticalFovRadians,
+        cameraFrame.aspectRatio,
+        cameraFrame.nearPlane,
+        cameraFrame.farPlane);
     const auto viewProjection = multiply(projection, view);
+    frame.viewProjection = viewProjection;
+    frame.cameraPosition = {eye.x, eye.y, eye.z};
 
     if (scene_ != nullptr && assetManager_ != nullptr) {
         for (const auto& entity : scene_->entities()) {
@@ -347,8 +460,28 @@ bool ViewportWidget::renderRendererFrame()
             if (!worldPosition.has_value() || model == nullptr) {
                 continue;
             }
+            for (const auto& importedLight : model->lights) {
+                if (rendererLights_.size() >= renderer::kMaxFrameLights) {
+                    break;
+                }
+                const auto position = transformPoint(entity, *worldPosition, importedLight.position);
+                const auto direction = safeNormalized(
+                    rotateEuler(importedLight.direction, entity.transform.rotationEuler),
+                    {0.35F, -0.82F, 0.45F});
+                renderer::RenderLight light;
+                light.type = renderLightType(importedLight.type);
+                light.position = {position.x, position.y, position.z};
+                light.direction = {direction.x, direction.y, direction.z};
+                light.color = importedLight.color;
+                light.intensity = importedLight.intensity;
+                light.range = importedLight.range * maxAbsScale(entity.transform.scale);
+                light.innerConeAngle = importedLight.innerConeAngle;
+                light.outerConeAngle = importedLight.outerConeAngle;
+                rendererLights_.push_back(light);
+            }
             hasMeshSceneContent = hasMeshSceneContent || !model->primitives.empty();
-            const auto mvp = multiply(viewProjection, modelMatrix(entity, *worldPosition));
+            const auto entityModelMatrix = modelMatrix(entity, *worldPosition);
+            const auto mvp = multiply(viewProjection, entityModelMatrix);
             for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
                 const auto& primitive = model->primitives[primitiveIndex];
                 if (primitive.materialIndex >= model->materials.size()) {
@@ -356,7 +489,15 @@ bool ViewportWidget::renderRendererFrame()
                 }
                 const auto boundsCenter = transformPoint(entity, *worldPosition, primitive.bounds.center);
                 const auto boundsRadius = primitive.bounds.radius * maxAbsScale(entity.transform.scale);
-                if (!sphereVisible(boundsCenter, boundsRadius, eye, right, up, forward, camera_.verticalFovRadians, aspectRatio())) {
+                if (!sphereVisible(
+                        boundsCenter,
+                        boundsRadius,
+                        eye,
+                        right,
+                        up,
+                        forward,
+                        cameraFrame.verticalFovRadians,
+                        cameraFrame.aspectRatio)) {
                     continue;
                 }
                 const auto& material = model->materials[primitive.materialIndex];
@@ -376,10 +517,29 @@ bool ViewportWidget::renderRendererFrame()
                     modelTexture(material.occlusionTexture),
                     modelTexture(material.emissiveTexture),
                     math::dot(boundsCenter - eye, forward),
+                    entityModelMatrix,
                     mvp,
                 });
             }
         }
+    }
+    if (rendererLights_.empty()) {
+        rendererLights_.push_back({});
+    }
+    frame.lights = std::span<const renderer::RenderLight>(rendererLights_);
+    const auto shadowLight = std::find_if(rendererLights_.begin(), rendererLights_.end(), [](const renderer::RenderLight& light) {
+        return light.type == renderer::RenderLightType::Directional;
+    });
+    if (shadowLight != rendererLights_.end()) {
+        const auto index = static_cast<std::uint32_t>(std::distance(rendererLights_.begin(), shadowLight));
+        const math::Vec3 lightDirection {
+            shadowLight->direction[0],
+            shadowLight->direction[1],
+            shadowLight->direction[2],
+        };
+        frame.shadowViewProjection = shadowViewProjection(lightDirection, camera_.target, camera_.distance);
+        frame.shadowLightIndex = index;
+        frame.shadowsEnabled = true;
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
 

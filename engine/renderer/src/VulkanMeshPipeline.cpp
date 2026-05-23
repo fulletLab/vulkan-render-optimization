@@ -92,8 +92,12 @@ VkFormat VulkanMeshPipeline::chooseDepthFormat() const
 
 void VulkanMeshPipeline::createTextureLayout()
 {
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings {};
-    for (std::uint32_t index = 0; index < bindings.size(); ++index) {
+    std::array<VkDescriptorSetLayoutBinding, 7> bindings {};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    for (std::uint32_t index = 1; index < bindings.size(); ++index) {
         bindings[index].binding = index;
         bindings[index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[index].descriptorCount = 1;

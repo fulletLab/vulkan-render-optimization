@@ -108,7 +108,8 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
         "images":[{
             "uri":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
         }],
-        "textures":[{"source":0}],
+        "samplers":[{"magFilter":9728,"minFilter":9986,"wrapS":33071,"wrapT":33648}],
+        "textures":[{"sampler":0,"source":0}],
         "materials":[{
             "pbrMetallicRoughness":{
                 "baseColorTexture":{"index":0},
@@ -124,9 +125,27 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
             "alphaCutoff":0.33,
             "emissiveFactor":[0.05,0.1,0.15]
         }],
+        "cameras":[{
+            "name":"Fixture Camera",
+            "type":"perspective",
+            "perspective":{"yfov":0.9,"znear":0.1,"zfar":250.0,"aspectRatio":1.7777778}
+        }],
+        "extensionsUsed":["KHR_lights_punctual"],
+        "extensions":{"KHR_lights_punctual":{"lights":[{
+            "name":"Fixture Key",
+            "type":"spot",
+            "color":[0.7,0.8,1.0],
+            "intensity":8.0,
+            "range":14.0,
+            "spot":{"innerConeAngle":0.2,"outerConeAngle":0.6}
+        }]}},
         "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2,"COLOR_0":3},"indices":4,"material":0}]}],
-        "nodes":[{"translation":[6,0,0],"mesh":0}],
-        "scenes":[{"nodes":[0]}],
+        "nodes":[
+            {"translation":[6,0,0],"mesh":0},
+            {"translation":[2,4,5],"extensions":{"KHR_lights_punctual":{"light":0}}},
+            {"translation":[0,1,9],"camera":0}
+        ],
+        "scenes":[{"nodes":[0,1,2]}],
         "scene":0
     })";
 
@@ -241,6 +260,31 @@ int main()
         || material.occlusionStrength < 0.39F
         || material.occlusionStrength > 0.41F) {
         return fail("imported GLB PBR material factors were not preserved");
+    }
+    const auto& sampler = model->textures.front().sampler;
+    if (sampler.magnificationFilter != TextureFilterMode::Nearest
+        || sampler.minificationFilter != TextureFilterMode::Nearest
+        || sampler.mipmapFilter != TextureFilterMode::Linear
+        || sampler.wrapU != TextureWrapMode::ClampToEdge
+        || sampler.wrapV != TextureWrapMode::MirroredRepeat
+        || !sampler.useMipmaps) {
+        return fail("imported GLB texture sampler state was not preserved");
+    }
+    if (model->lights.size() != 1
+        || model->lights.front().type != ImportedLightType::Spot
+        || model->lights.front().position.y < 3.99F
+        || model->lights.front().range < 13.99F
+        || model->lights.front().outerConeAngle < 0.59F
+        || model->lights.front().color[2] < 0.99F) {
+        return fail("imported glTF punctual light state was not preserved");
+    }
+    if (model->cameras.size() != 1
+        || model->cameras.front().projection != ImportedCameraProjection::Perspective
+        || model->cameras.front().position.z < 8.99F
+        || model->cameras.front().verticalFovRadians < 0.89F
+        || model->cameras.front().nearPlane < 0.09F
+        || model->cameras.front().farPlane < 249.0F) {
+        return fail("imported glTF camera state was not preserved");
     }
 
     const auto textureResult = manager.importTexture(pngPath);

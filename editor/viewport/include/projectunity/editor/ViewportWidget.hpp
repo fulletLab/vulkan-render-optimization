@@ -163,6 +163,7 @@ private:
     bool rendererSurfaceReady_ {false};
     bool gpuMeshFrameRendered_ {false};
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
+    std::vector<renderer::RenderLight> rendererLights_;
     std::vector<renderer::RenderColorVertex> rendererGizmoVertices_;
     std::vector<std::uint32_t> rendererGizmoIndices_;
     std::vector<renderer::RenderColorMeshDraw> rendererColorMeshDraws_;

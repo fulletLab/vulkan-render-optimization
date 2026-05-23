@@ -87,6 +87,29 @@ struct TextureStagingBuffer {
     return (properties.optimalTilingFeatures & required) == required;
 }
 
+[[nodiscard]] VkFilter textureFilter(assets::TextureFilterMode filter)
+{
+    return filter == assets::TextureFilterMode::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+}
+
+[[nodiscard]] VkSamplerMipmapMode textureMipmapMode(assets::TextureFilterMode filter)
+{
+    return filter == assets::TextureFilterMode::Nearest
+        ? VK_SAMPLER_MIPMAP_MODE_NEAREST
+        : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+}
+
+[[nodiscard]] VkSamplerAddressMode textureAddressMode(assets::TextureWrapMode wrap)
+{
+    if (wrap == assets::TextureWrapMode::MirroredRepeat) {
+        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+    }
+    if (wrap == assets::TextureWrapMode::ClampToEdge) {
+        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    }
+    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+}
+
 } // namespace
 
 VulkanTextureCache::~VulkanTextureCache()
@@ -97,7 +120,16 @@ VulkanTextureCache::~VulkanTextureCache()
 std::size_t VulkanTextureCache::TextureKeyHash::operator()(const TextureKey& key) const noexcept
 {
     auto hash = static_cast<std::size_t>(key.source);
-    hash ^= static_cast<std::size_t>(key.colorSpace) + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
+    const auto mix = [&hash](std::size_t value) {
+        hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
+    };
+    mix(static_cast<std::size_t>(key.colorSpace));
+    mix(static_cast<std::size_t>(key.sampler.magnificationFilter));
+    mix(static_cast<std::size_t>(key.sampler.minificationFilter));
+    mix(static_cast<std::size_t>(key.sampler.mipmapFilter));
+    mix(static_cast<std::size_t>(key.sampler.wrapU));
+    mix(static_cast<std::size_t>(key.sampler.wrapV));
+    mix(key.sampler.useMipmaps ? 1U : 0U);
     return hash;
 }
 
@@ -110,7 +142,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     if (!textureUsable(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear};
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -134,7 +166,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
     if (!textureUsable(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb};
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb, texture->sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -176,7 +208,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    const TextureKey key {kWhiteTextureKey, VulkanTextureColorSpace::Linear};
+    const TextureKey key {kWhiteTextureKey, VulkanTextureColorSpace::Linear, {}};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -189,7 +221,7 @@ const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    const TextureKey key {kFlatNormalTextureKey, VulkanTextureColorSpace::Linear};
+    const TextureKey key {kFlatNormalTextureKey, VulkanTextureColorSpace::Linear, {}};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -246,7 +278,9 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     next.context = context;
     next.handle.key = nextHandleKey_++;
     const auto format = textureFormat(key.colorSpace);
-    const auto mipLevels = supportsLinearMipBlit(context.physicalDevice, format) ? mipLevelCount(width, height) : 1U;
+    const auto mipLevels = key.sampler.useMipmaps && supportsLinearMipBlit(context.physicalDevice, format)
+        ? mipLevelCount(width, height)
+        : 1U;
     VkImageCreateInfo imageInfo {};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -437,11 +471,11 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
 
     VkSamplerCreateInfo samplerInfo {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.magFilter = textureFilter(key.sampler.magnificationFilter);
+    samplerInfo.minFilter = textureFilter(key.sampler.minificationFilter);
+    samplerInfo.mipmapMode = textureMipmapMode(key.sampler.mipmapFilter);
+    samplerInfo.addressModeU = textureAddressMode(key.sampler.wrapU);
+    samplerInfo.addressModeV = textureAddressMode(key.sampler.wrapV);
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.maxLod = static_cast<float>(mipLevels);
     if (vkCreateSampler(context.device, &samplerInfo, nullptr, &next.handle.sampler) != VK_SUCCESS) {

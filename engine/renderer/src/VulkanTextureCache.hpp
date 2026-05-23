@@ -49,6 +49,7 @@ private:
     struct TextureKey {
         std::uint64_t source {0};
         VulkanTextureColorSpace colorSpace {VulkanTextureColorSpace::Linear};
+        assets::TextureSamplerAsset sampler;
 
         [[nodiscard]] bool operator==(const TextureKey&) const noexcept = default;
     };

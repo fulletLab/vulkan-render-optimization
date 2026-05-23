@@ -22,6 +22,8 @@ add_library(projectunity_assets STATIC
     src/GltfAttributeReader.hpp
     src/GltfNodeTransforms.cpp
     src/GltfNodeTransforms.hpp
+    src/GltfSceneObjects.cpp
+    src/GltfSceneObjects.hpp
     src/MeshBounds.cpp
     src/MeshBounds.hpp
     src/StbTextureImport.cpp

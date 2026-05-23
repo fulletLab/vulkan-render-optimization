@@ -3,6 +3,7 @@
 #include "AssetImportUtils.hpp"
 #include "GltfAttributeReader.hpp"
 #include "GltfNodeTransforms.hpp"
+#include "GltfSceneObjects.hpp"
 #include "MeshBounds.hpp"
 #include "StbTextureImport.hpp"
 
@@ -287,6 +288,55 @@ void optimizePrimitive(MeshPrimitive& primitive)
     return true;
 }
 
+[[nodiscard]] TextureWrapMode textureWrapMode(int value)
+{
+    if (value == TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT) {
+        return TextureWrapMode::MirroredRepeat;
+    }
+    if (value == TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE) {
+        return TextureWrapMode::ClampToEdge;
+    }
+    return TextureWrapMode::Repeat;
+}
+
+[[nodiscard]] TextureSamplerAsset textureSampler(const tinygltf::Model& gltf, const tinygltf::Texture& texture)
+{
+    TextureSamplerAsset sampler;
+    if (texture.sampler < 0 || static_cast<std::size_t>(texture.sampler) >= gltf.samplers.size()) {
+        return sampler;
+    }
+
+    const auto& source = gltf.samplers[static_cast<std::size_t>(texture.sampler)];
+    sampler.wrapU = textureWrapMode(source.wrapS);
+    sampler.wrapV = textureWrapMode(source.wrapT);
+    sampler.magnificationFilter = source.magFilter == TINYGLTF_TEXTURE_FILTER_NEAREST
+        ? TextureFilterMode::Nearest
+        : TextureFilterMode::Linear;
+    switch (source.minFilter) {
+    case TINYGLTF_TEXTURE_FILTER_NEAREST:
+        sampler.minificationFilter = TextureFilterMode::Nearest;
+        sampler.useMipmaps = false;
+        break;
+    case TINYGLTF_TEXTURE_FILTER_LINEAR:
+        sampler.minificationFilter = TextureFilterMode::Linear;
+        sampler.useMipmaps = false;
+        break;
+    case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST:
+        sampler.minificationFilter = TextureFilterMode::Nearest;
+        sampler.mipmapFilter = TextureFilterMode::Nearest;
+        break;
+    case TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST:
+        sampler.mipmapFilter = TextureFilterMode::Nearest;
+        break;
+    case TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR:
+        sampler.minificationFilter = TextureFilterMode::Nearest;
+        break;
+    default:
+        break;
+    }
+    return sampler;
+}
+
 [[nodiscard]] MaterialAsset defaultMaterial()
 {
     return {};
@@ -500,6 +550,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         if (!convertTexture(gltf.images[static_cast<std::size_t>(sourceIndex)], gltf.textures[textureIndex].name, texture, errorMessage)) {
             return {};
         }
+        texture.sampler = textureSampler(gltf, gltf.textures[textureIndex]);
         textureMap[textureIndex] = static_cast<int>(model->textures.size());
         model->textures.push_back(std::move(texture));
     }
@@ -559,7 +610,14 @@ void optimizePrimitive(MeshPrimitive& primitive)
             return {};
         }
         for (const auto node : gltf.scenes[static_cast<std::size_t>(sceneIndex)].nodes) {
-            if (!importNodePrimitives(gltf, node, identityGltfMatrix(), model->primitives, model->materials.size(), errorMessage)) {
+            if (!importNodePrimitives(gltf, node, identityGltfMatrix(), model->primitives, model->materials.size(), errorMessage)
+                || !detail::importGltfSceneObjects(
+                    gltf,
+                    node,
+                    identityGltfMatrix(),
+                    model->lights,
+                    model->cameras,
+                    errorMessage)) {
                 return {};
             }
         }

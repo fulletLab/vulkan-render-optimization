@@ -9,6 +9,8 @@
 
 namespace projectunity::renderer {
 
+constexpr std::size_t kMaxFrameLights = 8;
+
 enum class RenderBackend : std::uint8_t {
     Vulkan,
 };
@@ -52,6 +54,23 @@ struct RenderMatrix4 {
     };
 };
 
+enum class RenderLightType : std::uint8_t {
+    Directional,
+    Point,
+    Spot,
+};
+
+struct RenderLight {
+    RenderLightType type {RenderLightType::Directional};
+    std::array<float, 3> position {0.0F, 0.0F, 0.0F};
+    std::array<float, 3> direction {0.35F, -0.82F, 0.45F};
+    std::array<float, 3> color {1.0F, 0.98F, 0.92F};
+    float intensity {3.0F};
+    float range {0.0F};
+    float innerConeAngle {0.0F};
+    float outerConeAngle {0.7853981634F};
+};
+
 struct RenderMeshDraw {
     assets::AssetId modelAssetId;
     std::uint32_t primitiveIndex {0};
@@ -63,6 +82,7 @@ struct RenderMeshDraw {
     const assets::TextureAsset* occlusionTexture {nullptr};
     const assets::TextureAsset* emissiveTexture {nullptr};
     float sortDepth {0.0F};
+    RenderMatrix4 modelMatrix;
     RenderMatrix4 modelViewProjection;
 };
 
@@ -79,6 +99,14 @@ struct RenderColorMeshDraw {
 
 struct RenderFrame {
     RenderClearColor clearColor;
+    RenderMatrix4 viewProjection;
+    RenderMatrix4 shadowViewProjection;
+    std::array<float, 3> cameraPosition {0.0F, 0.0F, 0.0F};
+    std::array<float, 3> ambientSkyColor {0.22F, 0.28F, 0.40F};
+    std::array<float, 3> ambientGroundColor {0.07F, 0.06F, 0.05F};
+    std::span<const RenderLight> lights;
+    bool shadowsEnabled {false};
+    std::uint32_t shadowLightIndex {0};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

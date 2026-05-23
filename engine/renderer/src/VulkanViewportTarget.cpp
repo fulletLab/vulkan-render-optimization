@@ -32,7 +32,15 @@ VulkanViewportTarget::VulkanViewportTarget(VulkanViewportContext context, Viewpo
         createSwapchain();
         createImageViews();
         meshPipeline_ = std::make_unique<VulkanMeshPipeline>(context_.resources(), surfaceFormat_.format);
+        shadowPipeline_ = std::make_unique<VulkanShadowPipeline>(
+            context_.resources(),
+            meshPipeline_->textureLayout(),
+            meshPipeline_->depthFormat());
         colorPipeline_ = std::make_unique<VulkanColorPipeline>(context_.resources(), meshPipeline_->renderPass());
+        std::string frameError;
+        if (!frameData_.create(context_.resources(), &frameError)) {
+            throw std::runtime_error(frameError);
+        }
         createDepthTarget();
         createFramebuffers();
         createDescriptors();
@@ -182,7 +190,9 @@ void VulkanViewportTarget::destroy() noexcept
         depthAllocation_ = VK_NULL_HANDLE;
     }
     colorMeshes_.clear();
+    frameData_.destroy();
     colorPipeline_.reset();
+    shadowPipeline_.reset();
     meshPipeline_.reset();
     for (const auto view : imageViews_) {
         vkDestroyImageView(context_.device, view, nullptr);
@@ -364,14 +374,16 @@ void VulkanViewportTarget::createFramebuffers()
 
 void VulkanViewportTarget::createDescriptors()
 {
-    VkDescriptorPoolSize poolSize {};
-    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSize.descriptorCount = 5120;
+    std::array<VkDescriptorPoolSize, 2> poolSizes {};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1024;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = 6144;
     VkDescriptorPoolCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     info.maxSets = 1024;
-    info.poolSizeCount = 1;
-    info.pPoolSizes = &poolSize;
+    info.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
+    info.pPoolSizes = poolSizes.data();
     if (vkCreateDescriptorPool(context_.device, &info, nullptr, &descriptorPool_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport descriptor pool");
     }
@@ -441,25 +453,127 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
         return VK_NULL_HANDLE;
     }
 
-    const std::array<VkDescriptorImageInfo, 5> imageInfos {{
+    VkDescriptorBufferInfo frameInfo {};
+    frameInfo.buffer = frameData_.buffer();
+    frameInfo.range = sizeof(VulkanFrameUniforms);
+    const std::array<VkDescriptorImageInfo, 6> imageInfos {{
         {baseColor.sampler, baseColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {normal.sampler, normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {metallicRoughness.sampler, metallicRoughness.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {occlusion.sampler, occlusion.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {emissive.sampler, emissive.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {shadowPipeline_->sampler(), shadowPipeline_->imageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
     }};
-    std::array<VkWriteDescriptorSet, imageInfos.size()> writes {};
-    for (std::uint32_t index = 0; index < writes.size(); ++index) {
-        writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[index].dstSet = descriptor;
-        writes[index].dstBinding = index;
-        writes[index].descriptorCount = 1;
-        writes[index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[index].pImageInfo = &imageInfos[index];
+    std::array<VkWriteDescriptorSet, imageInfos.size() + 1U> writes {};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = descriptor;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &frameInfo;
+    for (std::uint32_t index = 0; index < imageInfos.size(); ++index) {
+        auto& write = writes[index + 1U];
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = descriptor;
+        write.dstBinding = index + 1U;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &imageInfos[index];
     }
     vkUpdateDescriptorSets(context_.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     textureDescriptors_.emplace(key, descriptor);
     return descriptor;
+}
+
+bool VulkanViewportTarget::recordShadowPass(
+    const RenderFrame& frame,
+    VulkanUploadContext& uploads,
+    VulkanMeshCache& meshCache,
+    VulkanTextureCache& textureCache,
+    std::string* errorMessage)
+{
+    VkClearValue clear {};
+    clear.depthStencil = {1.0F, 0};
+    VkRenderPassBeginInfo renderPass {};
+    renderPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPass.renderPass = shadowPipeline_->renderPass();
+    renderPass.framebuffer = shadowPipeline_->framebuffer();
+    renderPass.renderArea.extent = shadowPipeline_->extent();
+    renderPass.clearValueCount = 1;
+    renderPass.pClearValues = &clear;
+    vkCmdBeginRenderPass(commandBuffer_, &renderPass, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport {};
+    viewport.width = static_cast<float>(shadowPipeline_->extent().width);
+    viewport.height = static_cast<float>(shadowPipeline_->extent().height);
+    viewport.maxDepth = 1.0F;
+    VkRect2D scissor {};
+    scissor.extent = shadowPipeline_->extent();
+    vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
+    vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
+
+    if (!frame.shadowsEnabled) {
+        vkCmdEndRenderPass(commandBuffer_);
+        return true;
+    }
+
+    for (const auto& draw : frame.meshDraws) {
+        if (isTransparentMeshDraw(draw)) {
+            continue;
+        }
+        const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
+        const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+        const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
+        const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
+        const auto* metallicRoughness = textureCache.ensureUploaded(
+            context_.resources(),
+            uploads,
+            draw.metallicRoughnessTexture,
+            errorMessage);
+        const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
+        const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
+        if (mesh == nullptr
+            || baseColor == nullptr
+            || normal == nullptr
+            || metallicRoughness == nullptr
+            || occlusion == nullptr
+            || emissive == nullptr) {
+            vkCmdEndRenderPass(commandBuffer_);
+            return false;
+        }
+        const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage);
+        if (descriptor == VK_NULL_HANDLE) {
+            vkCmdEndRenderPass(commandBuffer_);
+            return false;
+        }
+
+        VulkanDrawPushConstants push;
+        push.modelMatrix = draw.modelMatrix.values;
+        const VkDeviceSize vertexOffset = 0;
+        const auto vertexBuffer = mesh->vertices.buffer();
+        vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
+        vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindDescriptorSets(
+            commandBuffer_,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            shadowPipeline_->layout(),
+            0,
+            1,
+            &descriptor,
+            0,
+            nullptr);
+        vkCmdPushConstants(
+            commandBuffer_,
+            shadowPipeline_->layout(),
+            VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            sizeof(VulkanDrawPushConstants),
+            &push);
+        vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, 1, 0, 0, 0);
+    }
+    vkCmdEndRenderPass(commandBuffer_);
+    return true;
 }
 
 bool VulkanViewportTarget::recordFrameCommand(
@@ -474,6 +588,9 @@ bool VulkanViewportTarget::recordFrameCommand(
         if (errorMessage != nullptr) {
             *errorMessage = "Invalid Vulkan viewport image index";
         }
+        return false;
+    }
+    if (!frameData_.update(frame, errorMessage)) {
         return false;
     }
 
@@ -524,6 +641,9 @@ bool VulkanViewportTarget::recordFrameCommand(
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to begin Vulkan viewport command buffer";
         }
+        return false;
+    }
+    if (!recordShadowPass(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
 
@@ -588,7 +708,7 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
 
         VulkanDrawPushConstants push;
-        push.modelViewProjection = draw.modelViewProjection.values;
+        push.modelMatrix = draw.modelMatrix.values;
         if (draw.material != nullptr) {
             push.baseColor = draw.material->baseColor;
             push.pbrFactors = {
