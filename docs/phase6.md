@@ -127,6 +127,7 @@ Status: PARCIAL
 - `editor/app/include/projectunity/editor/MainWindow.hpp`
 - `editor/app/src/EditorApp.cpp`
 - `editor/app/src/MainWindow.cpp`
+- `editor/app/src/MainWindowAssets.cpp`
 - `editor/app/src/MainWindowPanels.cpp`
 - `editor/app/src/MainWindowSmoke.cpp`
 - `editor/viewport/CMakeLists.txt`
@@ -233,6 +234,9 @@ Date: 2026-05-22
 - Vulkan platform setup, support queries, renderer orchestration, and viewport target ownership were split across private renderer files to keep code files under the 800-line project rule.
 - `ViewportWidgetRenderer.cpp` owns Qt viewport-to-renderer surface/frame bridging, keeping `ViewportWidget.cpp` below the file-size limit.
 - `MainWindowSmoke.cpp` owns smoke-test orchestration, keeping `MainWindow.cpp` below the file-size limit.
+- `MainWindowAssets.cpp` owns Project Browser import orchestration and the Asset
+  Import status panel, keeping `MainWindow.cpp` below the file-size limit while
+  avoiding a fake percentage for importer stages that are not instrumented yet.
 - GLSL textured mesh shaders are compiled to SPIR-V at build time and embedded into the renderer binary through a CMake script, avoiding runtime absolute shader paths.
 
 ## Bugs Fixed During Renderer Integration
@@ -368,6 +372,10 @@ Date: 2026-05-22
 - A Phase 6 visual/profiling asset pack now lives under
   `Project/Assets/VisualVerification`, with source, license notes, import order, and
   expected checks documented in `docs/phase6_visual_verification_assets.md`.
+- The local Vulkan Samples `vokselia` pack is a glTF-plus-external-KTX stress
+  case, not proof that the editor is loading a 270 MB textured scene yet. Current
+  Phase 6 can parse the `.gltf` structure/geometry path, but its ASTC `.ktx`
+  textures remain pending until KTX/KTX2 upload support exists.
 - Large glTF files with thousands of nodes/primitives now keep renderer-friendly
   representation without reducing asset fidelity: repeated mesh primitives are
   shared when possible, repeated textures/materials are deduplicated, large flat

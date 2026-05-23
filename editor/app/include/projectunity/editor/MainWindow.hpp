@@ -17,9 +17,11 @@
 class QAction;
 class QActionGroup;
 class QDoubleSpinBox;
+class QLabel;
 class QLineEdit;
 class QMenu;
 class QPlainTextEdit;
+class QProgressBar;
 class QPushButton;
 class QTableWidget;
 class QTimer;
@@ -84,6 +86,7 @@ private:
     [[nodiscard]] QWidget* createHierarchyPanel();
     [[nodiscard]] QWidget* createInspectorPanel();
     [[nodiscard]] QWidget* createProjectPanel();
+    [[nodiscard]] QWidget* createAssetImportPanel();
     [[nodiscard]] QWidget* createBottomPanel();
     [[nodiscard]] QWidget* createProfilerPanel();
     [[nodiscard]] QWidget* createLightingPanel();
@@ -96,6 +99,7 @@ private:
     void restoreLightingSettings();
     void saveLightingSettings();
     void updateLightingPanelControls();
+    void updateAssetImportPanel(const QString& message, bool busy);
     void useSelectedTextureAsEnvironment();
     void clearEnvironmentTexture();
     void resetLightingDefaults();
@@ -119,6 +123,8 @@ private:
     QPushButton* duplicateEntityButton_ {nullptr};
     QPlainTextEdit* consoleView_ {nullptr};
     QTableWidget* assetTable_ {nullptr};
+    QLabel* assetImportStatus_ {nullptr};
+    QProgressBar* assetImportProgress_ {nullptr};
     QTableWidget* profilerTable_ {nullptr};
     QDoubleSpinBox* skyColorR_ {nullptr};
     QDoubleSpinBox* skyColorG_ {nullptr};
@@ -145,6 +151,7 @@ private:
     scene::EntityId selectedEntityId_;
     std::filesystem::path currentScenePath_;
     QByteArray defaultDockState_;
+    int activeAssetImports_ {0};
     bool inspectorUpdating_ {false};
 };
 

@@ -19,6 +19,7 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QPlainTextEdit>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -179,9 +180,7 @@ void MainWindow::createDockLayout()
     auto* gameDock = createDockWidget(QStringLiteral("Game View"), createGameViewPanel());
     auto* projectDock = createDockWidget(QStringLiteral("Project / Assets / Packages"), createProjectPanel());
     auto* bottomDock = createDockWidget(QStringLiteral("Console / Profiler / Network"), createBottomPanel());
-    auto* importDock = createDockWidget(QStringLiteral("Asset Import"), createTextPanel(
-        QStringLiteral("Asset Import"),
-        {QStringLiteral("Import queue"), QStringLiteral("Validation"), QStringLiteral("Cache status")}));
+    auto* importDock = createDockWidget(QStringLiteral("Asset Import"), createAssetImportPanel());
     auto* terrainDock = createDockWidget(QStringLiteral("Terrain"), createTextPanel(
         QStringLiteral("Terrain"),
         {QStringLiteral("Generator"), QStringLiteral("Brushes"), QStringLiteral("Chunks and LOD")}));
@@ -403,6 +402,37 @@ QWidget* MainWindow::createProjectPanel()
     tabs->addTab(assetsPanel, QStringLiteral("Project"));
     tabs->addTab(createTextPanel(QStringLiteral("Packages"), {QStringLiteral("Engine packages"), QStringLiteral("Third party packages")}), QStringLiteral("Packages"));
     return tabs;
+}
+
+QWidget* MainWindow::createAssetImportPanel()
+{
+    auto* panel = new QWidget;
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(6, 6, 6, 6);
+
+    auto* header = new QLabel(QStringLiteral("Asset Import"));
+    header->setObjectName(QStringLiteral("PanelHeader"));
+    layout->addWidget(header);
+
+    assetImportStatus_ = new QLabel(QStringLiteral("Idle"));
+    assetImportStatus_->setWordWrap(true);
+    layout->addWidget(assetImportStatus_);
+
+    assetImportProgress_ = new QProgressBar;
+    assetImportProgress_->setRange(0, 1);
+    assetImportProgress_->setValue(0);
+    assetImportProgress_->setFormat(QStringLiteral("Idle"));
+    layout->addWidget(assetImportProgress_);
+
+    layout->addWidget(createTextPanel(
+        QStringLiteral("Pipeline"),
+        {
+            QStringLiteral("Read source file"),
+            QStringLiteral("Validate model or texture"),
+            QStringLiteral("Process meshes/materials"),
+            QStringLiteral("Write asset cache"),
+        }));
+    return panel;
 }
 
 QWidget* MainWindow::createBottomPanel()

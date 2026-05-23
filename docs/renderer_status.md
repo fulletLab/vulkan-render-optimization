@@ -94,6 +94,9 @@ color path when a real viewport surface is available.
   cascaded directional shadows, higher quality filtering controls, and transparent
   caster policy.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
+- Treat glTF scenes with external `.ktx` textures, such as the local Vulkan Samples
+  `vokselia` pack, as partial geometry/structure tests until KTX/KTX2 upload support
+  is implemented. They are not valid full-texture performance baselines yet.
 - Expand renderer-owned labels/text overlays beyond the current Scene View entity labels.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
   renderer-owned passes.

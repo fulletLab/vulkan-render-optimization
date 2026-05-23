@@ -14,7 +14,6 @@
 #include <QDateTime>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
-#include <QFutureWatcher>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHeaderView>
@@ -37,8 +36,8 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QVariant>
-#include <QtConcurrentRun>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <filesystem>
@@ -321,106 +320,6 @@ void MainWindow::appendPendingLogs()
     for (const auto& entry : entries) {
         consoleView_->appendPlainText(formatLogEntry(entry));
     }
-}
-
-void MainWindow::importAsset()
-{
-    const auto path = QFileDialog::getOpenFileName(
-        this,
-        QStringLiteral("Import Asset"),
-        QString(),
-        QStringLiteral("Models (*.glb *.gltf);;Textures (*.png *.jpg *.jpeg)"));
-    if (!path.isEmpty()) {
-        importAssetAsync(path);
-    }
-}
-
-void MainWindow::importAssetAsync(const QString& path)
-{
-    auto* watcher = new QFutureWatcher<assets::AssetImportResult>(this);
-    connect(watcher, &QFutureWatcher<assets::AssetImportResult>::finished, this, [this, watcher]() {
-        const auto result = watcher->result();
-        watcher->deleteLater();
-        (void)handleAssetImportResult(result, true);
-    });
-    watcher->setFuture(QtConcurrent::run([this, path]() {
-        return assetManager_.importAsset(pathFromQString(path));
-    }));
-    statusBar()->showMessage(QStringLiteral("Importing asset"));
-    core::logInfo(core::LogCategory::Assets, "Editor asset import queued");
-}
-
-bool MainWindow::handleAssetImportResult(const assets::AssetImportResult& result, bool createModelEntity)
-{
-    if (!result.success) {
-        statusBar()->showMessage(QStringLiteral("Asset import failed"));
-        core::logError(core::LogCategory::Assets, result.error);
-        appendPendingLogs();
-        return false;
-    }
-
-    rebuildAssetBrowser();
-    if (assetTable_ != nullptr) {
-        const auto records = assetManager_.records();
-        for (int row = 0; row < static_cast<int>(records.size()); ++row) {
-            if (records[static_cast<std::size_t>(row)].id == result.record.id) {
-                assetTable_->setCurrentCell(row, 0);
-                break;
-            }
-        }
-    }
-    if (result.record.type == assets::AssetType::Texture2D && result.record.id == environmentTextureId_) {
-        environmentTexture_ = assetManager_.texture(result.record.id);
-        refreshEnvironmentTextureLabel();
-        pushLightingSettingsToViewports();
-    }
-    if (createModelEntity && result.record.type == assets::AssetType::Model) {
-        createImportedModelEntity(result.record);
-    } else {
-        refreshViewports();
-    }
-    statusBar()->showMessage(QStringLiteral("Asset imported"));
-    appendPendingLogs();
-    return true;
-}
-
-assets::AssetImportResult MainWindow::importAssetFromPath(const QString& path, bool createModelEntity)
-{
-    const auto result = assetManager_.importAsset(pathFromQString(path));
-    (void)handleAssetImportResult(result, createModelEntity);
-    return result;
-}
-
-void MainWindow::rebuildAssetBrowser()
-{
-    if (assetTable_ == nullptr) {
-        return;
-    }
-
-    const auto records = assetManager_.records();
-    assetTable_->setRowCount(static_cast<int>(records.size()));
-    for (int row = 0; row < static_cast<int>(records.size()); ++row) {
-        const auto& record = records[static_cast<std::size_t>(row)];
-        assetTable_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(record.displayName)));
-        assetTable_->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(assets::toString(record.type))));
-        assetTable_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(record.sourceName)));
-        assetTable_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(record.cacheFile)));
-        assetTable_->setItem(row, 4, new QTableWidgetItem(QString::number(static_cast<qulonglong>(record.vertexCount))));
-    }
-}
-
-void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
-{
-    auto& entity = scene_.createEntity(record.displayName);
-    const auto importedId = entity.id;
-    if (!scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
-        core::logError(core::LogCategory::Assets, "Editor failed to attach imported model to a scene entity");
-        return;
-    }
-
-    rebuildHierarchy();
-    selectEntity(importedId);
-    core::logInfo(core::LogCategory::Assets, "Imported model added to scene");
 }
 
 void MainWindow::newScene()
