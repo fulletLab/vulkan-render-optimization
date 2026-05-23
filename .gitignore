@@ -20,3 +20,10 @@ CMakeUserPresets.json
 Project/Library/
 Project/Cache/
 Project/Build/
+
+# Local visual/profiling asset packs. Keep large downloaded GLB/glTF/KTX test
+# content out of normal source commits; document sources in docs/manifests.
+Project/Assets/VisualVerification/
+
+# Local smoke/import cache files can be regenerated.
+Cache/Assets/*.asset.json

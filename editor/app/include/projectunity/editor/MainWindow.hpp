@@ -91,10 +91,15 @@ private:
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
     void updateProfilerPanel();
     void applyLightingSettings();
+    void scheduleLightingSettingsApply();
     void pushLightingSettingsToViewports();
     void restoreLightingSettings();
     void saveLightingSettings();
     void updateLightingPanelControls();
+    void useSelectedTextureAsEnvironment();
+    void clearEnvironmentTexture();
+    void resetLightingDefaults();
+    void refreshEnvironmentTextureLabel();
 
     ads::CDockManager* dockManager_ {nullptr};
     QMenu* windowMenu_ {nullptr};
@@ -122,14 +127,21 @@ private:
     QDoubleSpinBox* groundColorG_ {nullptr};
     QDoubleSpinBox* groundColorB_ {nullptr};
     QDoubleSpinBox* environmentIntensity_ {nullptr};
+    QLineEdit* environmentTextureEdit_ {nullptr};
+    QPushButton* useEnvironmentTextureButton_ {nullptr};
+    QPushButton* clearEnvironmentTextureButton_ {nullptr};
+    QPushButton* resetLightingButton_ {nullptr};
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
     std::shared_ptr<core::MemoryLogSink> logSink_;
     QTimer* logFlushTimer_ {nullptr};
+    QTimer* lightingApplyTimer_ {nullptr};
     scene::Scene scene_;
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
     renderer::RenderEnvironmentSettings environmentSettings_;
+    std::shared_ptr<const assets::TextureAsset> environmentTexture_;
+    assets::AssetId environmentTextureId_;
     scene::EntityId selectedEntityId_;
     std::filesystem::path currentScenePath_;
     QByteArray defaultDockState_;

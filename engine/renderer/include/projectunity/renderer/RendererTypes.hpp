@@ -34,6 +34,7 @@ struct RendererStats {
     std::uint64_t lastFrameCandidateMeshDrawCount {0};
     std::uint64_t lastFrameCulledMeshDrawCount {0};
     std::uint64_t lastFrameMeshDrawCount {0};
+    std::uint64_t lastFrameMeshBatchCount {0};
     std::uint64_t lastFrameColorMeshDrawCount {0};
     std::uint64_t lastFrameCandidateTriangleCount {0};
     std::uint64_t lastFrameCulledTriangleCount {0};
@@ -70,6 +71,7 @@ struct RenderEnvironmentSettings {
     std::array<float, 3> skyColor {0.30F, 0.38F, 0.55F};
     std::array<float, 3> groundColor {0.08F, 0.07F, 0.055F};
     float intensity {1.0F};
+    const assets::TextureAsset* sourceTexture {nullptr};
 };
 
 struct RenderMatrix4 {

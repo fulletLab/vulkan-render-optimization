@@ -164,6 +164,11 @@ MainWindow::MainWindow(QWidget* parent)
     createToolbar();
     createDockLayout();
     newScene();
+    lightingApplyTimer_ = new QTimer(this);
+    lightingApplyTimer_->setSingleShot(true);
+    connect(lightingApplyTimer_, &QTimer::timeout, this, [this]() {
+        applyLightingSettings();
+    });
     restoreEditorLayout();
 
     logFlushTimer_ = new QTimer(this);
@@ -205,43 +210,44 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 5, QString::number(static_cast<qulonglong>(stats.lastFrameCandidateMeshDrawCount)));
     setTableValue(profilerTable_, 6, QString::number(static_cast<qulonglong>(stats.lastFrameCulledMeshDrawCount)));
     setTableValue(profilerTable_, 7, QString::number(static_cast<qulonglong>(stats.lastFrameMeshDrawCount)));
+    setTableValue(profilerTable_, 8, QString::number(static_cast<qulonglong>(stats.lastFrameMeshBatchCount)));
     setTableValue(
         profilerTable_,
-        8,
+        9,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameCandidateTriangleCount))
             .arg(static_cast<qulonglong>(stats.lastFrameVisibleTriangleCount)));
-    setTableValue(profilerTable_, 9, QString::number(static_cast<qulonglong>(stats.lastFrameCulledTriangleCount)));
-    setTableValue(profilerTable_, 10, QString::number(static_cast<qulonglong>(stats.meshDrawsPresented)));
-    setTableValue(profilerTable_, 11, QString::number(static_cast<qulonglong>(stats.texturedMeshDrawsPresented)));
-    setTableValue(profilerTable_, 12, QString::number(static_cast<qulonglong>(stats.lastFrameColorMeshDrawCount)));
-    setTableValue(profilerTable_, 13, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameColorUploadBytes)));
-    setTableValue(profilerTable_, 14, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalColorUploadBytes)));
+    setTableValue(profilerTable_, 10, QString::number(static_cast<qulonglong>(stats.lastFrameCulledTriangleCount)));
+    setTableValue(profilerTable_, 11, QString::number(static_cast<qulonglong>(stats.meshDrawsPresented)));
+    setTableValue(profilerTable_, 12, QString::number(static_cast<qulonglong>(stats.texturedMeshDrawsPresented)));
+    setTableValue(profilerTable_, 13, QString::number(static_cast<qulonglong>(stats.lastFrameColorMeshDrawCount)));
+    setTableValue(profilerTable_, 14, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameColorUploadBytes)));
+    setTableValue(profilerTable_, 15, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalColorUploadBytes)));
     setTableValue(
         profilerTable_,
-        15,
+        16,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameMeshUploadCount))
             .arg(static_cast<qulonglong>(stats.totalMeshUploadCount)));
     setTableValue(
         profilerTable_,
-        16,
+        17,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameTextureUploadCount))
             .arg(static_cast<qulonglong>(stats.totalTextureUploadCount)));
-    setTableValue(profilerTable_, 17, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameStaticUploadBytes)));
-    setTableValue(profilerTable_, 18, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalStaticUploadBytes)));
+    setTableValue(profilerTable_, 18, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameStaticUploadBytes)));
+    setTableValue(profilerTable_, 19, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalStaticUploadBytes)));
     setTableValue(
         profilerTable_,
-        19,
+        20,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.residentMeshCount))
             .arg(static_cast<qulonglong>(stats.residentTextureCount)));
-    setTableValue(profilerTable_, 20, QString::number(static_cast<qulonglong>(stats.lastFrameLightCount)));
-    setTableValue(profilerTable_, 21, QString::number(static_cast<qulonglong>(stats.shadowFramesPresented)));
+    setTableValue(profilerTable_, 21, QString::number(static_cast<qulonglong>(stats.lastFrameLightCount)));
+    setTableValue(profilerTable_, 22, QString::number(static_cast<qulonglong>(stats.shadowFramesPresented)));
     setTableValue(
         profilerTable_,
-        22,
+        23,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameShadowCasterCount))
             .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented)));
@@ -354,6 +360,20 @@ bool MainWindow::handleAssetImportResult(const assets::AssetImportResult& result
     }
 
     rebuildAssetBrowser();
+    if (assetTable_ != nullptr) {
+        const auto records = assetManager_.records();
+        for (int row = 0; row < static_cast<int>(records.size()); ++row) {
+            if (records[static_cast<std::size_t>(row)].id == result.record.id) {
+                assetTable_->setCurrentCell(row, 0);
+                break;
+            }
+        }
+    }
+    if (result.record.type == assets::AssetType::Texture2D && result.record.id == environmentTextureId_) {
+        environmentTexture_ = assetManager_.texture(result.record.id);
+        refreshEnvironmentTextureLabel();
+        pushLightingSettingsToViewports();
+    }
     if (createModelEntity && result.record.type == assets::AssetType::Model) {
         createImportedModelEntity(result.record);
     } else {
@@ -727,10 +747,21 @@ void MainWindow::applyLightingSettings()
     };
     environmentSettings_.intensity = static_cast<float>(environmentIntensity_->value());
     pushLightingSettingsToViewports();
+    saveLightingSettings();
+}
+
+void MainWindow::scheduleLightingSettingsApply()
+{
+    if (lightingApplyTimer_ == nullptr) {
+        applyLightingSettings();
+        return;
+    }
+    lightingApplyTimer_->start(180);
 }
 
 void MainWindow::pushLightingSettingsToViewports()
 {
+    environmentSettings_.sourceTexture = environmentTexture_.get();
     if (sceneViewport_ != nullptr) {
         sceneViewport_->setEnvironmentSettings(environmentSettings_);
     }

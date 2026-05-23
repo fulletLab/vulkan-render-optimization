@@ -21,6 +21,9 @@ base-color/normal/metallic-roughness/occlusion/emissive texture descriptors, pre
 occlusion strength, `COLOR_0` vertex colors, and alpha mode/cutoff state, orders
 `BLEND` primitive draws back-to-front after opaque/masked draws, and draws through
 a textured mesh pipeline with opaque and transparent depth-write behavior.
+Opaque and masked draws are also grouped by compatible mesh/material/texture state
+before Vulkan command recording, allowing duplicated imported models to collapse into
+instanced batches while transparent draws keep their depth ordering.
 Base-color and emissive texture uploads use sRGB cache entries while normal,
 metallic-roughness, and occlusion uploads keep linear cache entries.
 The Vulkan texture cache also keeps imported glTF wrap/filter sampler state in the
@@ -35,12 +38,19 @@ VMA-backed 2048-square 2D shadow map before the main pass.
 The editor Lighting / Bake panel now owns sky color, ground color, and IBL intensity
 controls that feed `RenderFrame::environment`; Vulkan regenerates the generated IBL
 cube resources only when that environment key changes, and the editor persists those
-values through `QSettings`.
+values through `QSettings`. The same panel can assign an imported Texture2D Project
+asset as an equirectangular RGBA8 environment source; the renderer samples it into
+generated cubemaps without modifying the source texture.
+The panel debounces numeric edits, makes procedural-versus-texture mode visible in the
+environment field, auto-selects newly imported Project Browser rows, and exposes a reset
+button for restoring procedural defaults.
 The shadow pass now has a small fragment shader that samples base-color alpha and
 respects imported `MASK` cutoff values for opaque/masked casters. Shadow-map selection
 lives in `engine/renderer`, prefers a visible-bounds directional map, falls back to a
 perspective 2D spot-light map when no directional light exists, and filters shadow
-lookups with weighted PCF in the mesh shader.
+lookups with weighted PCF in the mesh shader. Opaque shadow casters share a default
+descriptor instead of preparing full material texture descriptors per caster; `MASK`
+casters still bind base-color alpha for correct cutoff silhouettes.
 Imported glTF light nodes are instantiated from model data, and Game View can render
 through the first imported perspective camera while Scene View stays on the editor camera.
 glTF source spatial data is read as right-handed, Y-up, with camera/light local `-Z`
@@ -78,7 +88,7 @@ color path when a real viewport surface is available.
 ## Vulkan Work Remaining
 
 - Add imported/user-selectable HDR or KTX2 environment assets on top of the current
-  RenderFrame-controlled renderer-generated IBL cubemaps.
+  RenderFrame-controlled generated cubemaps and RGBA8 texture environment source.
 - Add editor/scene-owned lights and camera components beyond imported glTF model data.
 - Expand shadows beyond the current directional/spot 2D map with point-light cubemaps,
   cascaded directional shadows, higher quality filtering controls, and transparent
@@ -153,10 +163,11 @@ color path when a real viewport surface is available.
 - glTF `doubleSided` now survives import. The mesh renderer binds single-sided
   pipelines with back-face culling by default and switches to no-cull variants only
   for materials that explicitly request two-sided rendering.
-- Vulkan draw ordering now keeps opaque and masked primitive draws in submission
-  order, defers glTF `BLEND` primitives, sorts them back-to-front from camera depth,
-  and uses a transparent mesh pipeline that keeps depth tests while disabling depth
-  writes for those blended draws.
+- Vulkan draw ordering now keeps opaque and masked primitive draws before transparent
+  draws, groups compatible opaque/masked state for instanced batches, defers glTF
+  `BLEND` primitives, sorts them back-to-front from camera depth, and uses a transparent
+  mesh pipeline that keeps depth tests while disabling depth writes for those blended
+  draws.
 - glTF light and camera nodes were previously discarded after TinyGLTF parsed them.
   `ModelAsset` now preserves `KHR_lights_punctual` nodes and camera node transforms,
   the asset fixture tests those records, imported punctual lights enter the frame
@@ -177,6 +188,10 @@ color path when a real viewport surface is available.
   solid shadow silhouette. The shadow pass now compiles a fragment stage, passes UVs
   through `ShadowDepth.vert`, samples base-color alpha, and discards imported
   `MASK` shadow fragments at the material cutoff.
+- The shadow pass initially prepared the full material texture set and descriptor for
+  every opaque caster, which adds CPU/descriptor work on large scenes with many unique
+  meshes. Opaque casters now reuse one default shadow descriptor per frame, while
+  masked casters keep their material base-color alpha path.
 - Renderer statistics now track last-frame lights, last-frame shadow casters, total
   shadow frames, and total shadow caster draws. The visible editor smoke test requires
   the Vulkan shadow pass to run, and the Profiler tab displays those counters.
@@ -206,6 +221,17 @@ color path when a real viewport surface is available.
   values are saved/restored through editor settings. The visible smoke test verifies
   that editing them refreshes Vulkan IBL textures while the following frame reuses
   cached static resources.
+- The Lighting / Bake panel can now use the selected Project Browser Texture2D as the
+  environment source. `RenderFrame::environment` carries a non-owning texture pointer
+  kept alive by `MainWindow`, and Vulkan keys the generated cubemaps by the texture
+  asset ID, dimensions, byte count, and intensity.
+- Repeated Lighting / Bake edits no longer allocate unbounded material descriptors for
+  every environment cubemap key. The viewport target clears cached texture descriptors
+  and resets its descriptor pool when the generated irradiance or prefiltered environment
+  key changes.
+- The Lighting / Bake UI now labels texture mode and procedural mode explicitly, delays
+  spinbox-driven renderer updates briefly, auto-selects newly imported Project rows, and
+  adds `Reset Defaults` so `Clear Texture` is not confused with a full numeric reset.
 - Vulkan command buffers now emit debug labels for the viewport frame, shadow pass,
   mesh pass, and Scene View aid pass when `VK_EXT_debug_utils` entry points are available,
   so RenderDoc captures have useful pass boundaries without requiring the extension.
@@ -234,17 +260,33 @@ color path when a real viewport surface is available.
   shadow setup into `engine/renderer`, and keying generated environment cubemaps by
   `RenderFrame::environment`: `cmake --preset dev-core` passed, `cmake --build
   --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7
-  in 29.41 seconds, `cmake --preset dev-editor-local-qt` passed, `cmake --build
-  --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt
-  --output-on-failure` passed 8/8 in 34.67 seconds, visible `projectunity_editor
-  --smoke-test` passed with Lighting panel IBL refresh coverage, source files stayed
-  under the 800-line rule, and `git diff --check` reported no whitespace errors.
+  in 34.13 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest
+  --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 35.98 seconds,
+  visible `projectunity_editor --smoke-test` passed with Lighting panel texture
+  environment coverage, source files stayed under the 800-line rule, and `git diff
+  --check` reported no whitespace errors.
+- Latest verification after the Lighting panel debounce/reset and descriptor-pool reset:
+  `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure`
+  passed 7/7 in 32.99 seconds, `cmake --build --preset dev-editor-local-qt` passed,
+  `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 39.42 seconds,
+  visible `projectunity_editor --smoke-test` passed, source files stayed under the
+  800-line rule, and `git diff --check` reported no whitespace errors beyond existing
+  LF/CRLF warnings.
+- Latest verification after repeated-asset draw grouping: `cmake --build --preset
+  dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in
+  29.63 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8 in 34.42 seconds, visible
+  `projectunity_editor --smoke-test` passed, source files stayed under the 800-line
+  rule, and `git diff --check` reported no whitespace errors beyond existing LF/CRLF
+  warnings.
 - The NodePerformance-style worst case no longer relies on one CPU/UI draw path or
   one unique Vulkan draw for every imported node. The asset importer preserves visual
   fidelity while deduplicating identical texture/material data, baking scalar material
   factors into internal vertex attributes for large static batches, and combining huge
   primitive sets into renderer-friendly batches. The Vulkan mesh path now provides a
-  per-instance matrix stream and uses instanced indexed draws for compatible batches.
+  per-instance matrix stream, sorts repeated opaque/masked state together, exposes
+  `Mesh batches last` in the Profiler, and uses instanced indexed draws for compatible
+  batches.
 
 ## Rules
 

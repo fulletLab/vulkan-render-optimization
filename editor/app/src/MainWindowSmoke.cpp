@@ -8,7 +8,9 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QColor>
 #include <QDoubleSpinBox>
+#include <QImage>
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QPointF>
@@ -226,14 +228,34 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented))
             .arg(consoleView_->toPlainText().right(1200)));
     }
-    if (skyColorR_ == nullptr || groundColorB_ == nullptr || environmentIntensity_ == nullptr) {
+    if (skyColorR_ == nullptr || groundColorB_ == nullptr || environmentIntensity_ == nullptr || resetLightingButton_ == nullptr) {
         return fail(QStringLiteral("Lighting panel environment controls were not created"));
+    }
+    QImage environmentImage(8, 4, QImage::Format_RGBA8888);
+    for (int y = 0; y < environmentImage.height(); ++y) {
+        for (int x = 0; x < environmentImage.width(); ++x) {
+            environmentImage.setPixelColor(x, y, QColor(24 + x * 20, 32 + y * 32, 128 + x * 8, 255));
+        }
+    }
+    const auto environmentPath = tempDir.filePath(QStringLiteral("smoke_environment.png"));
+    if (!environmentImage.save(environmentPath)) {
+        return fail(QStringLiteral("Unable to write temporary environment texture"));
+    }
+    const auto environmentImport = importAssetFromPath(environmentPath, false);
+    if (!environmentImport.success || environmentImport.record.type != assets::AssetType::Texture2D) {
+        return fail(QStringLiteral("Environment texture import failed: %1").arg(QString::fromStdString(environmentImport.error)));
+    }
+    assetTable_->setCurrentCell(assetTable_->rowCount() - 1, 0);
+    useSelectedTextureAsEnvironment();
+    if (environmentTexture_ == nullptr || environmentTextureId_ != environmentImport.record.id) {
+        return fail(QStringLiteral("Lighting panel did not assign the selected texture environment"));
     }
     if (!offscreenPlatform) {
         const auto textureUploadsBeforeLighting = renderer_->stats().totalTextureUploadCount;
         skyColorR_->setValue(0.65);
         groundColorB_->setValue(0.10);
         environmentIntensity_->setValue(1.15);
+        applyLightingSettings();
         sceneViewport_->repaint();
         QApplication::processEvents();
         if (renderer_->stats().totalTextureUploadCount <= textureUploadsBeforeLighting) {
@@ -261,6 +283,15 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
                 .arg(static_cast<qulonglong>(cachedStats.totalStaticUploadBytes))
                 .arg(static_cast<qulonglong>(cachedStats.lastFrameStaticUploadBytes)));
         }
+    }
+    resetLightingDefaults();
+    const renderer::RenderEnvironmentSettings defaultEnvironment;
+    if (environmentTexture_ != nullptr
+        || environmentTextureId_.isValid()
+        || environmentSettings_.skyColor != defaultEnvironment.skyColor
+        || environmentSettings_.groundColor != defaultEnvironment.groundColor
+        || environmentSettings_.intensity != defaultEnvironment.intensity) {
+        return fail(QStringLiteral("Lighting reset defaults did not restore procedural environment state"));
     }
 
     return true;

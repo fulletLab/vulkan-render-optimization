@@ -226,6 +226,7 @@ struct VulkanRenderer::Impl {
             stats.lastFrameCandidateMeshDrawCount = frame.candidateMeshDrawCount;
             stats.lastFrameCulledMeshDrawCount = frame.culledMeshDrawCount;
             stats.lastFrameMeshDrawCount = static_cast<std::uint64_t>(frame.meshDraws.size());
+            stats.lastFrameMeshBatchCount = existing->second->lastMeshBatchCount();
             stats.lastFrameColorMeshDrawCount = static_cast<std::uint64_t>(frame.colorMeshDraws.size());
             stats.lastFrameCandidateTriangleCount = frame.candidateTriangleCount;
             stats.lastFrameCulledTriangleCount = frame.culledTriangleCount;

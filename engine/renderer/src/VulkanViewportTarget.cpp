@@ -69,6 +69,10 @@ bool VulkanViewportTarget::matches(const ViewportRenderSurfaceDesc& surfaceDesc)
         && desc_.vsync == surfaceDesc.vsync
         && swapchain_ != VK_NULL_HANDLE;
 }
+std::uint64_t VulkanViewportTarget::lastMeshBatchCount() const noexcept
+{
+    return static_cast<std::uint64_t>(meshBatches_.size());
+}
 bool VulkanViewportTarget::renderFrame(
     const RenderFrame& frame,
     VulkanUploadContext& uploads,
@@ -168,6 +172,9 @@ void VulkanViewportTarget::destroy() noexcept
         commandBuffer_ = VK_NULL_HANDLE;
     }
     textureDescriptors_.clear();
+    descriptorIrradianceKey_ = 0;
+    descriptorPrefilteredEnvironmentKey_ = 0;
+    descriptorEnvironmentKeyValid_ = false;
     if (descriptorPool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(context_.device, descriptorPool_, nullptr);
         descriptorPool_ = VK_NULL_HANDLE;
@@ -480,25 +487,23 @@ bool VulkanViewportTarget::recordShadowPass(
         vkCmdEndRenderPass(commandBuffer_);
         return true;
     }
-    for (const auto& batch : meshBatches_) {
-        const auto& draw = *batch.draw;
-        if (isTransparentMeshDraw(draw)) {
-            continue;
+    VkDescriptorSet opaqueShadowDescriptor = VK_NULL_HANDLE;
+    const auto getOpaqueShadowDescriptor = [&]() -> VkDescriptorSet {
+        if (opaqueShadowDescriptor != VK_NULL_HANDLE) {
+            return opaqueShadowDescriptor;
         }
-        const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
-        const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+        const RenderMeshDraw defaultDraw {};
         const auto textures = uploadMaterialTextureSet(
             context_.resources(),
             uploads,
             textureCache,
-            draw,
+            defaultDraw,
             frame.environment,
             errorMessage);
-        if (mesh == nullptr || !textures.complete()) {
-            vkCmdEndRenderPass(commandBuffer_);
-            return false;
+        if (!textures.complete()) {
+            return VK_NULL_HANDLE;
         }
-        const auto descriptor = textureDescriptor(
+        opaqueShadowDescriptor = textureDescriptor(
             *textures.baseColor,
             *textures.normal,
             *textures.metallicRoughness,
@@ -508,6 +513,47 @@ bool VulkanViewportTarget::recordShadowPass(
             *textures.irradianceCube,
             *textures.prefilteredEnvironment,
             errorMessage);
+        return opaqueShadowDescriptor;
+    };
+    for (const auto& batch : meshBatches_) {
+        const auto& draw = *batch.draw;
+        if (isTransparentMeshDraw(draw)) {
+            continue;
+        }
+        const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
+        const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+        if (mesh == nullptr) {
+            vkCmdEndRenderPass(commandBuffer_);
+            return false;
+        }
+        VkDescriptorSet descriptor = VK_NULL_HANDLE;
+        const auto needsAlphaTexture = draw.material != nullptr
+            && draw.material->alphaMode == assets::MaterialAlphaMode::Mask;
+        if (needsAlphaTexture) {
+            const auto textures = uploadMaterialTextureSet(
+                context_.resources(),
+                uploads,
+                textureCache,
+                draw,
+                frame.environment,
+                errorMessage);
+            if (!textures.complete()) {
+                vkCmdEndRenderPass(commandBuffer_);
+                return false;
+            }
+            descriptor = textureDescriptor(
+                *textures.baseColor,
+                *textures.normal,
+                *textures.metallicRoughness,
+                *textures.occlusion,
+                *textures.emissive,
+                *textures.brdfLut,
+                *textures.irradianceCube,
+                *textures.prefilteredEnvironment,
+                errorMessage);
+        } else {
+            descriptor = getOpaqueShadowDescriptor();
+        }
         if (descriptor == VK_NULL_HANDLE) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;

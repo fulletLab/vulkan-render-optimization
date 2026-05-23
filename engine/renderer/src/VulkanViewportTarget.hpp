@@ -67,6 +67,7 @@ public:
     VulkanViewportTarget& operator=(const VulkanViewportTarget&) = delete;
 
     [[nodiscard]] bool matches(const ViewportRenderSurfaceDesc& surfaceDesc) const noexcept;
+    [[nodiscard]] std::uint64_t lastMeshBatchCount() const noexcept;
     [[nodiscard]] bool renderFrame(
         const RenderFrame& frame,
         VulkanUploadContext& uploads,
@@ -135,6 +136,9 @@ private:
     std::vector<VkFramebuffer> framebuffers_;
     VkDescriptorPool descriptorPool_ {VK_NULL_HANDLE};
     std::unordered_map<VulkanMaterialTextureKey, VkDescriptorSet, VulkanMaterialTextureKeyHash> textureDescriptors_;
+    std::uint64_t descriptorIrradianceKey_ {0};
+    std::uint64_t descriptorPrefilteredEnvironmentKey_ {0};
+    bool descriptorEnvironmentKeyValid_ {false};
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
     PFN_vkCmdBeginDebugUtilsLabelEXT beginDebugLabel_ {nullptr};

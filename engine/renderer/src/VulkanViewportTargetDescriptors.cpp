@@ -41,6 +41,21 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
         irradianceCube.key,
         prefilteredEnvironment.key,
     };
+    const bool environmentChanged = descriptorEnvironmentKeyValid_
+        && (descriptorIrradianceKey_ != irradianceCube.key
+            || descriptorPrefilteredEnvironmentKey_ != prefilteredEnvironment.key);
+    if (environmentChanged) {
+        textureDescriptors_.clear();
+        if (vkResetDescriptorPool(context_.device, descriptorPool_, 0) != VK_SUCCESS) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "Failed to reset Vulkan texture descriptor pool after environment change";
+            }
+            return VK_NULL_HANDLE;
+        }
+    }
+    descriptorIrradianceKey_ = irradianceCube.key;
+    descriptorPrefilteredEnvironmentKey_ = prefilteredEnvironment.key;
+    descriptorEnvironmentKeyValid_ = true;
     if (const auto existing = textureDescriptors_.find(key); existing != textureDescriptors_.end()) {
         return existing->second;
     }

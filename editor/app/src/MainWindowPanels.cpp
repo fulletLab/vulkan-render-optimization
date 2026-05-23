@@ -428,7 +428,7 @@ QWidget* MainWindow::createProfilerPanel()
     header->setObjectName(QStringLiteral("PanelHeader"));
     layout->addWidget(header);
 
-    profilerTable_ = new QTableWidget(23, 2);
+    profilerTable_ = new QTableWidget(24, 2);
     profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
     profilerTable_->horizontalHeader()->setStretchLastSection(true);
     profilerTable_->verticalHeader()->setVisible(false);
@@ -443,6 +443,7 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Mesh candidates last"),
         QStringLiteral("Mesh culled last"),
         QStringLiteral("Mesh draws last"),
+        QStringLiteral("Mesh batches last"),
         QStringLiteral("Triangles candidate/visible"),
         QStringLiteral("Triangles culled last"),
         QStringLiteral("Mesh draws total"),
@@ -504,7 +505,20 @@ QWidget* MainWindow::createLightingPanel()
     environmentIntensity_ = makeLightingSpinBox(16.0);
     environmentIntensity_->setValue(environmentSettings_.intensity);
     form->addRow(QStringLiteral("IBL Intensity"), environmentIntensity_);
+    environmentTextureEdit_ = new QLineEdit;
+    environmentTextureEdit_->setReadOnly(true);
+    form->addRow(QStringLiteral("Environment"), environmentTextureEdit_);
     layout->addLayout(form);
+
+    auto* environmentButtons = new QHBoxLayout;
+    useEnvironmentTextureButton_ = makeToolButton(QStringLiteral("Use Project Texture"));
+    clearEnvironmentTextureButton_ = makeToolButton(QStringLiteral("Clear Texture"));
+    environmentButtons->addWidget(useEnvironmentTextureButton_);
+    environmentButtons->addWidget(clearEnvironmentTextureButton_);
+    layout->addLayout(environmentButtons);
+
+    resetLightingButton_ = makeToolButton(QStringLiteral("Reset Defaults"));
+    layout->addWidget(resetLightingButton_);
     layout->addStretch();
 
     const std::array<QDoubleSpinBox*, 7> spinBoxes {
@@ -514,9 +528,19 @@ QWidget* MainWindow::createLightingPanel()
     };
     for (auto* spinBox : spinBoxes) {
         connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this](double) {
-            applyLightingSettings();
+            scheduleLightingSettingsApply();
         });
     }
+    connect(useEnvironmentTextureButton_, &QPushButton::clicked, this, [this] {
+        useSelectedTextureAsEnvironment();
+    });
+    connect(clearEnvironmentTextureButton_, &QPushButton::clicked, this, [this] {
+        clearEnvironmentTexture();
+    });
+    connect(resetLightingButton_, &QPushButton::clicked, this, [this] {
+        resetLightingDefaults();
+    });
+    refreshEnvironmentTextureLabel();
     return panel;
 }
 
@@ -536,6 +560,8 @@ void MainWindow::restoreLightingSettings()
     environmentSettings_.intensity = settings.value(
         QStringLiteral("editor/lighting/intensity"),
         environmentSettings_.intensity).toFloat();
+    environmentTextureId_ = assets::AssetId(settings.value(QStringLiteral("editor/lighting/environmentTexture"), 0).toULongLong());
+    environmentTexture_ = environmentTextureId_.isValid() ? assetManager_.texture(environmentTextureId_) : nullptr;
     updateLightingPanelControls();
     pushLightingSettingsToViewports();
 }
@@ -550,6 +576,7 @@ void MainWindow::saveLightingSettings()
     settings.setValue(QStringLiteral("editor/lighting/groundG"), environmentSettings_.groundColor[1]);
     settings.setValue(QStringLiteral("editor/lighting/groundB"), environmentSettings_.groundColor[2]);
     settings.setValue(QStringLiteral("editor/lighting/intensity"), environmentSettings_.intensity);
+    settings.setValue(QStringLiteral("editor/lighting/environmentTexture"), static_cast<qulonglong>(environmentTextureId_.value()));
 }
 
 void MainWindow::updateLightingPanelControls()
@@ -568,6 +595,74 @@ void MainWindow::updateLightingPanelControls()
     setValue(groundColorG_, environmentSettings_.groundColor[1]);
     setValue(groundColorB_, environmentSettings_.groundColor[2]);
     setValue(environmentIntensity_, environmentSettings_.intensity);
+    refreshEnvironmentTextureLabel();
+}
+
+void MainWindow::useSelectedTextureAsEnvironment()
+{
+    if (assetTable_ == nullptr) {
+        return;
+    }
+    const auto row = assetTable_->currentRow();
+    const auto records = assetManager_.records();
+    if (row < 0 || row >= static_cast<int>(records.size())) {
+        core::logWarning(core::LogCategory::Editor, "Select a Texture2D row in Project Browser before pressing Use Project Texture");
+        return;
+    }
+    const auto& record = records[static_cast<std::size_t>(row)];
+    if (record.type != assets::AssetType::Texture2D) {
+        core::logWarning(core::LogCategory::Editor, "Selected Project asset is not a Texture2D environment source");
+        return;
+    }
+    auto texture = assetManager_.texture(record.id);
+    if (texture == nullptr) {
+        core::logError(core::LogCategory::Assets, "Selected environment texture asset is not loaded");
+        return;
+    }
+    environmentTextureId_ = record.id;
+    environmentTexture_ = std::move(texture);
+    refreshEnvironmentTextureLabel();
+    pushLightingSettingsToViewports();
+    saveLightingSettings();
+    core::logInfo(core::LogCategory::Renderer, "Lighting environment texture assigned from Project Browser");
+}
+
+void MainWindow::clearEnvironmentTexture()
+{
+    environmentTextureId_ = {};
+    environmentTexture_.reset();
+    refreshEnvironmentTextureLabel();
+    pushLightingSettingsToViewports();
+    saveLightingSettings();
+    core::logInfo(core::LogCategory::Renderer, "Lighting environment texture cleared");
+}
+
+void MainWindow::resetLightingDefaults()
+{
+    environmentSettings_ = renderer::RenderEnvironmentSettings {};
+    environmentTextureId_ = {};
+    environmentTexture_.reset();
+    updateLightingPanelControls();
+    pushLightingSettingsToViewports();
+    saveLightingSettings();
+    core::logInfo(core::LogCategory::Renderer, "Lighting environment reset to defaults");
+}
+
+void MainWindow::refreshEnvironmentTextureLabel()
+{
+    if (environmentTextureEdit_ == nullptr) {
+        return;
+    }
+    if (environmentTexture_ == nullptr) {
+        environmentTextureEdit_->setText(environmentTextureId_.isValid()
+            ? QStringLiteral("Texture asset not loaded - procedural fallback active")
+            : QStringLiteral("Procedural sky/ground (Sky/Ground/Intensity active)"));
+        return;
+    }
+    environmentTextureEdit_->setText(QStringLiteral("Texture: %1 (%2x%3) - Intensity active")
+        .arg(QString::fromStdString(environmentTexture_->name))
+        .arg(environmentTexture_->width)
+        .arg(environmentTexture_->height));
 }
 
 QWidget* MainWindow::createTextPanel(const QString& title, const QStringList& lines) const

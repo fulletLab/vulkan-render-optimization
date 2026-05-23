@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 
 namespace projectunity::renderer {
 namespace {
+constexpr float kPi = 3.14159265358979323846F;
+
 struct Vec3 {
     float x {0.0F};
     float y {0.0F};
@@ -44,6 +47,15 @@ struct Vec3 {
     return lhs * (1.0F - amount) + rhs * amount;
 }
 
+[[nodiscard]] bool textureUsable(const assets::TextureAsset* texture)
+{
+    return texture != nullptr
+        && texture->id.isValid()
+        && texture->width > 0
+        && texture->height > 0
+        && texture->rgba8.size() >= static_cast<std::size_t>(texture->width) * texture->height * 4U;
+}
+
 [[nodiscard]] Vec3 toVec3(const std::array<float, 3>& value)
 {
     return {value[0], value[1], value[2]};
@@ -67,11 +79,49 @@ struct Vec3 {
     }
 }
 
+[[nodiscard]] Vec3 sampleTextureNearest(const assets::TextureAsset& texture, float u, float v)
+{
+    u = u - std::floor(u);
+    v = std::clamp(v, 0.0F, 1.0F);
+    const auto x = std::min(
+        static_cast<std::uint32_t>(u * static_cast<float>(texture.width)),
+        texture.width - 1U);
+    const auto y = std::min(
+        static_cast<std::uint32_t>(v * static_cast<float>(texture.height)),
+        texture.height - 1U);
+    const auto offset = (static_cast<std::size_t>(y) * texture.width + x) * 4U;
+    return {
+        static_cast<float>(texture.rgba8[offset]) / 255.0F,
+        static_cast<float>(texture.rgba8[offset + 1U]) / 255.0F,
+        static_cast<float>(texture.rgba8[offset + 2U]) / 255.0F,
+    };
+}
+
+[[nodiscard]] Vec3 sampleEquirectangular(
+    const assets::TextureAsset& texture,
+    Vec3 direction,
+    float roughness)
+{
+    const auto u = (std::atan2(direction.x, direction.z) / (2.0F * kPi)) + 0.5F;
+    const auto v = std::acos(std::clamp(direction.y, -1.0F, 1.0F)) / kPi;
+    const auto radius = roughness * 0.04F;
+    auto color = sampleTextureNearest(texture, u, v) * 0.5F;
+    color = color + sampleTextureNearest(texture, u + radius, v) * 0.125F;
+    color = color + sampleTextureNearest(texture, u - radius, v) * 0.125F;
+    color = color + sampleTextureNearest(texture, u, v + radius) * 0.125F;
+    color = color + sampleTextureNearest(texture, u, v - radius) * 0.125F;
+    return color;
+}
+
 [[nodiscard]] Vec3 proceduralEnvironment(
     Vec3 direction,
     float roughness,
     const RenderEnvironmentSettings& settings)
 {
+    if (textureUsable(settings.sourceTexture)) {
+        return sampleEquirectangular(*settings.sourceTexture, direction, roughness)
+            * std::max(settings.intensity, 0.0F);
+    }
     const auto sky = toVec3(settings.skyColor) * std::max(settings.intensity, 0.0F);
     const auto ground = toVec3(settings.groundColor) * std::max(settings.intensity, 0.0F);
     const auto skyWeight = smoothStep(-0.18F, 0.78F, direction.y);

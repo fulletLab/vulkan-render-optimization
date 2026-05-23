@@ -37,11 +37,19 @@ struct TextureStagingBuffer {
         hash ^= value;
         hash *= 0x100000001b3ULL;
     };
-    for (const auto value : environment.skyColor) {
-        mix(quantized(value));
-    }
-    for (const auto value : environment.groundColor) {
-        mix(quantized(value));
+    const auto* texture = environment.sourceTexture;
+    if (texture != nullptr && texture->id.isValid() && !texture->rgba8.empty()) {
+        mix(texture->id.value());
+        mix(texture->width);
+        mix(texture->height);
+        mix(static_cast<std::uint64_t>(texture->rgba8.size()));
+    } else {
+        for (const auto value : environment.skyColor) {
+            mix(quantized(value));
+        }
+        for (const auto value : environment.groundColor) {
+            mix(quantized(value));
+        }
     }
     mix(quantized(environment.intensity));
     return hash == 0 ? 1ULL : hash;

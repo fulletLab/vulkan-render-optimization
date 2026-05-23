@@ -63,6 +63,23 @@ int main()
         || orderedDraws[4]->primitiveIndex != 10) {
         return fail("Renderer mesh draw ordering did not keep opaque draws before back-to-front blended draws");
     }
+    std::array<RenderMeshDraw, 5> batchableDraws {};
+    batchableDraws[0].modelAssetId = projectunity::assets::AssetId(7);
+    batchableDraws[0].primitiveIndex = 2;
+    batchableDraws[0].material = &opaqueMaterial;
+    batchableDraws[1].modelAssetId = projectunity::assets::AssetId(8);
+    batchableDraws[1].primitiveIndex = 1;
+    batchableDraws[1].material = &opaqueMaterial;
+    batchableDraws[2] = batchableDraws[0];
+    batchableDraws[3] = batchableDraws[1];
+    batchableDraws[4] = batchableDraws[0];
+    orderMeshDraws(batchableDraws, orderedDraws);
+    if (orderedDraws.size() != batchableDraws.size()
+        || orderedDraws[0]->modelAssetId != orderedDraws[1]->modelAssetId
+        || orderedDraws[1]->modelAssetId != orderedDraws[2]->modelAssetId
+        || orderedDraws[3]->modelAssetId != orderedDraws[4]->modelAssetId) {
+        return fail("Renderer mesh draw ordering did not group compatible opaque draws for instancing");
+    }
 
     std::array<RenderLight, 3> mixedLights {};
     mixedLights[0].type = RenderLightType::Point;
@@ -128,6 +145,21 @@ int main()
     if (warmCube.mips.front().rgba8 == irradianceCube.mips.front().rgba8) {
         return fail("Renderer environment cube generator ignored RenderEnvironmentSettings");
     }
+    projectunity::assets::TextureAsset environmentTexture;
+    environmentTexture.id = projectunity::assets::AssetId(42);
+    environmentTexture.width = 4;
+    environmentTexture.height = 2;
+    environmentTexture.rgba8 = {
+        255U, 0U, 0U, 255U, 0U, 255U, 0U, 255U, 0U, 0U, 255U, 255U, 255U, 255U, 0U, 255U,
+        16U, 32U, 48U, 255U, 64U, 80U, 96U, 255U, 128U, 144U, 160U, 255U, 192U, 208U, 224U, 255U,
+    };
+    RenderEnvironmentSettings texturedEnvironment;
+    texturedEnvironment.sourceTexture = &environmentTexture;
+    const auto texturedCube = generateProceduralIrradianceCube(8U, texturedEnvironment);
+    if (texturedCube.mips.front().rgba8 == irradianceCube.mips.front().rgba8
+        || texturedCube.mips.front().rgba8 == warmCube.mips.front().rgba8) {
+        return fail("Renderer environment cube generator ignored source texture data");
+    }
 
     std::string error;
     RendererConfig config;
@@ -156,6 +188,7 @@ int main()
         || stats.lastFrameShadowCasterCount != 0
         || stats.lastFrameCandidateMeshDrawCount != 0
         || stats.lastFrameCulledMeshDrawCount != 0
+        || stats.lastFrameMeshBatchCount != 0
         || stats.lastFrameCandidateTriangleCount != 0
         || stats.lastFrameCulledTriangleCount != 0
         || stats.lastFrameVisibleTriangleCount != 0

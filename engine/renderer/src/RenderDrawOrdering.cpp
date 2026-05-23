@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
+#include <tuple>
 
 namespace projectunity::renderer {
 namespace {
@@ -10,6 +12,26 @@ namespace {
 [[nodiscard]] float finiteSortDepth(float depth) noexcept
 {
     return std::isfinite(depth) ? depth : -std::numeric_limits<float>::infinity();
+}
+
+[[nodiscard]] std::uintptr_t pointerKey(const void* pointer) noexcept
+{
+    return reinterpret_cast<std::uintptr_t>(pointer);
+}
+
+[[nodiscard]] auto batchKey(const RenderMeshDraw& draw) noexcept
+{
+    return std::tuple {
+        draw.modelAssetId.value(),
+        draw.primitiveIndex,
+        pointerKey(draw.material),
+        pointerKey(draw.baseColorTexture),
+        pointerKey(draw.normalTexture),
+        pointerKey(draw.metallicRoughnessTexture),
+        pointerKey(draw.occlusionTexture),
+        pointerKey(draw.emissiveTexture),
+        draw.flipsWinding,
+    };
 }
 
 } // namespace
@@ -36,7 +58,15 @@ void orderMeshDraws(std::span<const RenderMeshDraw> draws, std::vector<const Ren
             if (lhsTransparent != rhsTransparent) {
                 return !lhsTransparent;
             }
-            return lhsTransparent && finiteSortDepth(lhs->sortDepth) > finiteSortDepth(rhs->sortDepth);
+            if (!lhsTransparent) {
+                return batchKey(*lhs) < batchKey(*rhs);
+            }
+            const auto lhsDepth = finiteSortDepth(lhs->sortDepth);
+            const auto rhsDepth = finiteSortDepth(rhs->sortDepth);
+            if (lhsDepth != rhsDepth) {
+                return lhsDepth > rhsDepth;
+            }
+            return batchKey(*lhs) < batchKey(*rhs);
         });
 }
 
