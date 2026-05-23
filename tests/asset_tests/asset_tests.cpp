@@ -310,7 +310,10 @@ int main()
         return fail("generated GLB import failed");
     }
     const auto model = manager.model(modelResult.record.id);
-    if (model == nullptr || model->primitives.size() != 1 || model->primitives.front().vertices.size() != 3) {
+    if (model == nullptr
+        || model->primitives.size() != 1
+        || model->primitiveInstances.size() != 1
+        || model->primitives.front().vertices.size() != 3) {
         return fail("imported GLB model data is incomplete");
     }
     const auto firstModelInstance = model.get();
@@ -334,18 +337,13 @@ int main()
     if (!colorPreserved) {
         return fail("imported GLB vertex colors were not preserved");
     }
-    const auto nodeTransformApplied = std::all_of(
-        model->primitives.front().vertices.begin(),
-        model->primitives.front().vertices.end(),
-        [](const MeshVertex& vertex) {
-            return vertex.position.x >= 5.0F && vertex.position.x <= 7.0F;
-        });
-    if (!nodeTransformApplied) {
-        return fail("imported GLB node transform was not applied to mesh geometry");
+    const auto& instance = model->primitiveInstances.front();
+    if (instance.primitiveIndex != 0 || instance.bounds.minimum.x < 5.0F || instance.bounds.maximum.x > 7.0F) {
+        return fail("imported GLB node transform was not preserved as a mesh instance");
     }
     const auto& bounds = model->primitives.front().bounds;
-    if (bounds.radius <= 0.1F || bounds.minimum.x < 5.0F || bounds.maximum.x > 7.0F) {
-        return fail("imported GLB bounds were not updated after node transform");
+    if (bounds.radius <= 0.1F || bounds.minimum.x < -1.1F || bounds.maximum.x > 1.1F) {
+        return fail("imported GLB source primitive bounds were not preserved for instancing");
     }
     const auto& material = model->materials.front();
     if (material.metallicFactor < 0.34F
@@ -413,16 +411,19 @@ int main()
 
     const auto spatialResult = manager.importModel(spatialGlbPath);
     const auto spatial = manager.model(spatialResult.record.id);
-    if (!spatialResult.success || spatial == nullptr || spatial->primitives.size() != 7) {
+    if (!spatialResult.success
+        || spatial == nullptr
+        || spatial->primitives.size() != 1
+        || spatial->primitiveInstances.size() != 7) {
         return fail("spatial glTF fixture import failed");
     }
-    const auto& left = spatial->primitives[0].bounds.center;
-    const auto& right = spatial->primitives[1].bounds.center;
-    const auto& front = spatial->primitives[2].bounds.center;
-    const auto& back = spatial->primitives[3].bounds.center;
-    const auto& matrixNode = spatial->primitives[4].bounds.center;
-    const auto& rotated = spatial->primitives[5].bounds;
-    const auto& mirrored = spatial->primitives[6];
+    const auto& left = spatial->primitiveInstances[0].bounds.center;
+    const auto& right = spatial->primitiveInstances[1].bounds.center;
+    const auto& front = spatial->primitiveInstances[2].bounds.center;
+    const auto& back = spatial->primitiveInstances[3].bounds.center;
+    const auto& matrixNode = spatial->primitiveInstances[4].bounds.center;
+    const auto& rotated = spatial->primitiveInstances[5].bounds;
+    const auto& mirrored = spatial->primitiveInstances[6];
     if (!(left.x < 0.0F && right.x > 0.0F && right.x > left.x)) {
         return fail("glTF left/right node positions were mirrored");
     }
@@ -438,10 +439,10 @@ int main()
     if (!near(mirrored.bounds.center.x, -0.25F) || !near(mirrored.bounds.center.z, -3.0F)) {
         return fail("glTF negative-scale node position/bounds were not preserved");
     }
-    if (firstFaceNormalZ(mirrored) >= 0.0F
-        || mirrored.vertices.front().normal.z > -0.99F
-        || mirrored.vertices.front().tangentSign < 0.99F) {
-        return fail("glTF negative determinant transform did not preserve winding, normals, and tangent handedness");
+    if (!mirrored.flipsWinding
+        || firstFaceNormalZ(spatial->primitives.front()) >= 0.0F
+        || spatial->primitives.front().vertices.front().normal.z > -0.99F) {
+        return fail("glTF negative determinant instance or base conversion state was not preserved");
     }
     if (!hasTexCoord(spatial->primitives[0], 0.0F, 0.0F)
         || !hasTexCoord(spatial->primitives[0], 1.0F, 0.0F)
@@ -456,6 +457,39 @@ int main()
     if (!exampleResult.success || example == nullptr || example->textures.empty()) {
         std::cerr << exampleResult.error << '\n';
         return fail("textured glTF example import failed");
+    }
+    const auto nodePerformancePath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
+        / "Project" / "Assets" / "VisualVerification" / "NodePerformanceTest.glb";
+    if (std::filesystem::exists(nodePerformancePath)) {
+        const auto nodePerfResult = manager.importModel(nodePerformancePath);
+        const auto nodePerf = manager.model(nodePerfResult.record.id);
+        if (!nodePerfResult.success
+            || nodePerf == nullptr
+            || nodePerf->primitives.size() > 256U
+            || nodePerf->primitiveInstances.size() > 256U) {
+            std::cerr << nodePerfResult.error << '\n';
+            if (nodePerf != nullptr) {
+                std::cerr << "primitives=" << nodePerf->primitives.size()
+                          << " instances=" << nodePerf->primitiveInstances.size()
+                          << " materials=" << nodePerf->materials.size()
+                          << " textures=" << nodePerf->textures.size()
+                          << " vertices=" << nodePerfResult.record.vertexCount << '\n';
+                if (nodePerf->materials.size() >= 2U) {
+                    const auto& a = nodePerf->materials[0];
+                    const auto& b = nodePerf->materials[1];
+                    std::cerr << "m0=" << a.baseColor[0] << ',' << a.baseColor[1] << ',' << a.baseColor[2]
+                              << " mr=" << a.metallicFactor << ',' << a.roughnessFactor
+                              << " tex=" << a.baseColorTexture.has_value() << '\n';
+                    std::cerr << "m1=" << b.baseColor[0] << ',' << b.baseColor[1] << ',' << b.baseColor[2]
+                              << " mr=" << b.metallicFactor << ',' << b.roughnessFactor
+                              << " tex=" << b.baseColorTexture.has_value() << '\n';
+                }
+            }
+            return fail("NodePerformanceTest did not collapse into renderer-friendly batches");
+        }
+        if (nodePerfResult.record.vertexCount > 1'000'000U) {
+            return fail("NodePerformanceTest import produced an unexpected vertex count");
+        }
     }
 
     const auto missingResult = manager.importAsset(root / "missing.glb");

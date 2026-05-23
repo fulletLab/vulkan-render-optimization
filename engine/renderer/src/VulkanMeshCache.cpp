@@ -45,6 +45,10 @@ namespace {
         gpuVertex.tangent[1] = vertex.tangent.y;
         gpuVertex.tangent[2] = vertex.tangent.z;
         gpuVertex.tangent[3] = vertex.tangentSign;
+        gpuVertex.materialFactors[0] = vertex.materialFactors[0];
+        gpuVertex.materialFactors[1] = vertex.materialFactors[1];
+        gpuVertex.materialFactors[2] = vertex.materialFactors[2];
+        gpuVertex.materialFactors[3] = vertex.materialFactors[3];
         packed.push_back(gpuVertex);
     }
     return packed;

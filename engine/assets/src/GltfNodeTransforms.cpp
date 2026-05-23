@@ -54,6 +54,13 @@ GltfMatrix4 gltfToEngineMatrix(GltfMatrix4 gltfWorldMatrix)
     return multiplyGltfMatrices(conversion, gltfWorldMatrix);
 }
 
+GltfMatrix4 gltfToEngineInstanceMatrix(GltfMatrix4 gltfWorldMatrix)
+{
+    auto conversion = identityGltfMatrix();
+    conversion[10] = -1.0;
+    return multiplyGltfMatrices(multiplyGltfMatrices(conversion, gltfWorldMatrix), conversion);
+}
+
 GltfMatrix4 gltfNodeMatrix(const tinygltf::Node& node)
 {
     if (node.matrix.size() == 16U) {

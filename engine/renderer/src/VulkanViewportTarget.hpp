@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -46,6 +47,12 @@ struct VulkanMaterialTextureKey {
 
 struct VulkanMaterialTextureKeyHash {
     [[nodiscard]] std::size_t operator()(const VulkanMaterialTextureKey& key) const noexcept;
+};
+
+struct VulkanMeshDrawBatch {
+    const RenderMeshDraw* draw {nullptr};
+    std::uint32_t firstInstance {0};
+    std::uint32_t instanceCount {0};
 };
 
 class VulkanViewportTarget final {
@@ -94,6 +101,10 @@ private:
         VulkanMeshCache& meshCache,
         VulkanTextureCache& textureCache,
         std::string* errorMessage);
+    [[nodiscard]] bool buildMeshBatches(
+        std::span<const RenderMeshDraw> draws,
+        VulkanUploadContext& uploads,
+        std::string* errorMessage);
 
     VulkanViewportContext context_;
     ViewportRenderSurfaceDesc desc_;
@@ -111,6 +122,9 @@ private:
     std::unique_ptr<VulkanColorPipeline> colorPipeline_;
     VulkanFrameData frameData_;
     std::vector<const RenderMeshDraw*> orderedMeshDraws_;
+    std::vector<VulkanGpuInstance> meshInstances_;
+    std::vector<VulkanMeshDrawBatch> meshBatches_;
+    VulkanGpuBuffer meshInstanceBuffer_;
     std::vector<VulkanColorMeshBuffers> colorMeshes_;
     std::vector<VkFramebuffer> framebuffers_;
     VkDescriptorPool descriptorPool_ {VK_NULL_HANDLE};

@@ -47,17 +47,17 @@ Profiler panel and smoke coverage.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
-Selected Scene View gizmos, a controlled grid, axes, and hierarchy links now have a
-renderer-owned Vulkan color mesh path for imported mesh frames, so those editor aids are
-not hidden by the swapchain when the GPU path presents.
+Selected Scene View gizmos, a controlled grid, axes, hierarchy links, entity labels, and
+empty GameObject markers now have a renderer-owned Vulkan color mesh path, so those
+editor aids are not hidden by the swapchain when the GPU path presents.
 Vulkan command buffers emit RenderDoc-friendly debug labels for the viewport frame,
 shadow pass, mesh pass, and Scene View aid pass when debug-utils entry points are
 available.
 
-Scene View uses the CPU/QPainter mesh fallback only when Vulkan surface/frame rendering
-does not succeed. Qt still draws empty-scene fallback content and text labels; it is not
-the final 3D renderer. Until renderer-owned label/text overlay passes exist, an empty
-Scene View does not present a Vulkan clear-only frame over the Qt Scene View aids.
+Scene View uses the CPU/QPainter fallback only when Vulkan surface/frame rendering
+does not succeed, such as Qt offscreen tests or unavailable platform surfaces. Empty
+Scene View editor aids, entity labels, and empty GameObject markers now have a Vulkan
+color path when a real viewport surface is available.
 
 ## Degradation Reverted
 
@@ -76,7 +76,7 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - Expand shadows beyond the first directional map with point/spot shadows, cascades,
   higher quality filtering controls, and transparent caster policy.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
-- Move labels/text overlays off QPainter and into renderer-owned passes.
+- Expand renderer-owned labels/text overlays beyond the current Scene View entity labels.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
   renderer-owned passes.
 - Expand RenderDoc markers from frame/pass scopes to selected high-value draw/resource
@@ -193,6 +193,9 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - Scene View entity labels now have a Vulkan GPU path. The editor projects entity
   names into bounded billboard text geometry in the color pass instead of relying on
   QPainter over the swapchain after imported mesh frames.
+- Empty `GameObject` entities now emit a Vulkan editor marker box/pivot through the
+  same color pass, so transform-only scene objects are visible without the QPainter
+  entity fallback when Vulkan presentation is available.
 - The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
   development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
   the source-rule test passes again.
@@ -204,6 +207,16 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - The Windows visible `--smoke-test` requires at least one imported textured mesh draw
   and one selected editor color mesh draw to reach the Vulkan viewport path and exits
   with an error if either is missing.
+- Broader manual verification assets are staged in
+  `Project/Assets/VisualVerification` and documented in
+  `docs/phase6_visual_verification_assets.md`; they cover orientation, negative
+  scale, UVs, tangents, alpha modes, lights, PBR response, and large-node profiling.
+- The NodePerformance-style worst case no longer relies on one CPU/UI draw path or
+  one unique Vulkan draw for every imported node. The asset importer preserves visual
+  fidelity while deduplicating identical texture/material data, baking scalar material
+  factors into internal vertex attributes for large static batches, and combining huge
+  primitive sets into renderer-friendly batches. The Vulkan mesh path now provides a
+  per-instance matrix stream and uses instanced indexed draws for compatible batches.
 
 ## Rules
 

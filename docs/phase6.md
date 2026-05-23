@@ -21,7 +21,7 @@ Status: PARCIAL
 
 - The GLB/glTF importer keeps the full source mesh and material data. The default Scene View path must use the full primitive index buffers, not preview triangle budgets or automatic destructive LODs.
 - The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, color-space-aware GPU material texture upload with imported sampler state and generated mip chains, conservative bounds culling, culling/timing renderer stats, glTF material factor and vertex-color preservation, textured imported mesh draws, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
-- The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails or when only empty-scene editor aids are being shown. Qt is not the final 3D renderer.
+- The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails, including Qt offscreen tests. Empty-scene editor aids and transform-only entity markers now use the Vulkan color path when a real viewport surface is available.
 - Phase 6 remains partial until representative imported GLB/glTF content is visually verified with prefiltered IBL coverage, fuller shadow/material coverage, renderer-owned labels, and profiling.
 
 ## Implemented
@@ -149,7 +149,7 @@ Status: PARCIAL
 - Viewport fallback code resolves imported models through `IAssetManager`; it does not call TinyGLTF, stb, MikkTSpace, or meshoptimizer.
 - Qt owns editor UI, docking, menus, panels, and input dispatch. The renderer module is independent of Qt and is injected into editor viewports through `IRenderer`.
 - Coordinate convention: glTF/GLB source data is read in glTF's right-handed, Y-up convention with local `-Z` forward, then converted once at import into the engine/editor convention: Y-up with `+Z` forward. The conversion is a single Z reflection applied after glTF node `matrix`/TRS evaluation; UVs are not flipped. `node.matrix` is treated as column-major and TRS is built as column-vector `T * R * S`. When node transforms are baked into mesh vertices, positions and tangents use the converted linear transform, normals use the inverse-transpose linear transform, bounds are recomputed after baking, and negative-determinant converted transforms flip triangle winding plus tangent handedness so future culling remains consistent without mirroring the asset. Imported cameras/lights are converted through the same matrix, and Game View uses imported camera local `+X` as screen-right instead of reconstructing it from forward/up.
-- The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured mesh draws, vertex-color multiplication, base-color/normal/metallic-roughness/occlusion/emissive texture slots with generated mip chains, separate sRGB color, linear data-map, and imported sampler cache entries, conservative bounds culling, a per-frame camera/light UBO, punctual imported-light submission, direct PBR material shading with a procedural environment/BRDF approximation, an initial visible-bounds directional shadow map with weighted PCF and alpha-mask caster discard, RenderDoc-friendly command labels around the viewport frame and key passes, basic glTF alpha mode/cutoff handling, back-to-front transparent primitive ordering, Scene View grid/axes/hierarchy/gizmo color mesh draws, and the upload caches needed by imported primitives/textures. Prefiltered IBL, full shadow/material coverage, and renderer-owned text labels are not claimed as complete here.
+- The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured mesh draws, vertex-color multiplication, base-color/normal/metallic-roughness/occlusion/emissive texture slots with generated mip chains, separate sRGB color, linear data-map, and imported sampler cache entries, conservative bounds culling, a per-frame camera/light UBO, punctual imported-light submission, direct PBR material shading with a procedural environment/BRDF approximation, an initial visible-bounds directional shadow map with weighted PCF and alpha-mask caster discard, RenderDoc-friendly command labels around the viewport frame and key passes, basic glTF alpha mode/cutoff handling, back-to-front transparent primitive ordering, Scene View grid/axes/hierarchy/gizmo/entity-label/empty-marker color mesh draws, and the upload caches needed by imported primitives/textures. Prefiltered IBL, full shadow/material coverage, and broader renderer-owned text overlays are not claimed as complete here.
 - Assimp stays unintegrated in this phase because GLB/glTF coverage is real through TinyGLTF and no FBX/OBJ DoD was claimed.
 
 ## Build And Test
@@ -188,9 +188,9 @@ Date: 2026-05-22
 - Removed destructive texture sampling/fallback behavior from the default mesh display path.
 - Imported mesh data keeps optional meshoptimizer LODs for future controlled use, but Scene View does not use them by default to destroy visual fidelity.
 - CPU-side QPainter fallback still cannot be the final performance solution; optimization must move to Vulkan GPU buffers, cached textures/materials, culling, mipmaps, and renderer-owned draw submission.
-- Empty Scene View frames stay on the Qt debug/overlay fallback until those editor
-  aids have renderer-owned Vulkan passes, instead of presenting a clear-only Vulkan
-  frame that hides the useful grid.
+- Empty Scene View frames now use renderer-owned Vulkan color geometry for grid, axes,
+  hierarchy links, labels, and transform-only entity markers when a real viewport
+  surface is available.
 - Idle mouse movement over a selected mesh no longer forces viewport repaint work.
 - GLB/glTF and standalone texture imports now decode from the already-read source memory instead of reading the same file twice.
 - The viewport uses opaque painting/no system background and disables global antialiasing in the CPU preview path.
@@ -212,7 +212,7 @@ Date: 2026-05-22
 ## Known Bugs
 
 - A CPU/QPainter Scene/Game fallback still exists when Vulkan cannot present a viewport frame, including Qt offscreen tests. That fallback is not the final renderer path and remains too slow for real imported scenes.
-- Vulkan imported mesh draws, color-space-aware base-color/normal/metallic-roughness/occlusion/emissive texture uploads with imported sampler state and generated mip chains, conservative viewport culling, texture descriptor binding, frame-uniform punctual lights, imported Game View camera selection, procedural environment/BRDF ambient shading, a first visible-bounds directional shadow map with weighted PCF and masked-caster alpha discard, glTF alpha mode/cutoff handling, primitive-level `BLEND` ordering, Scene View color mesh draws, and editor-visible renderer counters exist. Phase 6 still stays partial because prefiltered IBL, point/spot/cascaded shadows, renderer-owned text labels, broad performance profiling of imported scenes, and user-facing visual verification on representative imported GLB/glTF content are still open.
+- Vulkan imported mesh draws, color-space-aware base-color/normal/metallic-roughness/occlusion/emissive texture uploads with imported sampler state and generated mip chains, conservative viewport culling, texture descriptor binding, frame-uniform punctual lights, imported Game View camera selection, procedural environment/BRDF ambient shading, a first visible-bounds directional shadow map with weighted PCF and masked-caster alpha discard, glTF alpha mode/cutoff handling, primitive-level `BLEND` ordering, Scene View color mesh draws, entity labels, transform-only object markers, and editor-visible renderer counters exist. Phase 6 still stays partial because prefiltered IBL, point/spot/cascaded shadows, broader renderer-owned text overlays, broad performance profiling of imported scenes, and user-facing visual verification on representative imported GLB/glTF content are still open.
 
 ## Renderer Refactor Notes
 
@@ -314,9 +314,25 @@ Date: 2026-05-22
   swapchain. The editor now emits a bounded GPU billboard text mesh into the Vulkan
   color pass, keeping labels visible with imported mesh frames while capping label
   generation to avoid editor overlay spikes.
+- Empty `GameObject` entities now draw a Vulkan color marker box/pivot in Scene View,
+  fixing transform-only objects that previously existed in the hierarchy but were only
+  visible through the CPU/QPainter fallback path.
 - Reimporting the same source GLB/texture in one editor session now refreshes the
   active in-memory asset instance for that stable asset id instead of leaving the
   first imported copy ahead of newer importer output.
+- A Phase 6 visual/profiling asset pack now lives under
+  `Project/Assets/VisualVerification`, with source, license notes, import order, and
+  expected checks documented in `docs/phase6_visual_verification_assets.md`.
+- Large glTF files with thousands of nodes/primitives now keep renderer-friendly
+  representation without reducing asset fidelity: repeated mesh primitives are
+  shared when possible, repeated textures/materials are deduplicated, large flat
+  material scalar factors are baked into internal vertex attributes, and very large
+  primitive sets are combined into static material batches. `NodePerformanceTest.glb`
+  is covered by an optional asset test when the local verification pack exists.
+- Vulkan mesh and shadow shaders now consume an instance matrix vertex stream, and
+  the viewport renderer batches compatible mesh draws with
+  `vkCmdDrawIndexed(..., instanceCount)` instead of forcing one GPU draw per scene
+  instance when the mesh/material state is shareable.
 - Adding vertex color support pushed `AssetManager.cpp` over the 800-line project
   rule. Attribute/accessor decoding was split into `GltfAttributeReader` and
   `projectunity_source_rule_tests` passes again.

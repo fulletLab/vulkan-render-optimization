@@ -12,6 +12,7 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec4 inColorFactor;
 layout(location = 3) in vec4 inTangent;
 layout(location = 4) in vec3 inWorldPosition;
+layout(location = 5) in vec4 inMaterialFactors;
 
 layout(location = 0) out vec4 outColor;
 
@@ -148,16 +149,16 @@ void main()
     vec3 tangent = normalize(inTangent.xyz - geometricNormal * dot(geometricNormal, inTangent.xyz));
     vec3 bitangent = normalize(cross(geometricNormal, tangent)) * inTangent.w;
     vec3 textureNormal = texture(normalTexture, inTexCoord).xyz * 2.0 - 1.0;
-    textureNormal.xy *= pushData.pbrFactors.z;
+    textureNormal.xy *= pushData.pbrFactors.z * inMaterialFactors.z;
     vec3 normal = normalize(mat3(tangent, bitangent, geometricNormal) * textureNormal);
     vec3 viewDirection = normalize(frameData.cameraPositionLightCount.xyz - inWorldPosition);
     vec4 pbrTexel = texture(metallicRoughnessTexture, inTexCoord);
-    float metallic = clamp(pushData.pbrFactors.x * pbrTexel.b, 0.0, 1.0);
-    float roughness = clamp(pushData.pbrFactors.y * pbrTexel.g, 0.045, 1.0);
+    float metallic = clamp(pushData.pbrFactors.x * inMaterialFactors.x * pbrTexel.b, 0.0, 1.0);
+    float roughness = clamp(pushData.pbrFactors.y * inMaterialFactors.y * pbrTexel.g, 0.045, 1.0);
     float occlusion = mix(
         1.0,
         texture(occlusionTexture, inTexCoord).r,
-        clamp(pushData.materialExtras.x, 0.0, 1.0));
+        clamp(pushData.materialExtras.x * inMaterialFactors.w, 0.0, 1.0));
     vec3 f0 = mix(vec3(0.04), sampledBase.rgb, metallic);
     vec3 directRadiance = vec3(0.0);
 

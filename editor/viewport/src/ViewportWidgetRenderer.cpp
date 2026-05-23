@@ -1,32 +1,24 @@
 #include <projectunity/editor/ViewportWidget.hpp>
-
 #include "ViewportLabelGeometry.hpp"
-
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
-
 #include <QString>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
-
 namespace projectunity::editor {
 namespace {
-
 [[nodiscard]] float& at(renderer::RenderMatrix4& matrix, int row, int column)
 {
     return matrix.values[static_cast<std::size_t>(column * 4 + row)];
 }
-
 [[nodiscard]] float at(const renderer::RenderMatrix4& matrix, int row, int column)
 {
     return matrix.values[static_cast<std::size_t>(column * 4 + row)];
 }
-
 [[nodiscard]] renderer::RenderMatrix4 multiply(const renderer::RenderMatrix4& lhs, const renderer::RenderMatrix4& rhs)
 {
     renderer::RenderMatrix4 result;
@@ -40,7 +32,6 @@ namespace {
     }
     return result;
 }
-
 [[nodiscard]] renderer::RenderMatrix4 viewMatrix(
     math::Vec3 eye,
     math::Vec3 right,
@@ -64,7 +55,6 @@ namespace {
     at(view, 3, 3) = 1.0F;
     return view;
 }
-
 [[nodiscard]] renderer::RenderMatrix4 perspectiveMatrix(float verticalFovRadians, float aspect, float nearPlane, float farPlane)
 {
     renderer::RenderMatrix4 projection;
@@ -77,7 +67,6 @@ namespace {
     at(projection, 3, 2) = 1.0F;
     return projection;
 }
-
 [[nodiscard]] renderer::RenderMatrix4 orthographicMatrix(float halfWidth, float halfHeight, float nearPlane, float farPlane)
 {
     renderer::RenderMatrix4 projection;
@@ -89,12 +78,10 @@ namespace {
     at(projection, 3, 3) = 1.0F;
     return projection;
 }
-
 [[nodiscard]] float radians(float degrees)
 {
     return degrees * 0.01745329251994329577F;
 }
-
 [[nodiscard]] math::Vec3 rotateEuler(math::Vec3 value, math::Vec3 rotationEuler)
 {
     const auto sinX = std::sin(radians(rotationEuler.x));
@@ -107,7 +94,6 @@ namespace {
     value = {value.x * cosY + value.z * sinY, value.y, -value.x * sinY + value.z * cosY};
     return {value.x * cosZ - value.y * sinZ, value.x * sinZ + value.y * cosZ, value.z};
 }
-
 [[nodiscard]] renderer::RenderMatrix4 modelMatrix(const scene::Entity& entity, math::Vec3 worldPosition)
 {
     renderer::RenderMatrix4 matrix;
@@ -130,19 +116,38 @@ namespace {
     at(matrix, 3, 3) = 1.0F;
     return matrix;
 }
-
+[[nodiscard]] renderer::RenderMatrix4 renderMatrix(const std::array<float, 16>& values)
+{
+    renderer::RenderMatrix4 matrix;
+    matrix.values = values;
+    return matrix;
+}
+[[nodiscard]] math::Vec3 transformPoint(const renderer::RenderMatrix4& matrix, math::Vec3 point)
+{
+    return {
+        at(matrix, 0, 0) * point.x + at(matrix, 0, 1) * point.y + at(matrix, 0, 2) * point.z + at(matrix, 0, 3),
+        at(matrix, 1, 0) * point.x + at(matrix, 1, 1) * point.y + at(matrix, 1, 2) * point.z + at(matrix, 1, 3),
+        at(matrix, 2, 0) * point.x + at(matrix, 2, 1) * point.y + at(matrix, 2, 2) * point.z + at(matrix, 2, 3),
+    };
+}
+[[nodiscard]] float maxScale(const renderer::RenderMatrix4& matrix)
+{
+    const auto axisLength = [&matrix](int column) {
+        const math::Vec3 axis {at(matrix, 0, column), at(matrix, 1, column), at(matrix, 2, column)};
+        return axis.length();
+    };
+    return std::max({axisLength(0), axisLength(1), axisLength(2)});
+}
 [[nodiscard]] float maxAbsScale(math::Vec3 scale)
 {
     return std::max({std::fabs(scale.x), std::fabs(scale.y), std::fabs(scale.z)});
 }
-
 [[nodiscard]] math::Vec3 transformPoint(const scene::Entity& entity, math::Vec3 worldPosition, math::Vec3 point)
 {
     return worldPosition + rotateEuler(
         {point.x * entity.transform.scale.x, point.y * entity.transform.scale.y, point.z * entity.transform.scale.z},
         entity.transform.rotationEuler);
 }
-
 [[nodiscard]] bool sphereVisible(
     math::Vec3 center,
     float radius,
@@ -158,13 +163,11 @@ namespace {
     if (radius < 0.0F || !std::isfinite(radius)) {
         return true;
     }
-
     const auto relative = center - eye;
     const auto depth = math::dot(relative, forward);
     if (depth + radius < nearPlane || depth - radius > farPlane) {
         return false;
     }
-
     const auto extentDepth = std::max(depth, nearPlane);
     const auto halfHeight = std::tan(verticalFovRadians * 0.5F) * extentDepth;
     const auto halfWidth = halfHeight * std::max(aspectRatio, 0.001F);
@@ -172,7 +175,6 @@ namespace {
     const auto y = math::dot(relative, up);
     return std::fabs(x) <= halfWidth + radius && std::fabs(y) <= halfHeight + radius;
 }
-
 [[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback)
 {
     const auto length = value.length();
@@ -181,7 +183,6 @@ namespace {
     }
     return value / length;
 }
-
 [[nodiscard]] renderer::RenderLightType renderLightType(assets::ImportedLightType type)
 {
     switch (type) {
@@ -194,7 +195,6 @@ namespace {
     }
     return renderer::RenderLightType::Directional;
 }
-
 [[nodiscard]] renderer::RenderMatrix4 shadowViewProjection(
     math::Vec3 shadowDirection,
     math::Vec3 target,
@@ -218,12 +218,10 @@ namespace {
         orthographicMatrix(halfExtent, halfExtent, 0.05F, shadowDistance + halfExtent * 2.0F),
         viewMatrix(eye, right, up, forward));
 }
-
 struct FrameBounds {
     bool valid {false};
     math::Vec3 minimum;
     math::Vec3 maximum;
-
     void includeSphere(math::Vec3 center, float radius)
     {
         if (!std::isfinite(radius) || radius < 0.0F) {
@@ -243,18 +241,15 @@ struct FrameBounds {
         maximum.y = std::max(maximum.y, center.y + radius);
         maximum.z = std::max(maximum.z, center.z + radius);
     }
-
     [[nodiscard]] math::Vec3 center() const
     {
         return (minimum + maximum) * 0.5F;
     }
-
     [[nodiscard]] float radius() const
     {
         return (maximum - center()).length();
     }
 };
-
 struct ViewportCameraFrame {
     math::Vec3 eye;
     math::Vec3 right;
@@ -265,7 +260,6 @@ struct ViewportCameraFrame {
     float nearPlane {0.05F};
     float farPlane {4000.0F};
 };
-
 void appendLineQuad(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,
@@ -281,7 +275,6 @@ void appendLineQuad(
     if (direction.lengthSquared() <= 0.0000001F) {
         return;
     }
-
     const auto side = safeNormalized(math::cross(direction, cameraForward), cameraRight);
     const auto halfWidth = std::clamp(cameraDistance * 0.00085F * std::max(thickness, 1.0F), 0.006F, 0.08F);
     const auto offset = side * halfWidth;
@@ -292,7 +285,6 @@ void appendLineQuad(
     vertices.push_back({{end.x - offset.x, end.y - offset.y, end.z - offset.z}, color});
     indices.insert(indices.end(), {base, base + 1U, base + 2U, base, base + 2U, base + 3U});
 }
-
 void appendGrid(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,
@@ -331,7 +323,6 @@ void appendGrid(
             cameraDistance);
     }
 }
-
 void appendAxes(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,
@@ -343,7 +334,6 @@ void appendAxes(
     appendLineQuad(vertices, indices, {}, {0.0F, 3.0F, 0.0F}, {0.37F, 0.75F, 0.43F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
     appendLineQuad(vertices, indices, {}, {0.0F, 0.0F, 3.0F}, {0.31F, 0.53F, 0.90F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
 }
-
 void appendHierarchyLinks(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,
@@ -374,20 +364,61 @@ void appendHierarchyLinks(
             cameraDistance);
     }
 }
-
+void appendEntityMarker(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    math::Vec3 position,
+    float halfSize,
+    bool selected,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    math::Vec3 cameraUp,
+    float cameraDistance)
+{
+    const auto color = selected
+        ? std::array<float, 4> {1.0F, 0.76F, 0.24F, 0.95F}
+        : std::array<float, 4> {0.74F, 0.80F, 0.90F, 0.72F};
+    const std::array<math::Vec3, 8> corners {
+        position + math::Vec3 {-halfSize, -halfSize, -halfSize},
+        position + math::Vec3 {halfSize, -halfSize, -halfSize},
+        position + math::Vec3 {halfSize, halfSize, -halfSize},
+        position + math::Vec3 {-halfSize, halfSize, -halfSize},
+        position + math::Vec3 {-halfSize, -halfSize, halfSize},
+        position + math::Vec3 {halfSize, -halfSize, halfSize},
+        position + math::Vec3 {halfSize, halfSize, halfSize},
+        position + math::Vec3 {-halfSize, halfSize, halfSize},
+    };
+    constexpr std::array<std::pair<int, int>, 12> edges {{
+        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+        {4, 5}, {5, 6}, {6, 7}, {7, 4},
+        {0, 4}, {1, 5}, {2, 6}, {3, 7},
+    }};
+    for (const auto& edge : edges) {
+        appendLineQuad(
+            vertices,
+            indices,
+            corners[static_cast<std::size_t>(edge.first)],
+            corners[static_cast<std::size_t>(edge.second)],
+            color,
+            selected ? 1.7F : 1.1F,
+            cameraForward,
+            cameraRight,
+            cameraDistance);
+    }
+    const auto pivotRadius = std::clamp(halfSize * 0.22F, 0.05F, 0.18F);
+    appendLineQuad(vertices, indices, position - cameraRight * pivotRadius, position + cameraRight * pivotRadius, color, selected ? 2.1F : 1.4F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, position - cameraUp * pivotRadius, position + cameraUp * pivotRadius, color, selected ? 2.1F : 1.4F, cameraForward, cameraRight, cameraDistance);
+}
 } // namespace
-
 bool ViewportWidget::ensureRendererSurface()
 {
     if (renderer_ == nullptr || !renderer_->isReady() || width() <= 0 || height() <= 0) {
         return false;
     }
-
     auto* handle = reinterpret_cast<void*>(winId());
     if (handle == nullptr) {
         return false;
     }
-
     const auto currentWidth = width();
     const auto currentHeight = height();
     if (rendererSurfaceAttempted_
@@ -396,18 +427,15 @@ bool ViewportWidget::ensureRendererSurface()
         && rendererSurfaceHeight_ == currentHeight) {
         return rendererSurfaceReady_;
     }
-
     rendererSurfaceHandle_ = handle;
     rendererSurfaceWidth_ = currentWidth;
     rendererSurfaceHeight_ = currentHeight;
     rendererSurfaceAttempted_ = true;
-
     renderer::ViewportRenderSurfaceDesc desc;
     desc.nativeWindowHandle = handle;
     desc.width = static_cast<std::uint32_t>(currentWidth);
     desc.height = static_cast<std::uint32_t>(currentHeight);
     desc.vsync = true;
-
     std::string error;
     rendererSurfaceReady_ = renderer_->prepareSurface(desc, &error);
     if (!rendererSurfaceReady_) {
@@ -419,20 +447,17 @@ bool ViewportWidget::ensureRendererSurface()
     }
     return rendererSurfaceReady_;
 }
-
 bool ViewportWidget::renderRendererFrame()
 {
     gpuMeshFrameRendered_ = false;
     if (!ensureRendererSurface() || renderer_ == nullptr || rendererSurfaceHandle_ == nullptr) {
         return false;
     }
-
     renderer::ViewportRenderSurfaceDesc desc;
     desc.nativeWindowHandle = rendererSurfaceHandle_;
     desc.width = static_cast<std::uint32_t>(rendererSurfaceWidth_);
     desc.height = static_cast<std::uint32_t>(rendererSurfaceHeight_);
     desc.vsync = true;
-
     renderer::RenderFrame frame;
     frame.clearColor.red = mode_ == ViewportMode::Scene ? 0.12F : 0.02F;
     frame.clearColor.green = mode_ == ViewportMode::Scene ? 0.13F : 0.02F;
@@ -442,7 +467,6 @@ bool ViewportWidget::renderRendererFrame()
     rendererLights_.clear();
     bool hasMeshSceneContent = false;
     FrameBounds visibleBounds;
-
     ViewportCameraFrame cameraFrame {
         cameraPosition(),
         cameraRight(),
@@ -501,7 +525,6 @@ bool ViewportWidget::renderRendererFrame()
     const auto viewProjection = multiply(projection, view);
     frame.viewProjection = viewProjection;
     frame.cameraPosition = {eye.x, eye.y, eye.z};
-
     if (scene_ != nullptr && assetManager_ != nullptr) {
         for (const auto& entity : scene_->entities()) {
             if (!entity.meshRenderer.has_value()) {
@@ -533,17 +556,24 @@ bool ViewportWidget::renderRendererFrame()
             }
             hasMeshSceneContent = hasMeshSceneContent || !model->primitives.empty();
             const auto entityModelMatrix = modelMatrix(entity, *worldPosition);
-            const auto mvp = multiply(viewProjection, entityModelMatrix);
-            for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
+            const auto modelTexture = [&model](std::optional<std::size_t> textureIndex) {
+                return textureIndex.has_value() && *textureIndex < model->textures.size()
+                    ? &model->textures[*textureIndex]
+                    : nullptr;
+            };
+            const auto submitPrimitive = [&](std::size_t primitiveIndex, const renderer::RenderMatrix4& drawModelMatrix, bool flipsWinding) {
+                if (primitiveIndex >= model->primitives.size()) {
+                    return;
+                }
                 const auto& primitive = model->primitives[primitiveIndex];
                 if (primitive.materialIndex >= model->materials.size()) {
-                    continue;
+                    return;
                 }
                 ++frame.candidateMeshDrawCount;
                 const auto triangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 frame.candidateTriangleCount += triangleCount;
-                const auto boundsCenter = transformPoint(entity, *worldPosition, primitive.bounds.center);
-                const auto boundsRadius = primitive.bounds.radius * maxAbsScale(entity.transform.scale);
+                const auto boundsCenter = transformPoint(drawModelMatrix, primitive.bounds.center);
+                const auto boundsRadius = primitive.bounds.radius * maxScale(drawModelMatrix);
                 if (!sphereVisible(
                         boundsCenter,
                         boundsRadius,
@@ -555,15 +585,11 @@ bool ViewportWidget::renderRendererFrame()
                         cameraFrame.aspectRatio)) {
                     ++frame.culledMeshDrawCount;
                     frame.culledTriangleCount += triangleCount;
-                    continue;
+                    return;
                 }
                 visibleBounds.includeSphere(boundsCenter, boundsRadius);
                 const auto& material = model->materials[primitive.materialIndex];
-                const auto modelTexture = [&model](std::optional<std::size_t> textureIndex) {
-                    return textureIndex.has_value() && *textureIndex < model->textures.size()
-                        ? &model->textures[*textureIndex]
-                        : nullptr;
-                };
+                const auto mvp = multiply(viewProjection, drawModelMatrix);
                 rendererMeshDraws_.push_back({
                     model->id,
                     static_cast<std::uint32_t>(primitiveIndex),
@@ -575,9 +601,22 @@ bool ViewportWidget::renderRendererFrame()
                     modelTexture(material.occlusionTexture),
                     modelTexture(material.emissiveTexture),
                     math::dot(boundsCenter - eye, forward),
-                    entityModelMatrix,
+                    drawModelMatrix,
                     mvp,
+                    flipsWinding,
                 });
+            };
+            if (!model->primitiveInstances.empty()) {
+                for (const auto& instance : model->primitiveInstances) {
+                    submitPrimitive(
+                        instance.primitiveIndex,
+                        multiply(entityModelMatrix, renderMatrix(instance.transform)),
+                        instance.flipsWinding);
+                }
+            } else {
+                for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
+                    submitPrimitive(primitiveIndex, entityModelMatrix, false);
+                }
             }
         }
     }
@@ -613,11 +652,6 @@ bool ViewportWidget::renderRendererFrame()
         frame.shadowsEnabled = true;
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
-
-    if (rendererMeshDraws_.empty() && !hasMeshSceneContent) {
-        return false;
-    }
-
     rendererGizmoVertices_.clear();
     rendererGizmoIndices_.clear();
     rendererColorMeshDraws_.clear();
@@ -652,6 +686,18 @@ bool ViewportWidget::renderRendererFrame()
                 if (!position.has_value()) {
                     continue;
                 }
+                if (!entity.meshRenderer.has_value()) {
+                    appendEntityMarker(
+                        rendererGizmoVertices_,
+                        rendererGizmoIndices_,
+                        *position,
+                        entityPickRadius(entity),
+                        entity.id == selectedEntityId_,
+                        forward,
+                        right,
+                        up,
+                        camera_.distance);
+                }
                 appendViewportLabel(
                     rendererGizmoVertices_,
                     rendererGizmoIndices_,
@@ -662,7 +708,6 @@ bool ViewportWidget::renderRendererFrame()
                 ++labelsSubmitted;
             }
         }
-
         const auto vertexCountBeforeGizmo = rendererGizmoVertices_.size();
         const auto indexCountBeforeGizmo = rendererGizmoIndices_.size();
         const auto gizmoVertexOffset = static_cast<std::uint32_t>(rendererGizmoVertices_.size());
@@ -703,13 +748,14 @@ bool ViewportWidget::renderRendererFrame()
         }
     }
     frame.colorMeshDraws = std::span<const renderer::RenderColorMeshDraw>(rendererColorMeshDraws_);
-
+    if (rendererMeshDraws_.empty() && rendererColorMeshDraws_.empty() && !hasMeshSceneContent) {
+        return false;
+    }
     std::string error;
     if (renderer_->renderSurfaceFrame(desc, frame, &error)) {
         gpuMeshFrameRendered_ = !rendererMeshDraws_.empty();
         return true;
     }
-
     gpuMeshFrameRendered_ = false;
     rendererSurfaceAttempted_ = false;
     rendererSurfaceReady_ = false;
@@ -720,5 +766,4 @@ bool ViewportWidget::renderRendererFrame()
             .toStdString());
     return false;
 }
-
 } // namespace projectunity::editor

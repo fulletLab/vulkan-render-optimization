@@ -90,11 +90,12 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     }
 
     newScene();
+    const auto offscreenPlatform = QApplication::platformName() == QStringLiteral("offscreen");
     const auto emptySceneFramesBefore = renderer_->stats().viewportFramesPresented;
     sceneViewport_->repaint();
     QApplication::processEvents();
-    if (renderer_->stats().viewportFramesPresented != emptySceneFramesBefore) {
-        return fail(QStringLiteral("Empty Scene View presented a Vulkan clear frame over editor aids"));
+    if (!offscreenPlatform && renderer_->stats().viewportFramesPresented == emptySceneFramesBefore) {
+        return fail(QStringLiteral("Empty Scene View editor aids did not reach the Vulkan color path"));
     }
 
     const auto parentId = createEmptyEntity(QStringLiteral("Parent"));
@@ -192,7 +193,6 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     sceneViewport_->repaint();
     QApplication::processEvents();
 
-    const auto offscreenPlatform = QApplication::platformName() == QStringLiteral("offscreen");
     const auto& stats = renderer_->stats();
     if (!offscreenPlatform && (stats.meshDrawsPresented == 0
             || stats.texturedMeshDrawsPresented == 0

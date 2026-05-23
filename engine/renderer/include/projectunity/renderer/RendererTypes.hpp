@@ -105,6 +105,7 @@ struct RenderMeshDraw {
     float sortDepth {0.0F};
     RenderMatrix4 modelMatrix;
     RenderMatrix4 modelViewProjection;
+    bool flipsWinding {false};
 };
 
 struct RenderColorVertex {

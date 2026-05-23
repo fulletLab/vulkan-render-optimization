@@ -26,6 +26,10 @@ add_library(projectunity_assets STATIC
     src/GltfSceneObjects.hpp
     src/MeshBounds.cpp
     src/MeshBounds.hpp
+    src/MeshPrimitiveBatcher.cpp
+    src/MeshPrimitiveBatcher.hpp
+    src/MeshPrimitiveSignature.cpp
+    src/MeshPrimitiveSignature.hpp
     src/StbTextureImport.cpp
     src/StbTextureImport.hpp
     src/TinyGltfImplementation.cpp

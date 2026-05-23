@@ -68,6 +68,7 @@ struct MeshVertex {
     float tangentSign {1.0F};
     std::array<float, 2> texCoord {};
     std::array<float, 4> color {1.0F, 1.0F, 1.0F, 1.0F};
+    std::array<float, 4> materialFactors {1.0F, 1.0F, 1.0F, 1.0F};
 };
 
 struct MeshLod {
@@ -87,6 +88,18 @@ struct MeshPrimitive {
     std::vector<MeshLod> lods;
     MeshBounds bounds;
     std::size_t materialIndex {0};
+};
+
+struct MeshPrimitiveInstance {
+    std::uint32_t primitiveIndex {0};
+    std::array<float, 16> transform {
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F,
+    };
+    MeshBounds bounds;
+    bool flipsWinding {false};
 };
 
 struct TextureAsset {
@@ -147,6 +160,7 @@ struct ModelAsset {
     AssetId id;
     std::string name;
     std::vector<MeshPrimitive> primitives;
+    std::vector<MeshPrimitiveInstance> primitiveInstances;
     std::vector<MaterialAsset> materials;
     std::vector<TextureAsset> textures;
     std::vector<ImportedLightAsset> lights;

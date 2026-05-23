@@ -1,16 +1,12 @@
 #include "VulkanViewportTarget.hpp"
-
 #include "VulkanDebugLabels.hpp"
 #include "VulkanSupport.hpp"
-
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
-
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <stdexcept>
-
 namespace projectunity::renderer {
-
 std::size_t VulkanMaterialTextureKeyHash::operator()(const VulkanMaterialTextureKey& key) const noexcept
 {
     auto hash = static_cast<std::size_t>(key.baseColor);
@@ -23,7 +19,28 @@ std::size_t VulkanMaterialTextureKeyHash::operator()(const VulkanMaterialTexture
     mix(key.emissive);
     return hash;
 }
-
+namespace {
+[[nodiscard]] std::span<const std::byte> instanceBytes(const std::vector<VulkanGpuInstance>& instances)
+{
+    return {
+        reinterpret_cast<const std::byte*>(instances.data()),
+        instances.size() * sizeof(VulkanGpuInstance),
+    };
+}
+[[nodiscard]] bool canBatch(const RenderMeshDraw& lhs, const RenderMeshDraw& rhs) noexcept
+{
+    return lhs.modelAssetId == rhs.modelAssetId
+        && lhs.primitiveIndex == rhs.primitiveIndex
+        && lhs.material == rhs.material
+        && lhs.baseColorTexture == rhs.baseColorTexture
+        && lhs.normalTexture == rhs.normalTexture
+        && lhs.metallicRoughnessTexture == rhs.metallicRoughnessTexture
+        && lhs.occlusionTexture == rhs.occlusionTexture
+        && lhs.emissiveTexture == rhs.emissiveTexture
+        && lhs.flipsWinding == rhs.flipsWinding
+        && isTransparentMeshDraw(lhs) == isTransparentMeshDraw(rhs);
+}
+} // namespace
 VulkanViewportTarget::VulkanViewportTarget(VulkanViewportContext context, ViewportRenderSurfaceDesc desc)
     : context_(context)
     , desc_(desc)
@@ -52,12 +69,10 @@ VulkanViewportTarget::VulkanViewportTarget(VulkanViewportContext context, Viewpo
         throw;
     }
 }
-
 VulkanViewportTarget::~VulkanViewportTarget()
 {
     destroy();
 }
-
 bool VulkanViewportTarget::matches(const ViewportRenderSurfaceDesc& surfaceDesc) const noexcept
 {
     return desc_.width == surfaceDesc.width
@@ -65,7 +80,6 @@ bool VulkanViewportTarget::matches(const ViewportRenderSurfaceDesc& surfaceDesc)
         && desc_.vsync == surfaceDesc.vsync
         && swapchain_ != VK_NULL_HANDLE;
 }
-
 bool VulkanViewportTarget::renderFrame(
     const RenderFrame& frame,
     VulkanUploadContext& uploads,
@@ -80,7 +94,6 @@ bool VulkanViewportTarget::renderFrame(
         }
         return false;
     }
-
     std::uint32_t imageIndex = 0;
     const auto acquireResult = vkAcquireNextImageKHR(
         context_.device,
@@ -101,13 +114,10 @@ bool VulkanViewportTarget::renderFrame(
         }
         return false;
     }
-
     if (!recordFrameCommand(imageIndex, frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
-
     (void)vkResetFences(context_.device, 1, &inFlight_);
-
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit {};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -118,14 +128,12 @@ bool VulkanViewportTarget::renderFrame(
     submit.pCommandBuffers = &commandBuffer_;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &renderFinished_;
-
     if (vkQueueSubmit(context_.graphicsQueue, 1, &submit, inFlight_) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to submit Vulkan viewport command buffer";
         }
         return false;
     }
-
     VkPresentInfoKHR present {};
     present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present.waitSemaphoreCount = 1;
@@ -133,7 +141,6 @@ bool VulkanViewportTarget::renderFrame(
     present.swapchainCount = 1;
     present.pSwapchains = &swapchain_;
     present.pImageIndices = &imageIndex;
-
     const auto presentResult = vkQueuePresentKHR(context_.graphicsQueue, &present);
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
         if (errorMessage != nullptr) {
@@ -149,7 +156,6 @@ bool VulkanViewportTarget::renderFrame(
     }
     return true;
 }
-
 void VulkanViewportTarget::destroy() noexcept
 {
     if (context_.device != VK_NULL_HANDLE) {
@@ -191,6 +197,9 @@ void VulkanViewportTarget::destroy() noexcept
         depthAllocation_ = VK_NULL_HANDLE;
     }
     colorMeshes_.clear();
+    meshInstanceBuffer_.destroy();
+    meshInstances_.clear();
+    meshBatches_.clear();
     frameData_.destroy();
     colorPipeline_.reset();
     shadowPipeline_.reset();
@@ -208,7 +217,6 @@ void VulkanViewportTarget::destroy() noexcept
         surface_ = VK_NULL_HANDLE;
     }
 }
-
 void VulkanViewportTarget::createSurface()
 {
 #ifdef _WIN32
@@ -222,21 +230,18 @@ void VulkanViewportTarget::createSurface()
 #else
     throw std::runtime_error("Vulkan viewport surface creation is not implemented for this platform");
 #endif
-
     VkBool32 supported = VK_FALSE;
     if (vkGetPhysicalDeviceSurfaceSupportKHR(context_.physicalDevice, context_.queueFamilyIndex, surface_, &supported) != VK_SUCCESS
         || supported != VK_TRUE) {
         throw std::runtime_error("Selected Vulkan queue family cannot present to the viewport surface");
     }
 }
-
 void VulkanViewportTarget::createSwapchain()
 {
     VkSurfaceCapabilitiesKHR capabilities {};
     if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.physicalDevice, surface_, &capabilities) != VK_SUCCESS) {
         throw std::runtime_error("Failed to query Vulkan surface capabilities");
     }
-
     std::uint32_t formatCount = 0;
     if (vkGetPhysicalDeviceSurfaceFormatsKHR(context_.physicalDevice, surface_, &formatCount, nullptr) != VK_SUCCESS || formatCount == 0) {
         throw std::runtime_error("Vulkan viewport surface has no supported formats");
@@ -245,7 +250,6 @@ void VulkanViewportTarget::createSwapchain()
     if (vkGetPhysicalDeviceSurfaceFormatsKHR(context_.physicalDevice, surface_, &formatCount, formats.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to query Vulkan surface formats");
     }
-
     std::uint32_t presentModeCount = 0;
     if (vkGetPhysicalDeviceSurfacePresentModesKHR(context_.physicalDevice, surface_, &presentModeCount, nullptr) != VK_SUCCESS
         || presentModeCount == 0) {
@@ -255,14 +259,12 @@ void VulkanViewportTarget::createSwapchain()
     if (vkGetPhysicalDeviceSurfacePresentModesKHR(context_.physicalDevice, surface_, &presentModeCount, presentModes.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to query Vulkan present modes");
     }
-
     surfaceFormat_ = vulkan::chooseSurfaceFormat(formats);
     extent_ = vulkan::chooseExtent(capabilities, desc_.width, desc_.height);
     auto imageCount = capabilities.minImageCount + 1U;
     if (capabilities.maxImageCount > 0U) {
         imageCount = std::min(imageCount, capabilities.maxImageCount);
     }
-
     VkSwapchainCreateInfoKHR createInfo {};
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     createInfo.surface = surface_;
@@ -277,11 +279,9 @@ void VulkanViewportTarget::createSwapchain()
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     createInfo.presentMode = vulkan::choosePresentMode(presentModes, desc_.vsync);
     createInfo.clipped = VK_TRUE;
-
     if (vkCreateSwapchainKHR(context_.device, &createInfo, nullptr, &swapchain_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport swapchain");
     }
-
     std::uint32_t imageCountOut = 0;
     if (vkGetSwapchainImagesKHR(context_.device, swapchain_, &imageCountOut, nullptr) != VK_SUCCESS || imageCountOut == 0) {
         throw std::runtime_error("Failed to query Vulkan swapchain image count");
@@ -291,7 +291,6 @@ void VulkanViewportTarget::createSwapchain()
         throw std::runtime_error("Failed to query Vulkan swapchain images");
     }
 }
-
 void VulkanViewportTarget::createImageViews()
 {
     imageViews_.reserve(images_.size());
@@ -304,7 +303,6 @@ void VulkanViewportTarget::createImageViews()
         createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         createInfo.subresourceRange.levelCount = 1;
         createInfo.subresourceRange.layerCount = 1;
-
         VkImageView imageView = VK_NULL_HANDLE;
         if (vkCreateImageView(context_.device, &createInfo, nullptr, &imageView) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan viewport image view");
@@ -312,7 +310,6 @@ void VulkanViewportTarget::createImageViews()
         imageViews_.push_back(imageView);
     }
 }
-
 void VulkanViewportTarget::createDepthTarget()
 {
     VkImageCreateInfo imageInfo {};
@@ -338,7 +335,6 @@ void VulkanViewportTarget::createDepthTarget()
         != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport depth image");
     }
-
     VkImageViewCreateInfo viewInfo {};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = depthImage_;
@@ -351,7 +347,6 @@ void VulkanViewportTarget::createDepthTarget()
         throw std::runtime_error("Failed to create Vulkan viewport depth image view");
     }
 }
-
 void VulkanViewportTarget::createFramebuffers()
 {
     framebuffers_.reserve(imageViews_.size());
@@ -372,7 +367,6 @@ void VulkanViewportTarget::createFramebuffers()
         framebuffers_.push_back(framebuffer);
     }
 }
-
 void VulkanViewportTarget::createDescriptors()
 {
     std::array<VkDescriptorPoolSize, 2> poolSizes {};
@@ -389,7 +383,6 @@ void VulkanViewportTarget::createDescriptors()
         throw std::runtime_error("Failed to create Vulkan viewport descriptor pool");
     }
 }
-
 void VulkanViewportTarget::createCommands()
 {
     VkCommandPoolCreateInfo poolInfo {};
@@ -399,7 +392,6 @@ void VulkanViewportTarget::createCommands()
     if (vkCreateCommandPool(context_.device, &poolInfo, nullptr, &commandPool_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport command pool");
     }
-
     VkCommandBufferAllocateInfo allocInfo {};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = commandPool_;
@@ -413,7 +405,6 @@ void VulkanViewportTarget::createCommands()
     endDebugLabel_ = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
         vkGetDeviceProcAddr(context_.device, "vkCmdEndDebugUtilsLabelEXT"));
 }
-
 void VulkanViewportTarget::createSync()
 {
     VkSemaphoreCreateInfo semaphoreInfo {};
@@ -422,7 +413,6 @@ void VulkanViewportTarget::createSync()
         || vkCreateSemaphore(context_.device, &semaphoreInfo, nullptr, &renderFinished_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport semaphores");
     }
-
     VkFenceCreateInfo fenceInfo {};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -430,7 +420,6 @@ void VulkanViewportTarget::createSync()
         throw std::runtime_error("Failed to create Vulkan viewport fence");
     }
 }
-
 VkDescriptorSet VulkanViewportTarget::textureDescriptor(
     const VulkanTextureHandle& baseColor,
     const VulkanTextureHandle& normal,
@@ -443,7 +432,6 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
     if (const auto existing = textureDescriptors_.find(key); existing != textureDescriptors_.end()) {
         return existing->second;
     }
-
     VkDescriptorSetAllocateInfo allocInfo {};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = descriptorPool_;
@@ -457,7 +445,6 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
         }
         return VK_NULL_HANDLE;
     }
-
     VkDescriptorBufferInfo frameInfo {};
     frameInfo.buffer = frameData_.buffer();
     frameInfo.range = sizeof(VulkanFrameUniforms);
@@ -489,7 +476,41 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
     textureDescriptors_.emplace(key, descriptor);
     return descriptor;
 }
-
+bool VulkanViewportTarget::buildMeshBatches(
+    std::span<const RenderMeshDraw> draws,
+    VulkanUploadContext& uploads,
+    std::string* errorMessage)
+{
+    orderMeshDraws(draws, orderedMeshDraws_);
+    meshInstances_.clear();
+    meshBatches_.clear();
+    meshInstances_.reserve(orderedMeshDraws_.size());
+    meshBatches_.reserve(orderedMeshDraws_.size());
+    for (const auto* draw : orderedMeshDraws_) {
+        if (draw == nullptr) {
+            continue;
+        }
+        VulkanGpuInstance instance;
+        std::copy(draw->modelMatrix.values.begin(), draw->modelMatrix.values.end(), instance.model);
+        const auto instanceIndex = static_cast<std::uint32_t>(meshInstances_.size());
+        meshInstances_.push_back(instance);
+        if (!meshBatches_.empty() && canBatch(*meshBatches_.back().draw, *draw)) {
+            ++meshBatches_.back().instanceCount;
+        } else {
+            meshBatches_.push_back({draw, instanceIndex, 1U});
+        }
+    }
+    if (meshInstances_.empty()) {
+        meshInstanceBuffer_.destroy();
+        return true;
+    }
+    return meshInstanceBuffer_.upload(
+        context_.resources(),
+        uploads,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        instanceBytes(meshInstances_),
+        errorMessage);
+}
 bool VulkanViewportTarget::recordShadowPass(
     const RenderFrame& frame,
     VulkanUploadContext& uploads,
@@ -513,7 +534,6 @@ bool VulkanViewportTarget::recordShadowPass(
         commandBuffer_,
         "ProjectUnity Shadow Pass",
         {0.22F, 0.26F, 0.92F, 1.0F});
-
     VkViewport viewport {};
     viewport.width = static_cast<float>(shadowPipeline_->extent().width);
     viewport.height = static_cast<float>(shadowPipeline_->extent().height);
@@ -523,13 +543,12 @@ bool VulkanViewportTarget::recordShadowPass(
     vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
-
     if (!frame.shadowsEnabled) {
         vkCmdEndRenderPass(commandBuffer_);
         return true;
     }
-
-    for (const auto& draw : frame.meshDraws) {
+    for (const auto& batch : meshBatches_) {
+        const auto& draw = *batch.draw;
         if (isTransparentMeshDraw(draw)) {
             continue;
         }
@@ -558,7 +577,6 @@ bool VulkanViewportTarget::recordShadowPass(
             vkCmdEndRenderPass(commandBuffer_);
             return false;
         }
-
         VulkanDrawPushConstants push;
         push.modelMatrix = draw.modelMatrix.values;
         if (draw.material != nullptr) {
@@ -577,8 +595,10 @@ bool VulkanViewportTarget::recordShadowPass(
             };
         }
         const VkDeviceSize vertexOffset = 0;
-        const auto vertexBuffer = mesh->vertices.buffer();
-        vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
+        const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
+        const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices.buffer(), meshInstanceBuffer_.buffer()};
+        const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
+        vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
         vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
         vkCmdBindDescriptorSets(
             commandBuffer_,
@@ -596,12 +616,11 @@ bool VulkanViewportTarget::recordShadowPass(
             0,
             sizeof(VulkanDrawPushConstants),
             &push);
-        vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
     }
     vkCmdEndRenderPass(commandBuffer_);
     return true;
 }
-
 bool VulkanViewportTarget::recordFrameCommand(
     std::uint32_t imageIndex,
     const RenderFrame& frame,
@@ -619,7 +638,6 @@ bool VulkanViewportTarget::recordFrameCommand(
     if (!frameData_.update(frame, errorMessage)) {
         return false;
     }
-
     for (const auto& draw : frame.meshDraws) {
         if (draw.primitive == nullptr || !draw.modelAssetId.isValid()) {
             if (errorMessage != nullptr) {
@@ -649,6 +667,9 @@ bool VulkanViewportTarget::recordFrameCommand(
             return false;
         }
     }
+    if (!buildMeshBatches(frame.meshDraws, uploads, errorMessage)) {
+        return false;
+    }
     colorMeshes_.clear();
     colorMeshes_.reserve(frame.colorMeshDraws.size());
     for (const auto& draw : frame.colorMeshDraws) {
@@ -658,7 +679,6 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
         colorMeshes_.push_back(std::move(buffers));
     }
-
     vkResetCommandBuffer(commandBuffer_, 0);
     VkCommandBufferBeginInfo begin {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -678,7 +698,6 @@ bool VulkanViewportTarget::recordFrameCommand(
     if (!recordShadowPass(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
-
     std::array<VkClearValue, 2> clears {};
     clears[0].color.float32[0] = frame.clearColor.red;
     clears[0].color.float32[1] = frame.clearColor.green;
@@ -701,17 +720,16 @@ bool VulkanViewportTarget::recordFrameCommand(
     scissor.extent = extent_;
     vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
-
     VkPipeline activeMeshPipeline = VK_NULL_HANDLE;
-    orderMeshDraws(frame.meshDraws, orderedMeshDraws_);
     {
         VulkanScopedLabel meshLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Mesh Pass", {0.12F, 0.75F, 0.38F, 1.0F});
-        for (const auto* drawPointer : orderedMeshDraws_) {
-            const auto& draw = *drawPointer;
+        for (const auto& batch : meshBatches_) {
+            const auto& draw = *batch.draw;
             const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
+            const auto noCull = doubleSided || draw.flipsWinding;
             const auto drawPipeline = isTransparentMeshDraw(draw)
-                ? (doubleSided ? meshPipeline_->transparentDoubleSidedPipeline() : meshPipeline_->transparentPipeline())
-                : (doubleSided ? meshPipeline_->doubleSidedPipeline() : meshPipeline_->pipeline());
+                ? (noCull ? meshPipeline_->transparentDoubleSidedPipeline() : meshPipeline_->transparentPipeline())
+                : (noCull ? meshPipeline_->doubleSidedPipeline() : meshPipeline_->pipeline());
             if (drawPipeline != activeMeshPipeline) {
                 vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
                 activeMeshPipeline = drawPipeline;
@@ -741,12 +759,14 @@ bool VulkanViewportTarget::recordFrameCommand(
                 push.materialExtras[0] = draw.material->occlusionStrength;
             }
             const VkDeviceSize vertexOffset = 0;
-            const auto vertexBuffer = mesh->vertices.buffer();
-            vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
+            const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
+            const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices.buffer(), meshInstanceBuffer_.buffer()};
+            const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
+            vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
             vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
             vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->layout(), 0, 1, &descriptor, 0, nullptr);
             vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
-            vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, 1, 0, 0, 0);
+            vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
         }
     }
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline_->pipeline());
@@ -772,5 +792,4 @@ bool VulkanViewportTarget::recordFrameCommand(
     }
     return true;
 }
-
 } // namespace projectunity::renderer
