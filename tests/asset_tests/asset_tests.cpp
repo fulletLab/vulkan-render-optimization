@@ -313,6 +313,12 @@ int main()
     if (model == nullptr || model->primitives.size() != 1 || model->primitives.front().vertices.size() != 3) {
         return fail("imported GLB model data is incomplete");
     }
+    const auto firstModelInstance = model.get();
+    const auto reimportResult = manager.importModel(glbPath);
+    const auto reimportedModel = manager.model(modelResult.record.id);
+    if (!reimportResult.success || reimportedModel == nullptr || reimportedModel.get() == firstModelInstance) {
+        return fail("reimporting a GLB did not refresh the active in-memory model instance");
+    }
     if (model->primitives.front().vertices.front().tangent.lengthSquared() <= 0.1F) {
         return fail("imported GLB tangent generation produced invalid data");
     }

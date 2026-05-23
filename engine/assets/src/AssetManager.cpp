@@ -678,7 +678,14 @@ AssetImportResult AssetManager::importModel(const std::filesystem::path& sourceP
 
     {
         std::scoped_lock lock(mutex_);
-        models_.push_back(imported.asset);
+        auto existing = std::find_if(models_.begin(), models_.end(), [&imported](const auto& model) {
+            return model != nullptr && model->id == imported.asset->id;
+        });
+        if (existing == models_.end()) {
+            models_.push_back(imported.asset);
+        } else {
+            *existing = imported.asset;
+        }
     }
     storeRecord(imported.record);
     core::logInfo(core::LogCategory::Assets, "Model asset imported and cached");
@@ -713,7 +720,14 @@ AssetImportResult AssetManager::importTexture(const std::filesystem::path& sourc
 
     {
         std::scoped_lock lock(mutex_);
-        textures_.push_back(textureAsset);
+        auto existing = std::find_if(textures_.begin(), textures_.end(), [&textureAsset](const auto& texture) {
+            return texture != nullptr && texture->id == textureAsset->id;
+        });
+        if (existing == textures_.end()) {
+            textures_.push_back(textureAsset);
+        } else {
+            *existing = textureAsset;
+        }
     }
     storeRecord(record);
     core::logInfo(core::LogCategory::Assets, "Texture asset imported and cached");

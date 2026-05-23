@@ -18,6 +18,7 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportWidgetCamera.cpp
     src/ViewportWidget.cpp
     src/ViewportWidgetDraw.cpp
+    src/ViewportLabelGeometry.cpp
     src/ViewportWidgetRenderer.cpp
     src/ViewportWidgetSelfTest.cpp
     include/projectunity/editor/IEditorDebugDrawBackend.hpp

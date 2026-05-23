@@ -1,5 +1,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 
+#include "ViewportLabelGeometry.hpp"
+
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 
@@ -630,6 +632,32 @@ bool ViewportWidget::renderRendererFrame()
                 forward,
                 right,
                 camera_.distance);
+            const ViewportLabelCamera labelCamera {
+                eye,
+                right,
+                up,
+                forward,
+                cameraFrame.verticalFovRadians,
+                static_cast<float>(std::max(height(), 1)),
+            };
+            std::size_t labelsSubmitted = 0;
+            for (const auto& entity : scene_->entities()) {
+                if (labelsSubmitted >= 128U) {
+                    break;
+                }
+                const auto position = entityWorldPosition(entity.id);
+                if (!position.has_value()) {
+                    continue;
+                }
+                appendViewportLabel(
+                    rendererGizmoVertices_,
+                    rendererGizmoIndices_,
+                    labelCamera,
+                    *position,
+                    entity.name,
+                    entity.id == selectedEntityId_);
+                ++labelsSubmitted;
+            }
         }
 
         const auto vertexCountBeforeGizmo = rendererGizmoVertices_.size();

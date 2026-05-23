@@ -184,6 +184,9 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - Vulkan command buffers now emit debug labels for the viewport frame, shadow pass,
   mesh pass, and Scene View aid pass when `VK_EXT_debug_utils` entry points are available,
   so RenderDoc captures have useful pass boundaries without requiring the extension.
+- Scene View entity labels now have a Vulkan GPU path. The editor projects entity
+  names into bounded billboard text geometry in the color pass instead of relying on
+  QPainter over the swapchain after imported mesh frames.
 - The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
   development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
   the source-rule test passes again.

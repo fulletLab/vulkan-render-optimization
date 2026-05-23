@@ -304,6 +304,13 @@ Date: 2026-05-22
 - Vulkan command buffers now emit debug labels for the viewport frame, shadow pass,
   mesh pass, and Scene View aid pass when `VK_EXT_debug_utils` entry points are available,
   making RenderDoc captures navigable without hard dependencies on the extension.
+- Scene View entity labels no longer depend on a QPainter overlay above the Vulkan
+  swapchain. The editor now emits a bounded GPU billboard text mesh into the Vulkan
+  color pass, keeping labels visible with imported mesh frames while capping label
+  generation to avoid editor overlay spikes.
+- Reimporting the same source GLB/texture in one editor session now refreshes the
+  active in-memory asset instance for that stable asset id instead of leaving the
+  first imported copy ahead of newer importer output.
 - Adding vertex color support pushed `AssetManager.cpp` over the 800-line project
   rule. Attribute/accessor decoding was split into `GltfAttributeReader` and
   `projectunity_source_rule_tests` passes again.
