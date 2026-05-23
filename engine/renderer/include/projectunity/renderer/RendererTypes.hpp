@@ -31,11 +31,19 @@ struct RendererStats {
     bool debugMarkersAvailable {false};
     bool vmaAllocatorReady {false};
     std::uint64_t viewportFramesPresented {0};
+    std::uint64_t lastFrameCandidateMeshDrawCount {0};
+    std::uint64_t lastFrameCulledMeshDrawCount {0};
     std::uint64_t lastFrameMeshDrawCount {0};
     std::uint64_t lastFrameColorMeshDrawCount {0};
+    std::uint64_t lastFrameLightCount {0};
+    std::uint64_t lastFrameShadowCasterCount {0};
+    std::uint64_t lastFrameRenderCpuTimeUs {0};
+    std::uint64_t averageRenderCpuTimeUs {0};
     std::uint64_t meshDrawsPresented {0};
     std::uint64_t texturedMeshDrawsPresented {0};
     std::uint64_t colorMeshDrawsPresented {0};
+    std::uint64_t shadowFramesPresented {0};
+    std::uint64_t shadowCasterDrawsPresented {0};
 };
 
 struct RenderClearColor {
@@ -102,11 +110,15 @@ struct RenderFrame {
     RenderMatrix4 viewProjection;
     RenderMatrix4 shadowViewProjection;
     std::array<float, 3> cameraPosition {0.0F, 0.0F, 0.0F};
+    std::array<float, 3> visibleBoundsCenter {0.0F, 0.0F, 0.0F};
+    float visibleBoundsRadius {0.0F};
     std::array<float, 3> ambientSkyColor {0.22F, 0.28F, 0.40F};
     std::array<float, 3> ambientGroundColor {0.07F, 0.06F, 0.05F};
     std::span<const RenderLight> lights;
     bool shadowsEnabled {false};
     std::uint32_t shadowLightIndex {0};
+    std::uint64_t candidateMeshDrawCount {0};
+    std::uint64_t culledMeshDrawCount {0};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

@@ -132,6 +132,7 @@ struct ImportedCameraAsset {
     ImportedCameraProjection projection {ImportedCameraProjection::Perspective};
     math::Vec3 position;
     math::Vec3 direction {0.0F, 0.0F, -1.0F};
+    math::Vec3 right {1.0F, 0.0F, 0.0F};
     math::Vec3 up {0.0F, 1.0F, 0.0F};
     float verticalFovRadians {1.04719755F};
     float aspectRatio {0.0F};

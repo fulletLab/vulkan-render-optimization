@@ -20,7 +20,7 @@ Status: PARCIAL
 ## Blocking Renderer Status
 
 - The GLB/glTF importer keeps the full source mesh and material data. The default Scene View path must use the full primitive index buffers, not preview triangle budgets or automatic destructive LODs.
-- The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, color-space-aware GPU material texture upload with imported sampler state and generated mip chains, conservative bounds culling, glTF material factor and vertex-color preservation, textured imported mesh draws, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
+- The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, color-space-aware GPU material texture upload with imported sampler state and generated mip chains, conservative bounds culling, culling/timing renderer stats, glTF material factor and vertex-color preservation, textured imported mesh draws, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
 - The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails or when only empty-scene editor aids are being shown. Qt is not the final 3D renderer.
 - Phase 6 remains partial until representative imported GLB/glTF content is visually verified with prefiltered IBL coverage, fuller shadow/material coverage, renderer-owned labels, and profiling.
 
@@ -46,7 +46,8 @@ Status: PARCIAL
 - Project Browser import table and asynchronous Qt import command.
 - Imported model entities created in scene data after a successful editor import.
 - Scene/Game viewport CPU fallback mesh drawing from `IAssetManager`, including base-color textured triangle mapping for the Phase 6 editor bridge.
-- Initial `engine/renderer` Vulkan module with instance/device creation, validation-layer discovery, debug-utils availability check, VMA allocator creation, Win32 viewport surface/swapchain preparation, render pass/pipeline creation, staged vertex/index/texture upload caches with sRGB color, linear data-map, and imported sampler variants, generated material texture mip chains, conservative viewport culling, frame-uniform camera/light state, Cook-Torrance-style direct material shading, procedural ambient environment terms, one directional shadow-map pass, glTF alpha mode/cutoff handling, transparent primitive draw ordering, vertex-color-aware textured mesh draw path, controlled Scene View editor color mesh draw path, renderer stats, and renderer tests.
+- Initial `engine/renderer` Vulkan module with instance/device creation, validation-layer discovery, debug-utils availability check, VMA allocator creation, Win32 viewport surface/swapchain preparation, render pass/pipeline creation, staged vertex/index/texture upload caches with sRGB color, linear data-map, and imported sampler variants, generated material texture mip chains, conservative viewport culling, frame-uniform camera/light state, Cook-Torrance-style direct material shading, procedural ambient environment terms, one directional shadow-map pass with `MASK` alpha cutoff sampling, glTF alpha mode/cutoff handling, transparent primitive draw ordering, vertex-color-aware textured mesh draw path, controlled Scene View editor color mesh draw path, renderer stats, and renderer tests.
+- The editor Profiler tab displays renderer GPU/API, frame, draw, light, and shadow counters from `RendererStats`.
 - Example textured asset at `examples/basic_assets/TexturedTriangle.gltf`.
 
 ## Files Involved
@@ -79,6 +80,7 @@ Status: PARCIAL
 - `engine/renderer/shaders/TexturedMesh.vert`
 - `engine/renderer/shaders/TexturedMesh.frag`
 - `engine/renderer/shaders/ShadowDepth.vert`
+- `engine/renderer/shaders/ShadowDepth.frag`
 - `engine/renderer/shaders/EditorColor.vert`
 - `engine/renderer/shaders/EditorColor.frag`
 - `engine/renderer/src/VulkanColorMesh.cpp`
@@ -86,6 +88,7 @@ Status: PARCIAL
 - `engine/renderer/src/RenderDrawOrdering.cpp`
 - `engine/renderer/src/VulkanColorPipeline.cpp`
 - `engine/renderer/src/VulkanColorPipeline.hpp`
+- `engine/renderer/src/VulkanDebugLabels.hpp`
 - `engine/renderer/src/VulkanGpuBuffer.cpp`
 - `engine/renderer/src/VulkanGpuBuffer.hpp`
 - `engine/renderer/src/VulkanFrameData.cpp`
@@ -145,7 +148,8 @@ Status: PARCIAL
 - The editor imports in a Qt background task and updates Project Browser/UI only on completion.
 - Viewport fallback code resolves imported models through `IAssetManager`; it does not call TinyGLTF, stb, MikkTSpace, or meshoptimizer.
 - Qt owns editor UI, docking, menus, panels, and input dispatch. The renderer module is independent of Qt and is injected into editor viewports through `IRenderer`.
-- The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured mesh draws, vertex-color multiplication, base-color/normal/metallic-roughness/occlusion/emissive texture slots with generated mip chains, separate sRGB color, linear data-map, and imported sampler cache entries, conservative bounds culling, a per-frame camera/light UBO, punctual imported-light submission, direct PBR material shading with procedural ambient environment terms, an initial directional shadow map, basic glTF alpha mode/cutoff handling, back-to-front transparent primitive ordering, Scene View grid/axes/hierarchy/gizmo color mesh draws, and the upload caches needed by imported primitives/textures. Prefiltered IBL, full shadow/material coverage, and renderer-owned text labels are not claimed as complete here.
+- Coordinate convention: glTF/GLB source data is read in glTF's right-handed, Y-up convention with local `-Z` forward, then converted once at import into the engine/editor convention: Y-up with `+Z` forward. The conversion is a single Z reflection applied after glTF node `matrix`/TRS evaluation; UVs are not flipped. `node.matrix` is treated as column-major and TRS is built as column-vector `T * R * S`. When node transforms are baked into mesh vertices, positions and tangents use the converted linear transform, normals use the inverse-transpose linear transform, bounds are recomputed after baking, and negative-determinant converted transforms flip triangle winding plus tangent handedness so future culling remains consistent without mirroring the asset. Imported cameras/lights are converted through the same matrix, and Game View uses imported camera local `+X` as screen-right instead of reconstructing it from forward/up.
+- The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured mesh draws, vertex-color multiplication, base-color/normal/metallic-roughness/occlusion/emissive texture slots with generated mip chains, separate sRGB color, linear data-map, and imported sampler cache entries, conservative bounds culling, a per-frame camera/light UBO, punctual imported-light submission, direct PBR material shading with a procedural environment/BRDF approximation, an initial visible-bounds directional shadow map with weighted PCF and alpha-mask caster discard, RenderDoc-friendly command labels around the viewport frame and key passes, basic glTF alpha mode/cutoff handling, back-to-front transparent primitive ordering, Scene View grid/axes/hierarchy/gizmo color mesh draws, and the upload caches needed by imported primitives/textures. Prefiltered IBL, full shadow/material coverage, and renderer-owned text labels are not claimed as complete here.
 - Assimp stays unintegrated in this phase because GLB/glTF coverage is real through TinyGLTF and no FBX/OBJ DoD was claimed.
 
 ## Build And Test
@@ -164,16 +168,17 @@ ctest --preset dev-editor-local-qt
 
 - `cmake --preset dev-core`: configured successfully with Visual Studio 18 2026.
 - `cmake --build --preset dev-core`: built successfully.
-- `ctest --preset dev-core`: 7/7 tests passed in 2.37 seconds after glTF scene objects and the Vulkan frame/shadow path were added.
+- `ctest --preset dev-core`: 7/7 tests passed in 2.64 seconds after the glTF-to-engine Z conversion, explicit imported camera right vectors, and the asymmetric node fixture were added.
 - `cmake --preset dev-editor-local-qt`: configured successfully with Visual Studio 18 2026, Qt, ADS, Vulkan, tinygizmo, Im3d, TinyGLTF, MikkTSpace, and meshoptimizer.
 - `cmake --build --preset dev-editor-local-qt`: built successfully and deployed Qt/ADS runtime dependencies.
-- `ctest --preset dev-editor-local-qt`: 8/8 offscreen tests passed in 6.64 seconds after glTF scene objects and the Vulkan frame/shadow path were added.
-- Visible Windows `projectunity_editor --smoke-test`: passed with exit code 0 and requires imported textured mesh plus Scene View color mesh draws to reach Vulkan. The same assertion is skipped under Qt's offscreen platform because it presents no Win32 Vulkan frames.
+- `ctest --preset dev-editor-local-qt`: 8/8 offscreen tests passed in 6.82 seconds after the glTF-to-engine Z conversion, explicit imported camera right vectors, and the asymmetric node fixture were added.
+- Visible Windows `projectunity_editor --smoke-test`: passed with exit code 0 after the same renderer changes and requires imported textured mesh, Scene View color mesh draws, candidate mesh stats, render CPU timing, shadow frames, and shadow caster draws to reach Vulkan. The same assertion is skipped under Qt's offscreen platform because it presents no Win32 Vulkan frames.
 - `projectunity_asset_tests` generates a real temporary GLB with a node transform, vertex colors, PBR material factors/maps, sampler wrap/filter state, occlusion strength, emissive texture state, mask alpha state, a punctual spot light, and a perspective camera, imports it, verifies that the transform, transformed bounds, vertex colors, factors, material maps, sampler state, light state, camera state, occlusion/emissive state, alpha mode, and alpha cutoff are preserved, validates tangent data, imports a PNG, verifies cache records, imports the textured glTF example, and rejects a missing asset.
+- `projectunity_asset_tests` also generates an asymmetric spatial GLB with left, right, front, back, `node.matrix`, quaternion-rotated, and negative-scale mirrored nodes. It verifies that left/right stays stable, glTF `-Z` maps to engine `+Z`, matrix translation remains column-major, quaternion rotation affects converted bounds, UVs are not flipped, and negative determinant converted transforms preserve bounds, normals, winding, and tangent handedness.
 - `projectunity_scene_tests` verifies `MeshRendererComponent` scene roundtrip.
-- `projectunity_renderer_tests` verifies opaque/masked before back-to-front blended primitive ordering, creates the Vulkan renderer, verifies ready state, GPU name, VMA allocator creation, surface descriptor validation, and invalid surface rejection.
+- `projectunity_renderer_tests` verifies opaque/masked before back-to-front blended primitive ordering, creates the Vulkan renderer, verifies ready state, GPU name, VMA allocator creation, lighting/shadow stat initialization, surface descriptor validation, and invalid surface rejection.
 - `projectunity_source_rule_tests` verifies code files stay at or below the 800-line project rule.
-- `projectunity_editor_smoke` imports the textured glTF example into Project Browser, creates a mesh-renderer entity, requires the editor Vulkan renderer to initialize, and exercises the imported mesh bridge. A visible Windows smoke run also requires presented Vulkan mesh and textured-mesh counters; the offscreen CTest run has no Win32 Vulkan presentation surface and keeps fallback coverage.
+- `projectunity_editor_smoke` imports the textured glTF example into Project Browser, creates a mesh-renderer entity, requires the editor Vulkan renderer to initialize, and exercises the imported mesh bridge. A visible Windows smoke run also requires presented Vulkan mesh, textured-mesh, color-mesh, shadow-frame, and shadow-caster counters; the offscreen CTest run has no Win32 Vulkan presentation surface and keeps fallback coverage.
 
 ## Performance Corrections After Failed Optimization
 
@@ -193,8 +198,8 @@ Date: 2026-05-22
 - Viewport, editor window, and asset manager implementation files were split so code files stay under the 800-line project rule.
 - `MainWindowSmoke.cpp` now owns editor smoke coverage so `MainWindow.cpp` stays under the 800-line rule.
 - Added `projectunity_source_rule_tests` to fail the build if a C/C++ source file exceeds 800 lines.
-- `ctest --preset dev-core`: 7/7 tests passed in 2.37 seconds.
-- `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 6.64 seconds.
+- `ctest --preset dev-core`: 7/7 tests passed in 1.66 seconds.
+- `ctest --preset dev-editor-local-qt`: 8/8 tests passed in 6.29 seconds.
 
 ## Bugs Fixed During Phase
 
@@ -207,7 +212,7 @@ Date: 2026-05-22
 ## Known Bugs
 
 - A CPU/QPainter Scene/Game fallback still exists when Vulkan cannot present a viewport frame, including Qt offscreen tests. That fallback is not the final renderer path and remains too slow for real imported scenes.
-- Vulkan imported mesh draws, color-space-aware base-color/normal/metallic-roughness/occlusion/emissive texture uploads with imported sampler state and generated mip chains, conservative viewport culling, texture descriptor binding, frame-uniform punctual lights, imported Game View camera selection, procedural ambient environment shading, a first directional shadow map, glTF alpha mode/cutoff handling, primitive-level `BLEND` ordering, and Scene View color mesh draws exist. Phase 6 still stays partial because prefiltered IBL, full shadow/material coverage, renderer-owned text labels, real performance profiling of imported scenes, and user-facing visual verification on representative imported GLB/glTF content are still open.
+- Vulkan imported mesh draws, color-space-aware base-color/normal/metallic-roughness/occlusion/emissive texture uploads with imported sampler state and generated mip chains, conservative viewport culling, texture descriptor binding, frame-uniform punctual lights, imported Game View camera selection, procedural environment/BRDF ambient shading, a first visible-bounds directional shadow map with weighted PCF and masked-caster alpha discard, glTF alpha mode/cutoff handling, primitive-level `BLEND` ordering, Scene View color mesh draws, and editor-visible renderer counters exist. Phase 6 still stays partial because prefiltered IBL, point/spot/cascaded shadows, renderer-owned text labels, broad performance profiling of imported scenes, and user-facing visual verification on representative imported GLB/glTF content are still open.
 
 ## Renderer Refactor Notes
 
@@ -277,6 +282,24 @@ Date: 2026-05-22
   keeps opaque/masked primitives first, sorts blended primitive draws
   back-to-front from viewport camera depth, and binds a transparent pipeline
   that still depth-tests without writing depth.
+- The first directional shadow pass initially cast every masked primitive as solid
+  geometry. `ShadowDepth.frag` now samples the base-color alpha and respects imported
+  `MASK` cutoff values for opaque/masked shadow casters, while `BLEND` casters stay
+  skipped until transparent shadow policy is designed.
+- Renderer counters for last-frame light count, last-frame shadow casters, total shadow
+  frames, and total shadow caster draws now flow through `RendererStats`, the visible
+  editor smoke test, and the Profiler tab.
+- Renderer counters for candidate mesh primitives, culled mesh primitives, last-frame
+  render CPU time, and averaged render CPU time now flow through `RendererStats`, the
+  visible editor smoke test, and the Profiler tab.
+- The directional shadow matrix now fits visible submitted primitive bounds, snaps the
+  light projection to shadow-map texels, and the mesh shader uses weighted PCF filtering
+  to reduce shimmer and harsh shadow edges without changing imported mesh data.
+- The mesh shader now uses a procedural environment/BRDF approximation for diffuse and
+  specular ambient terms while full prefiltered IBL assets remain later renderer work.
+- Vulkan command buffers now emit debug labels for the viewport frame, shadow pass,
+  mesh pass, and Scene View aid pass when `VK_EXT_debug_utils` entry points are available,
+  making RenderDoc captures navigable without hard dependencies on the extension.
 - Adding vertex color support pushed `AssetManager.cpp` over the 800-line project
   rule. Attribute/accessor decoding was split into `GltfAttributeReader` and
   `projectunity_source_rule_tests` passes again.

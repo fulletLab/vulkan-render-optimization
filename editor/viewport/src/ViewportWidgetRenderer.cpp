@@ -196,18 +196,62 @@ namespace {
 [[nodiscard]] renderer::RenderMatrix4 shadowViewProjection(
     math::Vec3 shadowDirection,
     math::Vec3 target,
-    float cameraDistance)
+    float boundsRadius)
 {
     const auto forward = safeNormalized(shadowDirection, {0.35F, -0.82F, 0.45F});
     const auto right = safeNormalized(math::cross({0.0F, 1.0F, 0.0F}, forward), {1.0F, 0.0F, 0.0F});
     const auto up = safeNormalized(math::cross(forward, right), {0.0F, 1.0F, 0.0F});
-    const auto shadowDistance = std::max(80.0F, cameraDistance * 4.0F);
-    const auto halfExtent = std::clamp(cameraDistance * 3.0F, 24.0F, 320.0F);
-    const auto eye = target - forward * shadowDistance;
+    const auto halfExtent = std::clamp(std::max(boundsRadius, 1.0F) * 1.35F, 12.0F, 640.0F);
+    constexpr float shadowMapSize = 2048.0F;
+    const auto texelWorldSize = (halfExtent * 2.0F) / shadowMapSize;
+    const auto snapAxis = [texelWorldSize](float value) {
+        return std::floor(value / texelWorldSize) * texelWorldSize;
+    };
+    const auto snappedTarget = target
+        + right * (snapAxis(math::dot(target, right)) - math::dot(target, right))
+        + up * (snapAxis(math::dot(target, up)) - math::dot(target, up));
+    const auto shadowDistance = halfExtent * 3.0F + std::max(boundsRadius, 1.0F);
+    const auto eye = snappedTarget - forward * shadowDistance;
     return multiply(
-        orthographicMatrix(halfExtent, halfExtent, 0.05F, shadowDistance * 2.0F),
+        orthographicMatrix(halfExtent, halfExtent, 0.05F, shadowDistance + halfExtent * 2.0F),
         viewMatrix(eye, right, up, forward));
 }
+
+struct FrameBounds {
+    bool valid {false};
+    math::Vec3 minimum;
+    math::Vec3 maximum;
+
+    void includeSphere(math::Vec3 center, float radius)
+    {
+        if (!std::isfinite(radius) || radius < 0.0F) {
+            return;
+        }
+        const math::Vec3 extent {radius, radius, radius};
+        if (!valid) {
+            minimum = center - extent;
+            maximum = center + extent;
+            valid = true;
+            return;
+        }
+        minimum.x = std::min(minimum.x, center.x - radius);
+        minimum.y = std::min(minimum.y, center.y - radius);
+        minimum.z = std::min(minimum.z, center.z - radius);
+        maximum.x = std::max(maximum.x, center.x + radius);
+        maximum.y = std::max(maximum.y, center.y + radius);
+        maximum.z = std::max(maximum.z, center.z + radius);
+    }
+
+    [[nodiscard]] math::Vec3 center() const
+    {
+        return (minimum + maximum) * 0.5F;
+    }
+
+    [[nodiscard]] float radius() const
+    {
+        return (maximum - center()).length();
+    }
+};
 
 struct ViewportCameraFrame {
     math::Vec3 eye;
@@ -395,6 +439,7 @@ bool ViewportWidget::renderRendererFrame()
     rendererMeshDraws_.clear();
     rendererLights_.clear();
     bool hasMeshSceneContent = false;
+    FrameBounds visibleBounds;
 
     ViewportCameraFrame cameraFrame {
         cameraPosition(),
@@ -424,11 +469,16 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.forward = safeNormalized(
                 rotateEuler(imported->direction, entity.transform.rotationEuler),
                 cameraFrame.forward);
+            cameraFrame.right = safeNormalized(
+                rotateEuler(imported->right, entity.transform.rotationEuler),
+                cameraFrame.right);
             cameraFrame.up = safeNormalized(
                 rotateEuler(imported->up, entity.transform.rotationEuler),
                 cameraFrame.up);
-            cameraFrame.right = safeNormalized(math::cross(cameraFrame.up, cameraFrame.forward), cameraFrame.right);
-            cameraFrame.up = safeNormalized(math::cross(cameraFrame.forward, cameraFrame.right), cameraFrame.up);
+            cameraFrame.right = safeNormalized(
+                cameraFrame.right - cameraFrame.forward * math::dot(cameraFrame.right, cameraFrame.forward),
+                safeNormalized(math::cross(cameraFrame.forward, cameraFrame.up), cameraFrame.right));
+            cameraFrame.up = safeNormalized(math::cross(cameraFrame.right, cameraFrame.forward), cameraFrame.up);
             cameraFrame.verticalFovRadians = imported->verticalFovRadians;
             cameraFrame.aspectRatio = imported->aspectRatio > 0.0F ? imported->aspectRatio : aspectRatio();
             cameraFrame.nearPlane = imported->nearPlane;
@@ -487,6 +537,7 @@ bool ViewportWidget::renderRendererFrame()
                 if (primitive.materialIndex >= model->materials.size()) {
                     continue;
                 }
+                ++frame.candidateMeshDrawCount;
                 const auto boundsCenter = transformPoint(entity, *worldPosition, primitive.bounds.center);
                 const auto boundsRadius = primitive.bounds.radius * maxAbsScale(entity.transform.scale);
                 if (!sphereVisible(
@@ -498,8 +549,10 @@ bool ViewportWidget::renderRendererFrame()
                         forward,
                         cameraFrame.verticalFovRadians,
                         cameraFrame.aspectRatio)) {
+                    ++frame.culledMeshDrawCount;
                     continue;
                 }
+                visibleBounds.includeSphere(boundsCenter, boundsRadius);
                 const auto& material = model->materials[primitive.materialIndex];
                 const auto modelTexture = [&model](std::optional<std::size_t> textureIndex) {
                     return textureIndex.has_value() && *textureIndex < model->textures.size()
@@ -526,6 +579,14 @@ bool ViewportWidget::renderRendererFrame()
     if (rendererLights_.empty()) {
         rendererLights_.push_back({});
     }
+    if (visibleBounds.valid) {
+        const auto center = visibleBounds.center();
+        frame.visibleBoundsCenter = {center.x, center.y, center.z};
+        frame.visibleBoundsRadius = visibleBounds.radius();
+    } else {
+        frame.visibleBoundsCenter = {camera_.target.x, camera_.target.y, camera_.target.z};
+        frame.visibleBoundsRadius = std::max(camera_.distance, 1.0F);
+    }
     frame.lights = std::span<const renderer::RenderLight>(rendererLights_);
     const auto shadowLight = std::find_if(rendererLights_.begin(), rendererLights_.end(), [](const renderer::RenderLight& light) {
         return light.type == renderer::RenderLightType::Directional;
@@ -537,7 +598,12 @@ bool ViewportWidget::renderRendererFrame()
             shadowLight->direction[1],
             shadowLight->direction[2],
         };
-        frame.shadowViewProjection = shadowViewProjection(lightDirection, camera_.target, camera_.distance);
+        const math::Vec3 shadowCenter {
+            frame.visibleBoundsCenter[0],
+            frame.visibleBoundsCenter[1],
+            frame.visibleBoundsCenter[2],
+        };
+        frame.shadowViewProjection = shadowViewProjection(lightDirection, shadowCenter, frame.visibleBoundsRadius);
         frame.shadowLightIndex = index;
         frame.shadowsEnabled = true;
     }

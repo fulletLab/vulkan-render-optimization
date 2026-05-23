@@ -28,16 +28,31 @@ cache key and maps it onto the `VkSampler` used by each descriptor.
 The textured mesh shader now reads a frame uniform buffer with view projection,
 camera position, imported punctual lights, ambient environment terms, and the first
 directional shadow transform instead of using a fixed shader-local light direction.
-Direct lighting uses a Cook-Torrance-style metallic/roughness path and the viewport
-records a VMA-backed 2048-square directional shadow map before the main pass.
+Direct lighting uses a Cook-Torrance-style metallic/roughness path, ambient lighting
+uses a procedural environment/BRDF approximation, and the viewport records a VMA-backed
+2048-square directional shadow map before the main pass.
+The shadow pass now has a small fragment shader that samples base-color alpha and
+respects imported `MASK` cutoff values for opaque/masked casters. The shadow matrix is
+fit to visible submitted primitive bounds, snapped to shadow-map texels, and filtered
+with weighted PCF in the mesh shader.
 Imported glTF light nodes are instantiated from model data, and Game View can render
 through the first imported perspective camera while Scene View stays on the editor camera.
+glTF source spatial data is read as right-handed, Y-up, with camera/light local `-Z`
+as forward, then converted once at import into the engine/editor convention: Y-up with
+`+Z` forward. UVs are not flipped. Imported Game View cameras use the converted explicit
+local `+X` right axis so they do not mirror the view horizontally.
+Renderer stats expose last-frame lights, shadow caster counts, total shadow frames,
+total shadow caster draws, submitted/culling counts, and render CPU timing for the editor
+Profiler panel and smoke coverage.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
 Selected Scene View gizmos, a controlled grid, axes, and hierarchy links now have a
 renderer-owned Vulkan color mesh path for imported mesh frames, so those editor aids are
 not hidden by the swapchain when the GPU path presents.
+Vulkan command buffers emit RenderDoc-friendly debug labels for the viewport frame,
+shadow pass, mesh pass, and Scene View aid pass when debug-utils entry points are
+available.
 
 Scene View uses the CPU/QPainter mesh fallback only when Vulkan surface/frame rendering
 does not succeed. Qt still draws empty-scene fallback content and text labels; it is not
@@ -58,13 +73,14 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 
 - Replace the procedural ambient environment term with prefiltered IBL resources.
 - Add editor/scene-owned lights and camera components beyond imported glTF model data.
-- Expand shadows beyond the first directional map with masked-alpha caster handling,
-  point/spot shadows, filtering controls, and stable shadow-frustum policy.
+- Expand shadows beyond the first directional map with point/spot shadows, cascades,
+  higher quality filtering controls, and transparent caster policy.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
 - Move labels/text overlays off QPainter and into renderer-owned passes.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
   renderer-owned passes.
-- Add RenderDoc debug markers around frame, pass, and draw scopes.
+- Expand RenderDoc markers from frame/pass scopes to selected high-value draw/resource
+  scopes once material and render graph ownership is more complete.
 
 ## Bugs Fixed
 
@@ -134,10 +150,37 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
   `ModelAsset` now preserves `KHR_lights_punctual` nodes and camera node transforms,
   the asset fixture tests those records, imported punctual lights enter the frame
   light list, and Game View can select an imported perspective camera.
+- glTF spatial baking now treats `node.matrix` as column-major and TRS as column-vector
+  `T * R * S`, applies one Z reflection after glTF world transform evaluation to convert
+  into the engine's Y-up, `+Z`-forward space, keeps UVs unchanged, transforms normals with
+  the inverse-transpose converted linear matrix, recomputes bounds after baking, and flips
+  triangle winding plus tangent handedness for negative-determinant converted transforms.
+- Imported glTF camera basis reconstruction now keeps the camera's glTF `+X` right axis
+  as explicit imported data, converts it with the same Z reflection, then orthonormalizes it against the `+Z` forward vector in
+  Game View instead of guessing screen-right from forward/up.
 - Mesh shading previously used a shader-local light vector and draw-level MVP only.
   Render frames now carry camera, light, environment, model, and shadow state to
   Vulkan through a frame UBO and model push constant, enabling world-space PBR
   direct lighting plus the first directional shadow pass.
+- Masked materials initially rendered visually with alpha discard but still cast a
+  solid shadow silhouette. The shadow pass now compiles a fragment stage, passes UVs
+  through `ShadowDepth.vert`, samples base-color alpha, and discards imported
+  `MASK` shadow fragments at the material cutoff.
+- Renderer statistics now track last-frame lights, last-frame shadow casters, total
+  shadow frames, and total shadow caster draws. The visible editor smoke test requires
+  the Vulkan shadow pass to run, and the Profiler tab displays those counters.
+- Renderer statistics now also track candidate mesh primitives, culled mesh primitives,
+  last-frame render CPU time, and averaged render CPU time. The visible editor smoke test
+  requires those Vulkan metrics to move after imported mesh presentation.
+- The directional shadow pass now derives its orthographic fit from visible submitted
+  bounds, snaps the light-space center to shadow-map texels, and uses weighted PCF in
+  the mesh shader to reduce edge harshness without modifying imported geometry.
+- The mesh shader now uses a procedural environment/BRDF approximation for diffuse and
+  specular ambient lighting. This is still not full prefiltered IBL, but it is a better
+  renderer-side lighting path than flat ambient color.
+- Vulkan command buffers now emit debug labels for the viewport frame, shadow pass,
+  mesh pass, and Scene View aid pass when `VK_EXT_debug_utils` entry points are available,
+  so RenderDoc captures have useful pass boundaries without requiring the extension.
 - The vertex-color work pushed `AssetManager.cpp` over the 800-line code rule during
   development. Attribute/accessor decoding now lives in `GltfAttributeReader`, and
   the source-rule test passes again.

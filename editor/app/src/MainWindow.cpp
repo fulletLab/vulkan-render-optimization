@@ -112,6 +112,19 @@ void setSpinBoxesEnabled(const std::array<QDoubleSpinBox*, 9>& spinBoxes, bool e
     }
 }
 
+void setTableValue(QTableWidget* table, int row, const QString& value)
+{
+    if (table == nullptr || row < 0 || row >= table->rowCount()) {
+        return;
+    }
+    auto* item = table->item(row, 1);
+    if (item == nullptr) {
+        item = new QTableWidgetItem;
+        table->setItem(row, 1, item);
+    }
+    item->setText(value);
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -156,11 +169,53 @@ MainWindow::MainWindow(QWidget* parent)
     logFlushTimer_ = new QTimer(this);
     connect(logFlushTimer_, &QTimer::timeout, this, [this]() {
         appendPendingLogs();
+        updateProfilerPanel();
     });
     logFlushTimer_->start(100);
 
     statusBar()->showMessage(QStringLiteral("Ready"));
     core::logInfo(core::LogCategory::Editor, "Main editor window initialized");
+}
+
+void MainWindow::updateProfilerPanel()
+{
+    if (profilerTable_ == nullptr) {
+        return;
+    }
+    if (renderer_ == nullptr || !renderer_->isReady()) {
+        setTableValue(profilerTable_, 0, QStringLiteral("Unavailable"));
+        for (int row = 1; row < profilerTable_->rowCount(); ++row) {
+            setTableValue(profilerTable_, row, QStringLiteral("-"));
+        }
+        return;
+    }
+
+    const auto& stats = renderer_->stats();
+    setTableValue(profilerTable_, 0, QString::fromStdString(stats.gpuName));
+    setTableValue(
+        profilerTable_,
+        1,
+        QStringLiteral("%1.%2.%3")
+            .arg(stats.apiVersionMajor)
+            .arg(stats.apiVersionMinor)
+            .arg(stats.apiVersionPatch));
+    setTableValue(profilerTable_, 2, QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameRenderCpuTimeUs)));
+    setTableValue(profilerTable_, 3, QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.averageRenderCpuTimeUs)));
+    setTableValue(profilerTable_, 4, QString::number(static_cast<qulonglong>(stats.viewportFramesPresented)));
+    setTableValue(profilerTable_, 5, QString::number(static_cast<qulonglong>(stats.lastFrameCandidateMeshDrawCount)));
+    setTableValue(profilerTable_, 6, QString::number(static_cast<qulonglong>(stats.lastFrameCulledMeshDrawCount)));
+    setTableValue(profilerTable_, 7, QString::number(static_cast<qulonglong>(stats.lastFrameMeshDrawCount)));
+    setTableValue(profilerTable_, 8, QString::number(static_cast<qulonglong>(stats.meshDrawsPresented)));
+    setTableValue(profilerTable_, 9, QString::number(static_cast<qulonglong>(stats.texturedMeshDrawsPresented)));
+    setTableValue(profilerTable_, 10, QString::number(static_cast<qulonglong>(stats.lastFrameColorMeshDrawCount)));
+    setTableValue(profilerTable_, 11, QString::number(static_cast<qulonglong>(stats.lastFrameLightCount)));
+    setTableValue(profilerTable_, 12, QString::number(static_cast<qulonglong>(stats.shadowFramesPresented)));
+    setTableValue(
+        profilerTable_,
+        13,
+        QStringLiteral("%1 / %2")
+            .arg(static_cast<qulonglong>(stats.lastFrameShadowCasterCount))
+            .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented)));
 }
 
 MainWindow::~MainWindow()

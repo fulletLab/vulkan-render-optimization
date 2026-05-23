@@ -47,6 +47,13 @@ GltfMatrix4 multiplyGltfMatrices(GltfMatrix4 lhs, GltfMatrix4 rhs)
     return result;
 }
 
+GltfMatrix4 gltfToEngineMatrix(GltfMatrix4 gltfWorldMatrix)
+{
+    auto conversion = identityGltfMatrix();
+    conversion[10] = -1.0;
+    return multiplyGltfMatrices(conversion, gltfWorldMatrix);
+}
+
 GltfMatrix4 gltfNodeMatrix(const tinygltf::Node& node)
 {
     if (node.matrix.size() == 16U) {
@@ -96,17 +103,57 @@ math::Vec3 transformGltfVector(GltfMatrix4 matrix, math::Vec3 value)
     };
 }
 
+double determinantGltfLinear(GltfMatrix4 matrix)
+{
+    return matrix[0] * (matrix[5] * matrix[10] - matrix[9] * matrix[6])
+        - matrix[4] * (matrix[1] * matrix[10] - matrix[9] * matrix[2])
+        + matrix[8] * (matrix[1] * matrix[6] - matrix[5] * matrix[2]);
+}
+
+math::Vec3 transformGltfNormal(GltfMatrix4 matrix, math::Vec3 value)
+{
+    const auto determinant = determinantGltfLinear(matrix);
+    if (std::fabs(determinant) <= 0.000000001) {
+        return transformGltfVector(matrix, value);
+    }
+
+    const auto invDet = 1.0 / determinant;
+    const auto inverse00 = (matrix[5] * matrix[10] - matrix[9] * matrix[6]) * invDet;
+    const auto inverse01 = (matrix[8] * matrix[6] - matrix[4] * matrix[10]) * invDet;
+    const auto inverse02 = (matrix[4] * matrix[9] - matrix[8] * matrix[5]) * invDet;
+    const auto inverse10 = (matrix[9] * matrix[2] - matrix[1] * matrix[10]) * invDet;
+    const auto inverse11 = (matrix[0] * matrix[10] - matrix[8] * matrix[2]) * invDet;
+    const auto inverse12 = (matrix[8] * matrix[1] - matrix[0] * matrix[9]) * invDet;
+    const auto inverse20 = (matrix[1] * matrix[6] - matrix[5] * matrix[2]) * invDet;
+    const auto inverse21 = (matrix[4] * matrix[2] - matrix[0] * matrix[6]) * invDet;
+    const auto inverse22 = (matrix[0] * matrix[5] - matrix[4] * matrix[1]) * invDet;
+    return {
+        static_cast<float>(inverse00 * value.x + inverse10 * value.y + inverse20 * value.z),
+        static_cast<float>(inverse01 * value.x + inverse11 * value.y + inverse21 * value.z),
+        static_cast<float>(inverse02 * value.x + inverse12 * value.y + inverse22 * value.z),
+    };
+}
+
 void applyGltfTransform(MeshPrimitive& primitive, GltfMatrix4 transform)
 {
+    const bool flipsHandedness = determinantGltfLinear(transform) < 0.0;
     for (auto& vertex : primitive.vertices) {
         vertex.position = transformGltfPoint(transform, vertex.position);
-        vertex.normal = transformGltfVector(transform, vertex.normal);
+        vertex.normal = transformGltfNormal(transform, vertex.normal);
         if (!normalize(vertex.normal)) {
             vertex.normal = {0.0F, 1.0F, 0.0F};
         }
         vertex.tangent = transformGltfVector(transform, vertex.tangent);
         if (!normalize(vertex.tangent)) {
             vertex.tangent = {1.0F, 0.0F, 0.0F};
+        }
+        if (flipsHandedness) {
+            vertex.tangentSign = -vertex.tangentSign;
+        }
+    }
+    if (flipsHandedness) {
+        for (std::size_t index = 2; index < primitive.indices.size(); index += 3) {
+            std::swap(primitive.indices[index - 1], primitive.indices[index]);
         }
     }
     updateMeshBounds(primitive);

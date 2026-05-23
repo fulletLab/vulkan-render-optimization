@@ -402,9 +402,49 @@ QWidget* MainWindow::createBottomPanel()
     consoleView_->setMaximumBlockCount(5000);
 
     tabs->addTab(consoleView_, QStringLiteral("Console"));
-    tabs->addTab(createTextPanel(QStringLiteral("Profiler"), {QStringLiteral("Frame time"), QStringLiteral("CPU"), QStringLiteral("Memory")}), QStringLiteral("Profiler"));
+    tabs->addTab(createProfilerPanel(), QStringLiteral("Profiler"));
     tabs->addTab(createTextPanel(QStringLiteral("Network"), {QStringLiteral("Connection"), QStringLiteral("Ping"), QStringLiteral("Rejected packets")}), QStringLiteral("Network"));
     return tabs;
+}
+
+QWidget* MainWindow::createProfilerPanel()
+{
+    auto* panel = new QWidget;
+    auto* layout = new QVBoxLayout(panel);
+
+    auto* header = new QLabel(QStringLiteral("Profiler"));
+    header->setObjectName(QStringLiteral("PanelHeader"));
+    layout->addWidget(header);
+
+    profilerTable_ = new QTableWidget(14, 2);
+    profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
+    profilerTable_->horizontalHeader()->setStretchLastSection(true);
+    profilerTable_->verticalHeader()->setVisible(false);
+    profilerTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    profilerTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    const QStringList rows {
+        QStringLiteral("GPU"),
+        QStringLiteral("Vulkan API"),
+        QStringLiteral("Render CPU time"),
+        QStringLiteral("Render CPU avg"),
+        QStringLiteral("Viewport frames"),
+        QStringLiteral("Mesh candidates last"),
+        QStringLiteral("Mesh culled last"),
+        QStringLiteral("Mesh draws last"),
+        QStringLiteral("Mesh draws total"),
+        QStringLiteral("Textured draws total"),
+        QStringLiteral("Color draws last"),
+        QStringLiteral("Lights last"),
+        QStringLiteral("Shadow frames"),
+        QStringLiteral("Shadow casters last/total"),
+    };
+    for (int row = 0; row < rows.size(); ++row) {
+        profilerTable_->setItem(row, 0, new QTableWidgetItem(rows.at(row)));
+        profilerTable_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("-")));
+    }
+    layout->addWidget(profilerTable_);
+    updateProfilerPanel();
+    return panel;
 }
 
 QWidget* MainWindow::createTextPanel(const QString& title, const QStringList& lines) const

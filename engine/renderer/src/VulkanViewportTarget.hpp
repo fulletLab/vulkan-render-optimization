@@ -117,6 +117,8 @@ private:
     std::unordered_map<VulkanMaterialTextureKey, VkDescriptorSet, VulkanMaterialTextureKeyHash> textureDescriptors_;
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
+    PFN_vkCmdBeginDebugUtilsLabelEXT beginDebugLabel_ {nullptr};
+    PFN_vkCmdEndDebugUtilsLabelEXT endDebugLabel_ {nullptr};
     VkSemaphore imageAvailable_ {VK_NULL_HANDLE};
     VkSemaphore renderFinished_ {VK_NULL_HANDLE};
     VkFence inFlight_ {VK_NULL_HANDLE};

@@ -1,5 +1,7 @@
 #include <projectunity/renderer/VulkanRenderer.hpp>
 
+#include <projectunity/renderer/RenderDrawOrdering.hpp>
+
 #include "VulkanPlatform.hpp"
 #include "VulkanSupport.hpp"
 #include "VulkanMeshCache.hpp"
@@ -13,6 +15,7 @@
 #include <vma/vk_mem_alloc.h>
 
 #include <cstdint>
+#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -196,17 +199,37 @@ struct VulkanRenderer::Impl {
             }
             return false;
         }
+        const auto frameStart = std::chrono::steady_clock::now();
         const auto rendered = existing->second->renderFrame(frame, *uploads, meshCache, textureCache, errorMessage);
+        const auto frameElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - frameStart).count();
         if (rendered) {
             ++stats.viewportFramesPresented;
+            stats.lastFrameCandidateMeshDrawCount = frame.candidateMeshDrawCount;
+            stats.lastFrameCulledMeshDrawCount = frame.culledMeshDrawCount;
             stats.lastFrameMeshDrawCount = static_cast<std::uint64_t>(frame.meshDraws.size());
             stats.lastFrameColorMeshDrawCount = static_cast<std::uint64_t>(frame.colorMeshDraws.size());
+            stats.lastFrameLightCount = static_cast<std::uint64_t>(frame.lights.size());
+            stats.lastFrameShadowCasterCount = 0;
+            stats.lastFrameRenderCpuTimeUs = static_cast<std::uint64_t>(std::max<std::int64_t>(frameElapsedUs, 0));
+            if (stats.viewportFramesPresented == 1U) {
+                stats.averageRenderCpuTimeUs = stats.lastFrameRenderCpuTimeUs;
+            } else {
+                stats.averageRenderCpuTimeUs = (stats.averageRenderCpuTimeUs * 15U + stats.lastFrameRenderCpuTimeUs) / 16U;
+            }
             stats.meshDrawsPresented += stats.lastFrameMeshDrawCount;
             stats.colorMeshDrawsPresented += stats.lastFrameColorMeshDrawCount;
             for (const auto& draw : frame.meshDraws) {
+                if (frame.shadowsEnabled && !isTransparentMeshDraw(draw)) {
+                    ++stats.lastFrameShadowCasterCount;
+                }
                 if (draw.baseColorTexture != nullptr && draw.baseColorTexture->id.isValid()) {
                     ++stats.texturedMeshDrawsPresented;
                 }
+            }
+            if (frame.shadowsEnabled) {
+                ++stats.shadowFramesPresented;
+                stats.shadowCasterDrawsPresented += stats.lastFrameShadowCasterCount;
             }
         }
         return rendered;

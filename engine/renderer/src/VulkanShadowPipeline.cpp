@@ -1,5 +1,6 @@
 #include "VulkanShadowPipeline.hpp"
 
+#include "ShadowDepthFragmentSpv.hpp"
 #include "ShadowDepthVertexSpv.hpp"
 #include "VulkanMeshPipeline.hpp"
 
@@ -10,15 +11,15 @@
 namespace projectunity::renderer {
 namespace {
 
-[[nodiscard]] VkShaderModule createShaderModule(VkDevice device)
+[[nodiscard]] VkShaderModule createShaderModule(VkDevice device, const auto& words)
 {
     VkShaderModuleCreateInfo info {};
     info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    info.codeSize = shaders::kShadowDepthVertexSpirv.size() * sizeof(std::uint32_t);
-    info.pCode = shaders::kShadowDepthVertexSpirv.data();
+    info.codeSize = words.size() * sizeof(std::uint32_t);
+    info.pCode = words.data();
     VkShaderModule module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(device, &info, nullptr, &module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create Vulkan shadow vertex shader module");
+        throw std::runtime_error("Failed to create Vulkan shadow shader module");
     }
     return module;
 }
@@ -191,28 +192,31 @@ void VulkanShadowPipeline::createShadowTarget()
 
 void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
 {
-    const auto vertexModule = createShaderModule(context_.device);
+    const auto vertexModule = createShaderModule(context_.device, shaders::kShadowDepthVertexSpirv);
+    const auto fragmentModule = createShaderModule(context_.device, shaders::kShadowDepthFragmentSpirv);
     try {
-        VkPipelineShaderStageCreateInfo stage {};
-        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stage.module = vertexModule;
-        stage.pName = "main";
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages {};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = vertexModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = fragmentModule;
+        stages[1].pName = "main";
         VkVertexInputBindingDescription binding {};
         binding.binding = 0;
         binding.stride = sizeof(VulkanGpuVertex);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        VkVertexInputAttributeDescription position {};
-        position.location = 0;
-        position.binding = 0;
-        position.format = VK_FORMAT_R32G32B32_SFLOAT;
-        position.offset = offsetof(VulkanGpuVertex, position);
+        std::array<VkVertexInputAttributeDescription, 2> attributes {};
+        attributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanGpuVertex, position)};
+        attributes[1] = {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(VulkanGpuVertex, texCoord)};
         VkPipelineVertexInputStateCreateInfo vertexInput {};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
         vertexInput.pVertexBindingDescriptions = &binding;
-        vertexInput.vertexAttributeDescriptionCount = 1;
-        vertexInput.pVertexAttributeDescriptions = &position;
+        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attributes.size());
+        vertexInput.pVertexAttributeDescriptions = attributes.data();
         VkPipelineInputAssemblyStateCreateInfo inputAssembly {};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -245,7 +249,7 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
         dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size());
         dynamic.pDynamicStates = dynamicStates.data();
         VkPushConstantRange push {};
-        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         push.size = sizeof(VulkanDrawPushConstants);
         VkPipelineLayoutCreateInfo layoutInfo {};
         layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -259,8 +263,8 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
 
         VkGraphicsPipelineCreateInfo info {};
         info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        info.stageCount = 1;
-        info.pStages = &stage;
+        info.stageCount = static_cast<std::uint32_t>(stages.size());
+        info.pStages = stages.data();
         info.pVertexInputState = &vertexInput;
         info.pInputAssemblyState = &inputAssembly;
         info.pViewportState = &viewport;
@@ -275,9 +279,11 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
             throw std::runtime_error("Failed to create Vulkan shadow graphics pipeline");
         }
     } catch (...) {
+        vkDestroyShaderModule(context_.device, fragmentModule, nullptr);
         vkDestroyShaderModule(context_.device, vertexModule, nullptr);
         throw;
     }
+    vkDestroyShaderModule(context_.device, fragmentModule, nullptr);
     vkDestroyShaderModule(context_.device, vertexModule, nullptr);
 }
 

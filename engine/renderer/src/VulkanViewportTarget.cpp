@@ -1,5 +1,6 @@
 #include "VulkanViewportTarget.hpp"
 
+#include "VulkanDebugLabels.hpp"
 #include "VulkanSupport.hpp"
 
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
@@ -407,6 +408,10 @@ void VulkanViewportTarget::createCommands()
     if (vkAllocateCommandBuffers(context_.device, &allocInfo, &commandBuffer_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate Vulkan viewport command buffer");
     }
+    beginDebugLabel_ = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
+        vkGetDeviceProcAddr(context_.device, "vkCmdBeginDebugUtilsLabelEXT"));
+    endDebugLabel_ = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
+        vkGetDeviceProcAddr(context_.device, "vkCmdEndDebugUtilsLabelEXT"));
 }
 
 void VulkanViewportTarget::createSync()
@@ -502,6 +507,12 @@ bool VulkanViewportTarget::recordShadowPass(
     renderPass.clearValueCount = 1;
     renderPass.pClearValues = &clear;
     vkCmdBeginRenderPass(commandBuffer_, &renderPass, VK_SUBPASS_CONTENTS_INLINE);
+    VulkanScopedLabel shadowLabel(
+        beginDebugLabel_,
+        endDebugLabel_,
+        commandBuffer_,
+        "ProjectUnity Shadow Pass",
+        {0.22F, 0.26F, 0.92F, 1.0F});
 
     VkViewport viewport {};
     viewport.width = static_cast<float>(shadowPipeline_->extent().width);
@@ -550,6 +561,21 @@ bool VulkanViewportTarget::recordShadowPass(
 
         VulkanDrawPushConstants push;
         push.modelMatrix = draw.modelMatrix.values;
+        if (draw.material != nullptr) {
+            push.baseColor = draw.material->baseColor;
+            push.pbrFactors = {
+                draw.material->metallicFactor,
+                draw.material->roughnessFactor,
+                draw.material->normalScale,
+                static_cast<float>(draw.material->alphaMode),
+            };
+            push.emissiveColor = {
+                draw.material->emissiveColor[0],
+                draw.material->emissiveColor[1],
+                draw.material->emissiveColor[2],
+                draw.material->alphaCutoff,
+            };
+        }
         const VkDeviceSize vertexOffset = 0;
         const auto vertexBuffer = mesh->vertices.buffer();
         vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
@@ -566,7 +592,7 @@ bool VulkanViewportTarget::recordShadowPass(
         vkCmdPushConstants(
             commandBuffer_,
             shadowPipeline_->layout(),
-            VK_SHADER_STAGE_VERTEX_BIT,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             0,
             sizeof(VulkanDrawPushConstants),
             &push);
@@ -643,6 +669,12 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
         return false;
     }
+    VulkanScopedLabel frameLabel(
+        beginDebugLabel_,
+        endDebugLabel_,
+        commandBuffer_,
+        "ProjectUnity Viewport Frame",
+        {0.10F, 0.62F, 0.90F, 1.0F});
     if (!recordShadowPass(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
@@ -672,97 +704,61 @@ bool VulkanViewportTarget::recordFrameCommand(
 
     VkPipeline activeMeshPipeline = VK_NULL_HANDLE;
     orderMeshDraws(frame.meshDraws, orderedMeshDraws_);
-    for (const auto* drawPointer : orderedMeshDraws_) {
-        const auto& draw = *drawPointer;
-        const auto drawPipeline = isTransparentMeshDraw(draw)
-            ? meshPipeline_->transparentPipeline()
-            : meshPipeline_->pipeline();
-        if (drawPipeline != activeMeshPipeline) {
-            vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
-            activeMeshPipeline = drawPipeline;
+    {
+        VulkanScopedLabel meshLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Mesh Pass", {0.12F, 0.75F, 0.38F, 1.0F});
+        for (const auto* drawPointer : orderedMeshDraws_) {
+            const auto& draw = *drawPointer;
+            const auto drawPipeline = isTransparentMeshDraw(draw) ? meshPipeline_->transparentPipeline() : meshPipeline_->pipeline();
+            if (drawPipeline != activeMeshPipeline) {
+                vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
+                activeMeshPipeline = drawPipeline;
+            }
+            const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
+            const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+            const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
+            const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
+            const auto* metallicRoughness = textureCache.ensureUploaded(context_.resources(), uploads, draw.metallicRoughnessTexture, errorMessage);
+            const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
+            const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
+            if (mesh == nullptr || baseColor == nullptr || normal == nullptr || metallicRoughness == nullptr || occlusion == nullptr || emissive == nullptr) {
+                vkCmdEndRenderPass(commandBuffer_);
+                return false;
+            }
+            const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage);
+            if (descriptor == VK_NULL_HANDLE) {
+                vkCmdEndRenderPass(commandBuffer_);
+                return false;
+            }
+            VulkanDrawPushConstants push;
+            push.modelMatrix = draw.modelMatrix.values;
+            if (draw.material != nullptr) {
+                push.baseColor = draw.material->baseColor;
+                push.pbrFactors = {draw.material->metallicFactor, draw.material->roughnessFactor, draw.material->normalScale, static_cast<float>(draw.material->alphaMode)};
+                push.emissiveColor = {draw.material->emissiveColor[0], draw.material->emissiveColor[1], draw.material->emissiveColor[2], draw.material->alphaCutoff};
+                push.materialExtras[0] = draw.material->occlusionStrength;
+            }
+            const VkDeviceSize vertexOffset = 0;
+            const auto vertexBuffer = mesh->vertices.buffer();
+            vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
+            vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->layout(), 0, 1, &descriptor, 0, nullptr);
+            vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
+            vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, 1, 0, 0, 0);
         }
-        const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
-        const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
-        const auto* baseColor = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.baseColorTexture, errorMessage);
-        const auto* normal = textureCache.ensureNormalUploaded(context_.resources(), uploads, draw.normalTexture, errorMessage);
-        const auto* metallicRoughness = textureCache.ensureUploaded(
-            context_.resources(),
-            uploads,
-            draw.metallicRoughnessTexture,
-            errorMessage);
-        const auto* occlusion = textureCache.ensureUploaded(context_.resources(), uploads, draw.occlusionTexture, errorMessage);
-        const auto* emissive = textureCache.ensureSrgbUploaded(context_.resources(), uploads, draw.emissiveTexture, errorMessage);
-        if (mesh == nullptr
-            || baseColor == nullptr
-            || normal == nullptr
-            || metallicRoughness == nullptr
-            || occlusion == nullptr
-            || emissive == nullptr) {
-            vkCmdEndRenderPass(commandBuffer_);
-            return false;
-        }
-        const auto descriptor = textureDescriptor(*baseColor, *normal, *metallicRoughness, *occlusion, *emissive, errorMessage);
-        if (descriptor == VK_NULL_HANDLE) {
-            vkCmdEndRenderPass(commandBuffer_);
-            return false;
-        }
-
-        VulkanDrawPushConstants push;
-        push.modelMatrix = draw.modelMatrix.values;
-        if (draw.material != nullptr) {
-            push.baseColor = draw.material->baseColor;
-            push.pbrFactors = {
-                draw.material->metallicFactor,
-                draw.material->roughnessFactor,
-                draw.material->normalScale,
-                static_cast<float>(draw.material->alphaMode),
-            };
-            push.emissiveColor = {
-                draw.material->emissiveColor[0],
-                draw.material->emissiveColor[1],
-                draw.material->emissiveColor[2],
-                draw.material->alphaCutoff,
-            };
-            push.materialExtras[0] = draw.material->occlusionStrength;
-        }
-        const VkDeviceSize vertexOffset = 0;
-        const auto vertexBuffer = mesh->vertices.buffer();
-        vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
-        vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
-        vkCmdBindDescriptorSets(
-            commandBuffer_,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            meshPipeline_->layout(),
-            0,
-            1,
-            &descriptor,
-            0,
-            nullptr);
-        vkCmdPushConstants(
-            commandBuffer_,
-            meshPipeline_->layout(),
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            0,
-            sizeof(VulkanDrawPushConstants),
-            &push);
-        vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, 1, 0, 0, 0);
     }
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline_->pipeline());
-    for (std::size_t index = 0; index < frame.colorMeshDraws.size(); ++index) {
-        VulkanColorPushConstants push;
-        push.modelViewProjection = frame.colorMeshDraws[index].modelViewProjection.values;
-        const VkDeviceSize vertexOffset = 0;
-        const auto vertexBuffer = colorMeshes_[index].vertices.buffer();
-        vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
-        vkCmdBindIndexBuffer(commandBuffer_, colorMeshes_[index].indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
-        vkCmdPushConstants(
-            commandBuffer_,
-            colorPipeline_->layout(),
-            VK_SHADER_STAGE_VERTEX_BIT,
-            0,
-            sizeof(VulkanColorPushConstants),
-            &push);
-        vkCmdDrawIndexed(commandBuffer_, colorMeshes_[index].indexCount, 1, 0, 0, 0);
+    {
+        VulkanScopedLabel colorLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Scene Aid Pass", {0.95F, 0.70F, 0.18F, 1.0F});
+        for (std::size_t index = 0; index < frame.colorMeshDraws.size(); ++index) {
+            VulkanColorPushConstants push;
+            push.modelViewProjection = frame.colorMeshDraws[index].modelViewProjection.values;
+            const VkDeviceSize vertexOffset = 0;
+            const auto vertexBuffer = colorMeshes_[index].vertices.buffer();
+            vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
+            vkCmdBindIndexBuffer(commandBuffer_, colorMeshes_[index].indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+            vkCmdPushConstants(commandBuffer_, colorPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VulkanColorPushConstants), &push);
+            vkCmdDrawIndexed(commandBuffer_, colorMeshes_[index].indexCount, 1, 0, 0, 0);
+        }
     }
     vkCmdEndRenderPass(commandBuffer_);
     if (vkEndCommandBuffer(commandBuffer_) != VK_SUCCESS) {

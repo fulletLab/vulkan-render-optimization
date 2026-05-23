@@ -97,9 +97,13 @@ constexpr float kDirectionEpsilon = 0.000001F;
     camera.name = source.name.empty() ? "Imported Camera" : source.name;
     camera.position = transformGltfPoint(worldTransform, {});
     camera.direction = transformGltfVector(worldTransform, {0.0F, 0.0F, -1.0F});
+    camera.right = transformGltfVector(worldTransform, {1.0F, 0.0F, 0.0F});
     camera.up = transformGltfVector(worldTransform, {0.0F, 1.0F, 0.0F});
     if (!normalize(camera.direction)) {
         camera.direction = {0.0F, 0.0F, -1.0F};
+    }
+    if (!normalize(camera.right)) {
+        camera.right = {1.0F, 0.0F, 0.0F};
     }
     if (!normalize(camera.up)) {
         camera.up = {0.0F, 1.0F, 0.0F};
@@ -153,8 +157,9 @@ bool importGltfSceneObjects(
 
     const auto& node = gltf.nodes[static_cast<std::size_t>(nodeIndex)];
     const auto worldTransform = multiplyGltfMatrices(parentTransform, gltfNodeMatrix(node));
-    if (!importLight(gltf, node, worldTransform, lights, errorMessage)
-        || !importCamera(gltf, node, worldTransform, cameras, errorMessage)) {
+    const auto engineTransform = gltfToEngineMatrix(worldTransform);
+    if (!importLight(gltf, node, engineTransform, lights, errorMessage)
+        || !importCamera(gltf, node, engineTransform, cameras, errorMessage)) {
         return false;
     }
 

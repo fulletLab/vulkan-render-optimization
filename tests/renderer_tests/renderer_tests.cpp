@@ -73,6 +73,16 @@ int main()
     if (!stats.vmaAllocatorReady) {
         return fail("Vulkan renderer did not create VMA allocator");
     }
+    if (stats.lastFrameLightCount != 0
+        || stats.lastFrameShadowCasterCount != 0
+        || stats.lastFrameCandidateMeshDrawCount != 0
+        || stats.lastFrameCulledMeshDrawCount != 0
+        || stats.lastFrameRenderCpuTimeUs != 0
+        || stats.averageRenderCpuTimeUs != 0
+        || stats.shadowFramesPresented != 0
+        || stats.shadowCasterDrawsPresented != 0) {
+        return fail("Vulkan renderer frame lighting/shadow stats were not initialized to zero");
+    }
 
     ViewportRenderSurfaceDesc invalidSurface;
     if (renderer->supportsSurface(invalidSurface)) {

@@ -84,8 +84,10 @@ private:
     [[nodiscard]] QWidget* createInspectorPanel();
     [[nodiscard]] QWidget* createProjectPanel();
     [[nodiscard]] QWidget* createBottomPanel();
+    [[nodiscard]] QWidget* createProfilerPanel();
     [[nodiscard]] QWidget* createTextPanel(const QString& title, const QStringList& lines) const;
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
+    void updateProfilerPanel();
 
     ads::CDockManager* dockManager_ {nullptr};
     QMenu* windowMenu_ {nullptr};
@@ -105,6 +107,7 @@ private:
     QPushButton* duplicateEntityButton_ {nullptr};
     QPlainTextEdit* consoleView_ {nullptr};
     QTableWidget* assetTable_ {nullptr};
+    QTableWidget* profilerTable_ {nullptr};
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
     std::shared_ptr<core::MemoryLogSink> logSink_;

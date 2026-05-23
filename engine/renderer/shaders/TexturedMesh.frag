@@ -105,13 +105,35 @@ float shadowVisibility(int lightIndex, vec3 normal, vec3 lightDirection)
     float bias = max(frameData.shadowSettings.z * (1.0 - dot(normal, lightDirection)), 0.00025);
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float visibility = 0.0;
-    for (int y = -1; y <= 1; ++y) {
-        for (int x = -1; x <= 1; ++x) {
+    float totalWeight = 0.0;
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            float weight = 1.0 / (1.0 + 0.55 * float(abs(x) + abs(y)));
             float sampledDepth = texture(shadowMap, shadowCoord.xy + vec2(x, y) * texel).r;
-            visibility += shadowCoord.z - bias <= sampledDepth ? 1.0 : 0.0;
+            visibility += (shadowCoord.z - bias <= sampledDepth ? 1.0 : 0.0) * weight;
+            totalWeight += weight;
         }
     }
-    return visibility / 9.0;
+    return visibility / max(totalWeight, 0.0001);
+}
+
+vec3 sampleProceduralEnvironment(vec3 direction, float roughness)
+{
+    float skyWeight = smoothstep(-0.18, 0.78, direction.y);
+    float horizonWeight = pow(clamp(1.0 - abs(direction.y), 0.0, 1.0), 2.0);
+    vec3 sky = frameData.ambientSky.rgb * mix(1.35, 0.82, roughness);
+    vec3 ground = frameData.ambientGround.rgb * mix(1.12, 0.92, roughness);
+    vec3 horizon = mix(ground, sky, 0.5) * 1.22;
+    return mix(mix(ground, sky, skyWeight), horizon, horizonWeight * 0.45);
+}
+
+vec2 environmentBRDFApprox(float roughness, float nDotV)
+{
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = roughness * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
+    return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
 void main()
@@ -173,11 +195,14 @@ void main()
         directRadiance += (diffuse + specular) * radiance * nDotL * visibility;
     }
 
-    float skyBlend = clamp(normal.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 ambientIrradiance = mix(frameData.ambientGround.rgb, frameData.ambientSky.rgb, skyBlend);
-    vec3 ambientFresnel = fresnelSchlick(max(dot(normal, viewDirection), 0.0), f0);
-    vec3 ambientDiffuse = ambientIrradiance * sampledBase.rgb * (1.0 - metallic);
-    vec3 ambientSpecular = ambientIrradiance * ambientFresnel * mix(0.18, 0.75, 1.0 - roughness);
+    float nDotV = max(dot(normal, viewDirection), 0.0);
+    vec3 ambientFresnel = fresnelSchlick(nDotV, f0);
+    vec3 diffuseIrradiance = sampleProceduralEnvironment(normal, 1.0);
+    vec3 reflectionDirection = reflect(-viewDirection, normal);
+    vec3 specularIrradiance = sampleProceduralEnvironment(reflectionDirection, roughness);
+    vec2 envBRDF = environmentBRDFApprox(roughness, nDotV);
+    vec3 ambientDiffuse = diffuseIrradiance * sampledBase.rgb * (1.0 - metallic);
+    vec3 ambientSpecular = specularIrradiance * clamp(ambientFresnel * envBRDF.x + vec3(envBRDF.y), vec3(0.0), vec3(1.0));
     vec3 emissive = texture(emissiveTexture, inTexCoord).rgb * pushData.emissiveColor.rgb;
     float outputAlpha = alphaMode == 2 ? sampledBase.a : 1.0;
     outColor = vec4((ambientDiffuse + ambientSpecular) * occlusion + directRadiance + emissive, outputAlpha);

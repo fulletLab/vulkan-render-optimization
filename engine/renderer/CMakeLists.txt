@@ -46,6 +46,7 @@ add_library(projectunity_renderer STATIC
     src/VulkanColorMesh.hpp
     src/VulkanColorPipeline.cpp
     src/VulkanColorPipeline.hpp
+    src/VulkanDebugLabels.hpp
     src/VulkanGpuBuffer.cpp
     src/VulkanGpuBuffer.hpp
     src/VulkanFrameData.cpp

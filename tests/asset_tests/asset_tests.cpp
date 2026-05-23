@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -170,6 +171,103 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
     return writeBinary(path, glb);
 }
 
+[[nodiscard]] std::vector<std::uint8_t> makeSpatialBuffer()
+{
+    std::vector<std::uint8_t> bytes;
+    const std::array<float, 18> vec3Values {{
+        -0.25F, 0.0F, 0.0F,
+        0.75F, 0.0F, 0.0F,
+        -0.25F, 0.5F, 0.0F,
+        0.0F, 0.0F, 1.0F,
+        0.0F, 0.0F, 1.0F,
+        0.0F, 0.0F, 1.0F,
+    }};
+    for (const auto value : vec3Values) {
+        appendFloat(bytes, value);
+    }
+    const std::array<float, 6> texCoords {{0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F}};
+    for (const auto value : texCoords) {
+        appendFloat(bytes, value);
+    }
+    appendU16(bytes, 0);
+    appendU16(bytes, 1);
+    appendU16(bytes, 2);
+    return bytes;
+}
+
+[[nodiscard]] bool writeSpatialGlb(const std::filesystem::path& path)
+{
+    auto binary = makeSpatialBuffer();
+    const std::string json = R"({
+        "asset":{"version":"2.0"},
+        "buffers":[{"byteLength":102}],
+        "bufferViews":[
+            {"buffer":0,"byteOffset":0,"byteLength":36},
+            {"buffer":0,"byteOffset":36,"byteLength":36},
+            {"buffer":0,"byteOffset":72,"byteLength":24},
+            {"buffer":0,"byteOffset":96,"byteLength":6}
+        ],
+        "accessors":[
+            {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-0.25,0,0],"max":[0.75,0.5,0]},
+            {"bufferView":1,"componentType":5126,"count":3,"type":"VEC3"},
+            {"bufferView":2,"componentType":5126,"count":3,"type":"VEC2"},
+            {"bufferView":3,"componentType":5123,"count":3,"type":"SCALAR"}
+        ],
+        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3}]}],
+        "nodes":[
+            {"name":"left","translation":[-3,0,0],"mesh":0},
+            {"name":"right","translation":[5,0,0],"mesh":0},
+            {"name":"front","translation":[0,0,-7],"mesh":0},
+            {"name":"back","translation":[0,0,9],"mesh":0},
+            {"name":"matrix","matrix":[1,0,0,0,0,1,0,0,0,0,1,0,11,2,13,1],"mesh":0},
+            {"name":"rotated","translation":[15,0,0],"rotation":[0,0.70710678,0,0.70710678],"mesh":0},
+            {"name":"mirrored","translation":[0,0,3],"scale":[-1,1,1],"mesh":0}
+        ],
+        "scenes":[{"nodes":[0,1,2,3,4,5,6]}],
+        "scene":0
+    })";
+
+    std::vector<std::uint8_t> jsonBytes(json.begin(), json.end());
+    while (jsonBytes.size() % 4U != 0) {
+        jsonBytes.push_back(static_cast<std::uint8_t>(' '));
+    }
+    while (binary.size() % 4U != 0) {
+        binary.push_back(0);
+    }
+
+    std::vector<std::uint8_t> glb;
+    appendU32(glb, 0x46546c67U);
+    appendU32(glb, 2U);
+    appendU32(glb, static_cast<std::uint32_t>(12U + 8U + jsonBytes.size() + 8U + binary.size()));
+    appendU32(glb, static_cast<std::uint32_t>(jsonBytes.size()));
+    appendU32(glb, 0x4e4f534aU);
+    glb.insert(glb.end(), jsonBytes.begin(), jsonBytes.end());
+    appendU32(glb, static_cast<std::uint32_t>(binary.size()));
+    appendU32(glb, 0x004e4942U);
+    glb.insert(glb.end(), binary.begin(), binary.end());
+    return writeBinary(path, glb);
+}
+
+[[nodiscard]] bool near(float actual, float expected, float epsilon = 0.03F)
+{
+    return std::fabs(actual - expected) <= epsilon;
+}
+
+[[nodiscard]] bool hasTexCoord(const projectunity::assets::MeshPrimitive& primitive, float u, float v)
+{
+    return std::any_of(primitive.vertices.begin(), primitive.vertices.end(), [u, v](const auto& vertex) {
+        return near(vertex.texCoord[0], u, 0.001F) && near(vertex.texCoord[1], v, 0.001F);
+    });
+}
+
+[[nodiscard]] float firstFaceNormalZ(const projectunity::assets::MeshPrimitive& primitive)
+{
+    const auto& a = primitive.vertices[primitive.indices[0]].position;
+    const auto& b = primitive.vertices[primitive.indices[1]].position;
+    const auto& c = primitive.vertices[primitive.indices[2]].position;
+    return projectunity::math::cross(b - a, c - a).z;
+}
+
 [[nodiscard]] bool writeTinyPng(const std::filesystem::path& path)
 {
     const std::vector<std::uint8_t> bytes {
@@ -198,8 +296,9 @@ int main()
     }
 
     const auto glbPath = root / "triangle.glb";
+    const auto spatialGlbPath = root / "spatial.glb";
     const auto pngPath = root / "tiny.png";
-    if (!writeTriangleGlb(glbPath) || !writeTinyPng(pngPath)) {
+    if (!writeTriangleGlb(glbPath) || !writeSpatialGlb(spatialGlbPath) || !writeTinyPng(pngPath)) {
         return fail("unable to write generated asset fixtures");
     }
 
@@ -280,7 +379,9 @@ int main()
     }
     if (model->cameras.size() != 1
         || model->cameras.front().projection != ImportedCameraProjection::Perspective
-        || model->cameras.front().position.z < 8.99F
+        || !near(model->cameras.front().position.z, -9.0F)
+        || model->cameras.front().direction.z < 0.99F
+        || model->cameras.front().right.x < 0.99F
         || model->cameras.front().verticalFovRadians < 0.89F
         || model->cameras.front().nearPlane < 0.09F
         || model->cameras.front().farPlane < 249.0F) {
@@ -300,6 +401,44 @@ int main()
     const auto cachePath = manager.cacheRoot() / modelResult.record.cacheFile;
     if (!std::filesystem::exists(cachePath) || manager.records().size() != 2) {
         return fail("asset cache records were not written");
+    }
+
+    const auto spatialResult = manager.importModel(spatialGlbPath);
+    const auto spatial = manager.model(spatialResult.record.id);
+    if (!spatialResult.success || spatial == nullptr || spatial->primitives.size() != 7) {
+        return fail("spatial glTF fixture import failed");
+    }
+    const auto& left = spatial->primitives[0].bounds.center;
+    const auto& right = spatial->primitives[1].bounds.center;
+    const auto& front = spatial->primitives[2].bounds.center;
+    const auto& back = spatial->primitives[3].bounds.center;
+    const auto& matrixNode = spatial->primitives[4].bounds.center;
+    const auto& rotated = spatial->primitives[5].bounds;
+    const auto& mirrored = spatial->primitives[6];
+    if (!(left.x < 0.0F && right.x > 0.0F && right.x > left.x)) {
+        return fail("glTF left/right node positions were mirrored");
+    }
+    if (!(front.z > 0.0F && back.z < 0.0F && front.z > back.z)) {
+        return fail("glTF front/back node positions were not converted to engine +Z forward");
+    }
+    if (!near(matrixNode.x, 11.25F) || !near(matrixNode.y, 2.25F) || !near(matrixNode.z, -13.0F)) {
+        return fail("glTF node.matrix column-major translation was not preserved");
+    }
+    if (!near(rotated.center.x, 15.0F) || !near(rotated.center.z, 0.25F)) {
+        return fail("glTF quaternion rotation was not preserved");
+    }
+    if (!near(mirrored.bounds.center.x, -0.25F) || !near(mirrored.bounds.center.z, -3.0F)) {
+        return fail("glTF negative-scale node position/bounds were not preserved");
+    }
+    if (firstFaceNormalZ(mirrored) >= 0.0F
+        || mirrored.vertices.front().normal.z > -0.99F
+        || mirrored.vertices.front().tangentSign < 0.99F) {
+        return fail("glTF negative determinant transform did not preserve winding, normals, and tangent handedness");
+    }
+    if (!hasTexCoord(spatial->primitives[0], 0.0F, 0.0F)
+        || !hasTexCoord(spatial->primitives[0], 1.0F, 0.0F)
+        || !hasTexCoord(spatial->primitives[0], 0.0F, 1.0F)) {
+        return fail("glTF texture coordinates were flipped or lost");
     }
 
     const auto examplePath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)

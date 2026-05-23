@@ -196,14 +196,22 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     const auto& stats = renderer_->stats();
     if (!offscreenPlatform && (stats.meshDrawsPresented == 0
             || stats.texturedMeshDrawsPresented == 0
-            || stats.colorMeshDrawsPresented == 0)) {
+            || stats.colorMeshDrawsPresented == 0
+            || stats.lastFrameCandidateMeshDrawCount == 0
+            || stats.lastFrameRenderCpuTimeUs == 0
+            || stats.shadowFramesPresented == 0
+            || stats.shadowCasterDrawsPresented == 0)) {
         appendPendingLogs();
         return fail(QStringLiteral(
-            "Imported textured mesh and gizmo did not reach Vulkan: frames=%1 draws=%2 textured=%3 gizmos=%4 logs=%5")
+            "Imported textured mesh, gizmo, culling stats, and shadow pass did not reach Vulkan: frames=%1 draws=%2 textured=%3 gizmos=%4 candidates=%5 cpuUs=%6 shadows=%7 casters=%8 logs=%9")
             .arg(static_cast<qulonglong>(stats.viewportFramesPresented))
             .arg(static_cast<qulonglong>(stats.meshDrawsPresented))
             .arg(static_cast<qulonglong>(stats.texturedMeshDrawsPresented))
             .arg(static_cast<qulonglong>(stats.colorMeshDrawsPresented))
+            .arg(static_cast<qulonglong>(stats.lastFrameCandidateMeshDrawCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameRenderCpuTimeUs))
+            .arg(static_cast<qulonglong>(stats.shadowFramesPresented))
+            .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented))
             .arg(consoleView_->toPlainText().right(1200)));
     }
 

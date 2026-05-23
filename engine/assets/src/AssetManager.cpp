@@ -34,6 +34,7 @@ using detail::readIndices;
 using detail::setError;
 using detail::GltfMatrix4;
 using detail::applyGltfTransform;
+using detail::gltfToEngineMatrix;
 using detail::gltfNodeMatrix;
 using detail::identityGltfMatrix;
 using detail::multiplyGltfMatrices;
@@ -484,7 +485,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
             if (!importPrimitive(gltf, primitive, materialCount, imported, errorMessage)) {
                 return false;
             }
-            applyGltfTransform(imported, worldTransform);
+            applyGltfTransform(imported, gltfToEngineMatrix(worldTransform));
             output.push_back(std::move(imported));
         }
     }
