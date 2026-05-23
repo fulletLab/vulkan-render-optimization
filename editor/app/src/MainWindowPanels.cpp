@@ -416,7 +416,7 @@ QWidget* MainWindow::createProfilerPanel()
     header->setObjectName(QStringLiteral("PanelHeader"));
     layout->addWidget(header);
 
-    profilerTable_ = new QTableWidget(14, 2);
+    profilerTable_ = new QTableWidget(23, 2);
     profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
     profilerTable_->horizontalHeader()->setStretchLastSection(true);
     profilerTable_->verticalHeader()->setVisible(false);
@@ -431,9 +431,18 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Mesh candidates last"),
         QStringLiteral("Mesh culled last"),
         QStringLiteral("Mesh draws last"),
+        QStringLiteral("Triangles candidate/visible"),
+        QStringLiteral("Triangles culled last"),
         QStringLiteral("Mesh draws total"),
         QStringLiteral("Textured draws total"),
         QStringLiteral("Color draws last"),
+        QStringLiteral("Color upload last"),
+        QStringLiteral("Color upload total"),
+        QStringLiteral("Mesh uploads last/total"),
+        QStringLiteral("Texture uploads last/total"),
+        QStringLiteral("Static upload last"),
+        QStringLiteral("Static upload total"),
+        QStringLiteral("Resident mesh/texture"),
         QStringLiteral("Lights last"),
         QStringLiteral("Shadow frames"),
         QStringLiteral("Shadow casters last/total"),

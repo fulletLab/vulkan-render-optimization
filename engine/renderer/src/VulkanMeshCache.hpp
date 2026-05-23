@@ -44,9 +44,14 @@ public:
         const assets::MeshPrimitive& primitive,
         std::string* errorMessage);
     void clear() noexcept;
+    [[nodiscard]] std::uint64_t uploadCount() const noexcept;
+    [[nodiscard]] std::uint64_t uploadedBytes() const noexcept;
+    [[nodiscard]] std::uint64_t meshCount() const noexcept;
 
 private:
     std::unordered_map<VulkanMeshKey, VulkanMeshBuffers, VulkanMeshKeyHash> meshes_;
+    std::uint64_t uploadCount_ {0};
+    std::uint64_t uploadedBytes_ {0};
 };
 
 } // namespace projectunity::renderer

@@ -198,21 +198,55 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             || stats.texturedMeshDrawsPresented == 0
             || stats.colorMeshDrawsPresented == 0
             || stats.lastFrameCandidateMeshDrawCount == 0
+            || stats.lastFrameCandidateTriangleCount == 0
             || stats.lastFrameRenderCpuTimeUs == 0
+            || stats.residentMeshCount == 0
+            || stats.residentTextureCount == 0
+            || stats.totalMeshUploadCount == 0
+            || stats.totalTextureUploadCount == 0
+            || stats.totalStaticUploadBytes == 0
+            || stats.totalColorUploadBytes == 0
             || stats.shadowFramesPresented == 0
             || stats.shadowCasterDrawsPresented == 0)) {
         appendPendingLogs();
         return fail(QStringLiteral(
-            "Imported textured mesh, gizmo, culling stats, and shadow pass did not reach Vulkan: frames=%1 draws=%2 textured=%3 gizmos=%4 candidates=%5 cpuUs=%6 shadows=%7 casters=%8 logs=%9")
+            "Imported textured mesh, gizmo, profiling stats, and shadow pass did not reach Vulkan: frames=%1 draws=%2 textured=%3 gizmos=%4 candidates=%5 triangles=%6 cpuUs=%7 meshes=%8 textures=%9 uploadBytes=%10 colorBytes=%11 shadows=%12 casters=%13 logs=%14")
             .arg(static_cast<qulonglong>(stats.viewportFramesPresented))
             .arg(static_cast<qulonglong>(stats.meshDrawsPresented))
             .arg(static_cast<qulonglong>(stats.texturedMeshDrawsPresented))
             .arg(static_cast<qulonglong>(stats.colorMeshDrawsPresented))
             .arg(static_cast<qulonglong>(stats.lastFrameCandidateMeshDrawCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameCandidateTriangleCount))
             .arg(static_cast<qulonglong>(stats.lastFrameRenderCpuTimeUs))
+            .arg(static_cast<qulonglong>(stats.residentMeshCount))
+            .arg(static_cast<qulonglong>(stats.residentTextureCount))
+            .arg(static_cast<qulonglong>(stats.totalStaticUploadBytes))
+            .arg(static_cast<qulonglong>(stats.totalColorUploadBytes))
             .arg(static_cast<qulonglong>(stats.shadowFramesPresented))
             .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented))
             .arg(consoleView_->toPlainText().right(1200)));
+    }
+    if (!offscreenPlatform) {
+        const auto meshUploadsBefore = stats.totalMeshUploadCount;
+        const auto textureUploadsBefore = stats.totalTextureUploadCount;
+        const auto staticBytesBefore = stats.totalStaticUploadBytes;
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        const auto& cachedStats = renderer_->stats();
+        if (cachedStats.totalMeshUploadCount != meshUploadsBefore
+            || cachedStats.totalTextureUploadCount != textureUploadsBefore
+            || cachedStats.totalStaticUploadBytes != staticBytesBefore
+            || cachedStats.lastFrameStaticUploadBytes != 0) {
+            return fail(QStringLiteral(
+                "Second Vulkan frame reuploaded cached static resources: meshUploads=%1/%2 textureUploads=%3/%4 staticBytes=%5/%6 lastBytes=%7")
+                .arg(static_cast<qulonglong>(meshUploadsBefore))
+                .arg(static_cast<qulonglong>(cachedStats.totalMeshUploadCount))
+                .arg(static_cast<qulonglong>(textureUploadsBefore))
+                .arg(static_cast<qulonglong>(cachedStats.totalTextureUploadCount))
+                .arg(static_cast<qulonglong>(staticBytesBefore))
+                .arg(static_cast<qulonglong>(cachedStats.totalStaticUploadBytes))
+                .arg(static_cast<qulonglong>(cachedStats.lastFrameStaticUploadBytes)));
+        }
     }
 
     return true;

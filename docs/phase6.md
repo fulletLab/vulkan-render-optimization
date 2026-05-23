@@ -296,6 +296,12 @@ Date: 2026-05-22
 - Renderer counters for candidate mesh primitives, culled mesh primitives, last-frame
   render CPU time, and averaged render CPU time now flow through `RendererStats`, the
   visible editor smoke test, and the Profiler tab.
+- Renderer counters now also track candidate/culled/visible triangle counts, resident
+  mesh and texture cache sizes, mesh/texture upload counts, static upload bytes, and
+  dynamic editor color overlay upload bytes. The editor Profiler tab and visible smoke
+  test validate those counters so large imported scenes can be measured without guessing
+  whether assets are being reuploaded every frame. The visible smoke path now renders a
+  second imported-asset frame and fails if cached static meshes/textures upload again.
 - The directional shadow matrix now fits visible submitted primitive bounds, snaps the
   light projection to shadow-map texels, and the mesh shader uses weighted PCF filtering
   to reduce shimmer and harsh shadow edges without changing imported mesh data.

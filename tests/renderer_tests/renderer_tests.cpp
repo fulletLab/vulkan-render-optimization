@@ -77,8 +77,21 @@ int main()
         || stats.lastFrameShadowCasterCount != 0
         || stats.lastFrameCandidateMeshDrawCount != 0
         || stats.lastFrameCulledMeshDrawCount != 0
+        || stats.lastFrameCandidateTriangleCount != 0
+        || stats.lastFrameCulledTriangleCount != 0
+        || stats.lastFrameVisibleTriangleCount != 0
         || stats.lastFrameRenderCpuTimeUs != 0
         || stats.averageRenderCpuTimeUs != 0
+        || stats.lastFrameMeshUploadCount != 0
+        || stats.lastFrameTextureUploadCount != 0
+        || stats.lastFrameStaticUploadBytes != 0
+        || stats.lastFrameColorUploadBytes != 0
+        || stats.residentMeshCount != 0
+        || stats.residentTextureCount != 0
+        || stats.totalMeshUploadCount != 0
+        || stats.totalTextureUploadCount != 0
+        || stats.totalStaticUploadBytes != 0
+        || stats.totalColorUploadBytes != 0
         || stats.shadowFramesPresented != 0
         || stats.shadowCasterDrawsPresented != 0) {
         return fail("Vulkan renderer frame lighting/shadow stats were not initialized to zero");

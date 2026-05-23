@@ -23,6 +23,19 @@
 #include <vector>
 
 namespace projectunity::renderer {
+namespace {
+
+[[nodiscard]] std::uint64_t colorUploadBytes(const RenderFrame& frame) noexcept
+{
+    std::uint64_t bytes = 0;
+    for (const auto& draw : frame.colorMeshDraws) {
+        bytes += static_cast<std::uint64_t>(draw.vertices.size_bytes());
+        bytes += static_cast<std::uint64_t>(draw.indices.size_bytes());
+    }
+    return bytes;
+}
+
+} // namespace
 
 struct VulkanRenderer::Impl {
     explicit Impl(RendererConfig inputConfig)
@@ -199,6 +212,11 @@ struct VulkanRenderer::Impl {
             }
             return false;
         }
+        const auto meshUploadsBefore = meshCache.uploadCount();
+        const auto textureUploadsBefore = textureCache.uploadCount();
+        const auto meshBytesBefore = meshCache.uploadedBytes();
+        const auto textureBytesBefore = textureCache.uploadedBytes();
+        const auto dynamicColorBytes = colorUploadBytes(frame);
         const auto frameStart = std::chrono::steady_clock::now();
         const auto rendered = existing->second->renderFrame(frame, *uploads, meshCache, textureCache, errorMessage);
         const auto frameElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -209,6 +227,9 @@ struct VulkanRenderer::Impl {
             stats.lastFrameCulledMeshDrawCount = frame.culledMeshDrawCount;
             stats.lastFrameMeshDrawCount = static_cast<std::uint64_t>(frame.meshDraws.size());
             stats.lastFrameColorMeshDrawCount = static_cast<std::uint64_t>(frame.colorMeshDraws.size());
+            stats.lastFrameCandidateTriangleCount = frame.candidateTriangleCount;
+            stats.lastFrameCulledTriangleCount = frame.culledTriangleCount;
+            stats.lastFrameVisibleTriangleCount = frame.candidateTriangleCount - frame.culledTriangleCount;
             stats.lastFrameLightCount = static_cast<std::uint64_t>(frame.lights.size());
             stats.lastFrameShadowCasterCount = 0;
             stats.lastFrameRenderCpuTimeUs = static_cast<std::uint64_t>(std::max<std::int64_t>(frameElapsedUs, 0));
@@ -219,6 +240,17 @@ struct VulkanRenderer::Impl {
             }
             stats.meshDrawsPresented += stats.lastFrameMeshDrawCount;
             stats.colorMeshDrawsPresented += stats.lastFrameColorMeshDrawCount;
+            stats.lastFrameMeshUploadCount = meshCache.uploadCount() - meshUploadsBefore;
+            stats.lastFrameTextureUploadCount = textureCache.uploadCount() - textureUploadsBefore;
+            stats.lastFrameStaticUploadBytes = (meshCache.uploadedBytes() - meshBytesBefore)
+                + (textureCache.uploadedBytes() - textureBytesBefore);
+            stats.lastFrameColorUploadBytes = dynamicColorBytes;
+            stats.residentMeshCount = meshCache.meshCount();
+            stats.residentTextureCount = textureCache.textureCount();
+            stats.totalMeshUploadCount = meshCache.uploadCount();
+            stats.totalTextureUploadCount = textureCache.uploadCount();
+            stats.totalStaticUploadBytes = meshCache.uploadedBytes() + textureCache.uploadedBytes();
+            stats.totalColorUploadBytes += dynamicColorBytes;
             for (const auto& draw : frame.meshDraws) {
                 if (frame.shadowsEnabled && !isTransparentMeshDraw(draw)) {
                     ++stats.lastFrameShadowCasterCount;

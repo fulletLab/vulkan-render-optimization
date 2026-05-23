@@ -76,18 +76,41 @@ const VulkanMeshBuffers* VulkanMeshCache::ensureUploaded(
 
     VulkanMeshBuffers next;
     auto vertices = packVertices(primitive);
-    if (!next.vertices.upload(context, uploads, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, bytesOf(vertices), errorMessage)
-        || !next.indices.upload(context, uploads, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, bytesOf(primitive.indices), errorMessage)) {
+    const auto vertexBytes = bytesOf(vertices);
+    const auto indexBytes = bytesOf(primitive.indices);
+    if (!next.vertices.upload(context, uploads, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBytes, errorMessage)
+        || !next.indices.upload(context, uploads, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBytes, errorMessage)) {
         return nullptr;
     }
     next.indexCount = static_cast<std::uint32_t>(primitive.indices.size());
     const auto [it, inserted] = meshes_.try_emplace(key, std::move(next));
+    if (inserted) {
+        ++uploadCount_;
+        uploadedBytes_ += static_cast<std::uint64_t>(vertexBytes.size() + indexBytes.size());
+    }
     return inserted ? &it->second : nullptr;
 }
 
 void VulkanMeshCache::clear() noexcept
 {
     meshes_.clear();
+    uploadCount_ = 0;
+    uploadedBytes_ = 0;
+}
+
+std::uint64_t VulkanMeshCache::uploadCount() const noexcept
+{
+    return uploadCount_;
+}
+
+std::uint64_t VulkanMeshCache::uploadedBytes() const noexcept
+{
+    return uploadedBytes_;
+}
+
+std::uint64_t VulkanMeshCache::meshCount() const noexcept
+{
+    return static_cast<std::uint64_t>(meshes_.size());
 }
 
 } // namespace projectunity::renderer

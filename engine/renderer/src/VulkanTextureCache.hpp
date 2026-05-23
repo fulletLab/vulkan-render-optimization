@@ -44,6 +44,9 @@ public:
         const assets::TextureAsset* texture,
         std::string* errorMessage);
     void clear() noexcept;
+    [[nodiscard]] std::uint64_t uploadCount() const noexcept;
+    [[nodiscard]] std::uint64_t uploadedBytes() const noexcept;
+    [[nodiscard]] std::uint64_t textureCount() const noexcept;
 
 private:
     struct TextureKey {
@@ -85,6 +88,8 @@ private:
 
     std::unordered_map<TextureKey, TextureResource, TextureKeyHash> textures_;
     std::uint64_t nextHandleKey_ {1};
+    std::uint64_t uploadCount_ {0};
+    std::uint64_t uploadedBytes_ {0};
 };
 
 } // namespace projectunity::renderer

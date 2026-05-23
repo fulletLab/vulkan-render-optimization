@@ -175,6 +175,12 @@ Scene View does not present a Vulkan clear-only frame over the Qt Scene View aid
 - Renderer statistics now also track candidate mesh primitives, culled mesh primitives,
   last-frame render CPU time, and averaged render CPU time. The visible editor smoke test
   requires those Vulkan metrics to move after imported mesh presentation.
+- Renderer statistics now include triangle counts, resident GPU mesh/texture cache counts,
+  per-frame and total mesh/texture upload counts, static upload bytes, and dynamic color
+  overlay upload bytes. The Profiler tab exposes these values so scene size and cache
+  behavior are visible before adding heavier lighting work. The visible editor smoke path
+  now verifies that a second frame of the same imported model does not reupload cached
+  static mesh or texture data.
 - The directional shadow pass now derives its orthographic fit from visible submitted
   bounds, snaps the light-space center to shadow-map texels, and uses weighted PCF in
   the mesh shader to reduce edge harshness without modifying imported geometry.

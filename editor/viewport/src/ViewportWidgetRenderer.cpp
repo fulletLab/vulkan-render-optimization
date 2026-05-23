@@ -540,6 +540,8 @@ bool ViewportWidget::renderRendererFrame()
                     continue;
                 }
                 ++frame.candidateMeshDrawCount;
+                const auto triangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
+                frame.candidateTriangleCount += triangleCount;
                 const auto boundsCenter = transformPoint(entity, *worldPosition, primitive.bounds.center);
                 const auto boundsRadius = primitive.bounds.radius * maxAbsScale(entity.transform.scale);
                 if (!sphereVisible(
@@ -552,6 +554,7 @@ bool ViewportWidget::renderRendererFrame()
                         cameraFrame.verticalFovRadians,
                         cameraFrame.aspectRatio)) {
                     ++frame.culledMeshDrawCount;
+                    frame.culledTriangleCount += triangleCount;
                     continue;
                 }
                 visibleBounds.includeSphere(boundsCenter, boundsRadius);

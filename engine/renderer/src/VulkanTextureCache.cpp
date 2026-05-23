@@ -201,6 +201,8 @@ void VulkanTextureCache::clear() noexcept
     }
     textures_.clear();
     nextHandleKey_ = 1;
+    uploadCount_ = 0;
+    uploadedBytes_ = 0;
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
@@ -487,7 +489,26 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     }
 
     const auto [it, inserted] = textures_.try_emplace(key, std::move(next));
+    if (inserted) {
+        ++uploadCount_;
+        uploadedBytes_ += static_cast<std::uint64_t>(byteCount);
+    }
     return inserted ? &it->second.handle : nullptr;
+}
+
+std::uint64_t VulkanTextureCache::uploadCount() const noexcept
+{
+    return uploadCount_;
+}
+
+std::uint64_t VulkanTextureCache::uploadedBytes() const noexcept
+{
+    return uploadedBytes_;
+}
+
+std::uint64_t VulkanTextureCache::textureCount() const noexcept
+{
+    return static_cast<std::uint64_t>(textures_.size());
 }
 
 void VulkanTextureCache::destroy(TextureResource& texture) noexcept
