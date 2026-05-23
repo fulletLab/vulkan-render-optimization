@@ -1,7 +1,9 @@
 #include <projectunity/renderer/VulkanRenderer.hpp>
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
+#include <projectunity/renderer/RenderShadowSetup.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
@@ -12,6 +14,16 @@ int fail(const char* message)
 {
     std::cerr << message << '\n';
     return EXIT_FAILURE;
+}
+
+bool matrixIsFinite(const projectunity::renderer::RenderMatrix4& matrix)
+{
+    for (const auto value : matrix.values) {
+        if (!std::isfinite(value)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -48,6 +60,36 @@ int main()
         || orderedDraws[3]->primitiveIndex != 50
         || orderedDraws[4]->primitiveIndex != 10) {
         return fail("Renderer mesh draw ordering did not keep opaque draws before back-to-front blended draws");
+    }
+
+    std::array<RenderLight, 3> mixedLights {};
+    mixedLights[0].type = RenderLightType::Point;
+    mixedLights[0].position = {2.0F, 3.0F, 4.0F};
+    mixedLights[1].type = RenderLightType::Spot;
+    mixedLights[1].position = {0.0F, 5.0F, -2.0F};
+    mixedLights[1].direction = {0.0F, -0.8F, 0.2F};
+    mixedLights[2].type = RenderLightType::Directional;
+    mixedLights[2].direction = {0.35F, -0.82F, 0.45F};
+    const auto directionalShadow = chooseShadowMap(mixedLights, {0.0F, 0.0F, 0.0F}, 4.0F);
+    if (!directionalShadow.enabled
+        || directionalShadow.lightIndex != 2U
+        || directionalShadow.lightType != RenderLightType::Directional
+        || !matrixIsFinite(directionalShadow.viewProjection)) {
+        return fail("Renderer shadow selection did not prefer a finite directional shadow map");
+    }
+
+    const std::array<RenderLight, 2> spotOnlyLights {mixedLights[0], mixedLights[1]};
+    const auto spotShadow = chooseShadowMap(spotOnlyLights, {0.0F, 0.0F, 0.0F}, 4.0F);
+    if (!spotShadow.enabled
+        || spotShadow.lightIndex != 1U
+        || spotShadow.lightType != RenderLightType::Spot
+        || !matrixIsFinite(spotShadow.viewProjection)) {
+        return fail("Renderer shadow selection did not fall back to a finite spot shadow map");
+    }
+
+    const std::array<RenderLight, 1> pointOnlyLights {mixedLights[0]};
+    if (chooseShadowMap(pointOnlyLights, {0.0F, 0.0F, 0.0F}, 4.0F).enabled) {
+        return fail("Renderer shadow selection incorrectly enabled a 2D shadow map for point-only lights");
     }
 
     std::string error;

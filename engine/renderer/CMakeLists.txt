@@ -41,6 +41,7 @@ projectunity_embed_renderer_shader(EditorColor.frag kEditorColorFragmentSpirv Ed
 
 add_library(projectunity_renderer STATIC
     src/RenderDrawOrdering.cpp
+    src/RenderShadowSetup.cpp
     src/VulkanRenderer.cpp
     src/VulkanColorMesh.cpp
     src/VulkanColorMesh.hpp
@@ -70,6 +71,7 @@ add_library(projectunity_renderer STATIC
     ${PROJECTUNITY_RENDERER_SHADER_HEADERS}
     include/projectunity/renderer/IRenderer.hpp
     include/projectunity/renderer/RenderDrawOrdering.hpp
+    include/projectunity/renderer/RenderShadowSetup.hpp
     include/projectunity/renderer/RendererTypes.hpp
     include/projectunity/renderer/VulkanRenderer.hpp
     include/projectunity/renderer/ViewportRenderSurface.hpp

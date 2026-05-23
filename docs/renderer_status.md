@@ -30,11 +30,12 @@ camera position, imported punctual lights, ambient environment terms, and the fi
 directional shadow transform instead of using a fixed shader-local light direction.
 Direct lighting uses a Cook-Torrance-style metallic/roughness path, ambient lighting
 uses a procedural environment/BRDF approximation, and the viewport records a VMA-backed
-2048-square directional shadow map before the main pass.
+2048-square 2D shadow map before the main pass.
 The shadow pass now has a small fragment shader that samples base-color alpha and
-respects imported `MASK` cutoff values for opaque/masked casters. The shadow matrix is
-fit to visible submitted primitive bounds, snapped to shadow-map texels, and filtered
-with weighted PCF in the mesh shader.
+respects imported `MASK` cutoff values for opaque/masked casters. Shadow-map selection
+lives in `engine/renderer`, prefers a visible-bounds directional map, falls back to a
+perspective 2D spot-light map when no directional light exists, and filters shadow
+lookups with weighted PCF in the mesh shader.
 Imported glTF light nodes are instantiated from model data, and Game View can render
 through the first imported perspective camera while Scene View stays on the editor camera.
 glTF source spatial data is read as right-handed, Y-up, with camera/light local `-Z`
@@ -73,8 +74,9 @@ color path when a real viewport surface is available.
 
 - Replace the procedural ambient environment term with prefiltered IBL resources.
 - Add editor/scene-owned lights and camera components beyond imported glTF model data.
-- Expand shadows beyond the first directional map with point/spot shadows, cascades,
-  higher quality filtering controls, and transparent caster policy.
+- Expand shadows beyond the current directional/spot 2D map with point-light cubemaps,
+  cascaded directional shadows, higher quality filtering controls, and transparent
+  caster policy.
 - Add anisotropic filtering and KTX2/Basis-ready compressed texture upload paths.
 - Expand renderer-owned labels/text overlays beyond the current Scene View entity labels.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
@@ -184,6 +186,10 @@ color path when a real viewport surface is available.
 - The directional shadow pass now derives its orthographic fit from visible submitted
   bounds, snaps the light-space center to shadow-map texels, and uses weighted PCF in
   the mesh shader to reduce edge harshness without modifying imported geometry.
+- Shadow-map choice no longer lives in the Qt viewport bridge. `RenderShadowSetup`
+  chooses the first directional light, or the first spot light if no directional light
+  exists, and deliberately leaves point-light cubemap and cascaded directional shadows
+  disabled until those renderer passes exist.
 - The mesh shader now uses a procedural environment/BRDF approximation for diffuse and
   specular ambient lighting. This is still not full prefiltered IBL, but it is a better
   renderer-side lighting path than flat ambient color.
@@ -211,6 +217,12 @@ color path when a real viewport surface is available.
   `Project/Assets/VisualVerification` and documented in
   `docs/phase6_visual_verification_assets.md`; they cover orientation, negative
   scale, UVs, tangents, alpha modes, lights, PBR response, and large-node profiling.
+- Latest verification after moving shadow setup into `engine/renderer`: `cmake --build
+  --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7,
+  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8, visible
+  `projectunity_editor --smoke-test` passed, and `git diff --check` reported only
+  expected line-ending warnings.
 - The NodePerformance-style worst case no longer relies on one CPU/UI draw path or
   one unique Vulkan draw for every imported node. The asset importer preserves visual
   fidelity while deduplicating identical texture/material data, baking scalar material

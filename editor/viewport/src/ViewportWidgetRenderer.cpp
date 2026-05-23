@@ -2,6 +2,7 @@
 #include "ViewportLabelGeometry.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
+#include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <QString>
 #include <algorithm>
 #include <array>
@@ -65,17 +66,6 @@ namespace {
     at(projection, 2, 2) = farPlane / (farPlane - nearPlane);
     at(projection, 2, 3) = -(nearPlane * farPlane) / (farPlane - nearPlane);
     at(projection, 3, 2) = 1.0F;
-    return projection;
-}
-[[nodiscard]] renderer::RenderMatrix4 orthographicMatrix(float halfWidth, float halfHeight, float nearPlane, float farPlane)
-{
-    renderer::RenderMatrix4 projection;
-    projection.values.fill(0.0F);
-    at(projection, 0, 0) = 1.0F / std::max(halfWidth, 0.001F);
-    at(projection, 1, 1) = -1.0F / std::max(halfHeight, 0.001F);
-    at(projection, 2, 2) = 1.0F / std::max(farPlane - nearPlane, 0.001F);
-    at(projection, 2, 3) = -nearPlane / std::max(farPlane - nearPlane, 0.001F);
-    at(projection, 3, 3) = 1.0F;
     return projection;
 }
 [[nodiscard]] float radians(float degrees)
@@ -194,29 +184,6 @@ namespace {
         return renderer::RenderLightType::Spot;
     }
     return renderer::RenderLightType::Directional;
-}
-[[nodiscard]] renderer::RenderMatrix4 shadowViewProjection(
-    math::Vec3 shadowDirection,
-    math::Vec3 target,
-    float boundsRadius)
-{
-    const auto forward = safeNormalized(shadowDirection, {0.35F, -0.82F, 0.45F});
-    const auto right = safeNormalized(math::cross({0.0F, 1.0F, 0.0F}, forward), {1.0F, 0.0F, 0.0F});
-    const auto up = safeNormalized(math::cross(forward, right), {0.0F, 1.0F, 0.0F});
-    const auto halfExtent = std::clamp(std::max(boundsRadius, 1.0F) * 1.35F, 12.0F, 640.0F);
-    constexpr float shadowMapSize = 2048.0F;
-    const auto texelWorldSize = (halfExtent * 2.0F) / shadowMapSize;
-    const auto snapAxis = [texelWorldSize](float value) {
-        return std::floor(value / texelWorldSize) * texelWorldSize;
-    };
-    const auto snappedTarget = target
-        + right * (snapAxis(math::dot(target, right)) - math::dot(target, right))
-        + up * (snapAxis(math::dot(target, up)) - math::dot(target, up));
-    const auto shadowDistance = halfExtent * 3.0F + std::max(boundsRadius, 1.0F);
-    const auto eye = snappedTarget - forward * shadowDistance;
-    return multiply(
-        orthographicMatrix(halfExtent, halfExtent, 0.05F, shadowDistance + halfExtent * 2.0F),
-        viewMatrix(eye, right, up, forward));
 }
 struct FrameBounds {
     bool valid {false};
@@ -632,23 +599,13 @@ bool ViewportWidget::renderRendererFrame()
         frame.visibleBoundsRadius = std::max(camera_.distance, 1.0F);
     }
     frame.lights = std::span<const renderer::RenderLight>(rendererLights_);
-    const auto shadowLight = std::find_if(rendererLights_.begin(), rendererLights_.end(), [](const renderer::RenderLight& light) {
-        return light.type == renderer::RenderLightType::Directional;
-    });
-    if (shadowLight != rendererLights_.end()) {
-        const auto index = static_cast<std::uint32_t>(std::distance(rendererLights_.begin(), shadowLight));
-        const math::Vec3 lightDirection {
-            shadowLight->direction[0],
-            shadowLight->direction[1],
-            shadowLight->direction[2],
-        };
-        const math::Vec3 shadowCenter {
-            frame.visibleBoundsCenter[0],
-            frame.visibleBoundsCenter[1],
-            frame.visibleBoundsCenter[2],
-        };
-        frame.shadowViewProjection = shadowViewProjection(lightDirection, shadowCenter, frame.visibleBoundsRadius);
-        frame.shadowLightIndex = index;
+    const auto shadowSelection = renderer::chooseShadowMap(
+        frame.lights,
+        frame.visibleBoundsCenter,
+        frame.visibleBoundsRadius);
+    if (shadowSelection.enabled) {
+        frame.shadowViewProjection = shadowSelection.viewProjection;
+        frame.shadowLightIndex = shadowSelection.lightIndex;
         frame.shadowsEnabled = true;
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
