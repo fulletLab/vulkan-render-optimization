@@ -149,6 +149,27 @@ const VulkanMeshBuffers* VulkanMeshCache::ensureUploaded(
     return inserted ? &it->second : nullptr;
 }
 
+bool VulkanMeshCache::isUploaded(VulkanMeshKey key) const noexcept
+{
+    return meshes_.find(key) != meshes_.end();
+}
+
+std::uint64_t VulkanMeshCache::estimatedUploadBytes(
+    VulkanMeshKey key,
+    const assets::MeshPrimitive& primitive) const noexcept
+{
+    if (isUploaded(key)) {
+        return 0;
+    }
+    std::uint64_t bytes = 0;
+    const VulkanPrimitiveKey primitiveKey {key.modelAssetId, key.primitiveIndex};
+    if (vertexBuffers_.find(primitiveKey) == vertexBuffers_.end()) {
+        bytes += static_cast<std::uint64_t>(primitive.vertices.size()) * sizeof(VulkanGpuVertex);
+    }
+    bytes += static_cast<std::uint64_t>(indicesForLod(primitive, key.lodIndex).size()) * sizeof(std::uint32_t);
+    return bytes;
+}
+
 void VulkanMeshCache::clear() noexcept
 {
     vertexBuffers_.clear();

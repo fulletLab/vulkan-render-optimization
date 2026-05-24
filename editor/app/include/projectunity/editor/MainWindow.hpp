@@ -120,6 +120,7 @@ private:
     QDoubleSpinBox* scaleX_ {nullptr};
     QDoubleSpinBox* scaleY_ {nullptr};
     QDoubleSpinBox* scaleZ_ {nullptr};
+    QLabel* componentSummary_ {nullptr};
     QPushButton* deleteEntityButton_ {nullptr};
     QPushButton* duplicateEntityButton_ {nullptr};
     QPlainTextEdit* consoleView_ {nullptr};

@@ -58,6 +58,11 @@ public:
         VulkanUploadContext& uploads,
         const RenderEnvironmentSettings& environment,
         std::string* errorMessage);
+    [[nodiscard]] std::uint64_t estimatedUploadBytes(
+        const assets::TextureAsset* texture,
+        VulkanTextureColorSpace colorSpace) const noexcept;
+    [[nodiscard]] std::uint64_t estimatedNormalUploadBytes(const assets::TextureAsset* texture) const noexcept;
+    [[nodiscard]] std::uint64_t estimatedBrdfLutUploadBytes() const noexcept;
     void clear() noexcept;
     [[nodiscard]] std::uint64_t uploadCount() const noexcept;
     [[nodiscard]] std::uint64_t uploadedBytes() const noexcept;

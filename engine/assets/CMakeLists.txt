@@ -30,6 +30,8 @@ add_library(projectunity_assets STATIC
     src/GltfNodeTransforms.hpp
     src/GltfSceneObjects.cpp
     src/GltfSceneObjects.hpp
+    src/GltfSidecarTextureImport.cpp
+    src/GltfSidecarTextureImport.hpp
     src/GltfTextureImport.cpp
     src/GltfTextureImport.hpp
     src/KtxTextureImport.cpp

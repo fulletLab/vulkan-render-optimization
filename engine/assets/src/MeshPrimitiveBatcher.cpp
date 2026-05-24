@@ -17,7 +17,9 @@ namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::size_t kBatchThreshold = 512;
-constexpr std::size_t kSpatialBatchTargetInstances = 96;
+constexpr std::size_t kSpatialBatchTargetInstances = 64;
+constexpr std::size_t kMaxSpatialBatchGridSide = 16;
+constexpr std::size_t kMaxSpatialBatchTargets = 768;
 
 struct BatchTarget {
     std::size_t materialIndex {0};
@@ -93,29 +95,19 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
     return {extents[0].second, extents[1].second};
 }
 
-[[nodiscard]] std::size_t materialGridSide(std::size_t materialCount) noexcept
-{
-    if (materialCount >= 64U) {
-        return 1U;
-    }
-    if (materialCount >= 24U) {
-        return 3U;
-    }
-    if (materialCount >= 8U) {
-        return 4U;
-    }
-    if (materialCount >= 2U) {
-        return 8U;
-    }
-    return 12U;
-}
-
 [[nodiscard]] std::size_t instanceGridSide(std::size_t instanceCount) noexcept
 {
     const auto wantedCells = std::max<std::size_t>(
         1U,
         (instanceCount + kSpatialBatchTargetInstances - 1U) / kSpatialBatchTargetInstances);
     return static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedCells))));
+}
+
+[[nodiscard]] std::size_t materialBudgetGridSide(std::size_t materialCount) noexcept
+{
+    const auto safeMaterialCount = std::max<std::size_t>(materialCount, 1U);
+    const auto targetCells = std::max<std::size_t>(1U, kMaxSpatialBatchTargets / safeMaterialCount);
+    return static_cast<std::size_t>(std::floor(std::sqrt(static_cast<float>(targetCells))));
 }
 
 [[nodiscard]] std::size_t gridCoordinate(float value, float minimum, float extent, std::size_t side) noexcept
@@ -130,8 +122,12 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
 [[nodiscard]] SpatialBatchGrid makeSpatialBatchGrid(const ModelAsset& model) noexcept
 {
     SpatialBatchGrid grid;
-    const auto materialCount = std::max<std::size_t>(model.materials.size(), 1U);
-    grid.side = std::min(materialGridSide(materialCount), instanceGridSide(model.primitiveInstances.size()));
+    const auto instanceSide = instanceGridSide(model.primitiveInstances.size());
+    const auto materialSide = materialBudgetGridSide(model.materials.size());
+    grid.side = std::clamp(
+        std::min(instanceSide, materialSide),
+        std::size_t {1U},
+        kMaxSpatialBatchGridSide);
     if (grid.side <= 1U) {
         return grid;
     }

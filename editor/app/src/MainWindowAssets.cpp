@@ -13,7 +13,9 @@
 #include <QtConcurrentRun>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <string>
 
 namespace projectunity::editor {
 namespace {
@@ -21,6 +23,68 @@ namespace {
 [[nodiscard]] std::filesystem::path pathFromQString(const QString& path)
 {
     return std::filesystem::path(path.toStdWString());
+}
+
+[[nodiscard]] scene::LightComponentType sceneLightType(assets::ImportedLightType type)
+{
+    switch (type) {
+    case assets::ImportedLightType::Directional:
+        return scene::LightComponentType::Directional;
+    case assets::ImportedLightType::Point:
+        return scene::LightComponentType::Point;
+    case assets::ImportedLightType::Spot:
+        return scene::LightComponentType::Spot;
+    }
+    return scene::LightComponentType::Directional;
+}
+
+[[nodiscard]] float calibratedLightIntensity(const assets::ImportedLightAsset& light)
+{
+    const auto intensity = std::isfinite(light.intensity) ? std::max(light.intensity, 0.0F) : 0.0F;
+    if (light.type == assets::ImportedLightType::Directional && intensity > 100.0F) {
+        return std::clamp(intensity * 0.0003F, 0.0F, 8.0F);
+    }
+    return std::clamp(intensity, 0.0F, light.type == assets::ImportedLightType::Directional ? 8.0F : 256.0F);
+}
+
+[[nodiscard]] scene::LightComponent sceneLightComponent(const assets::ImportedLightAsset& imported)
+{
+    scene::LightComponent light;
+    light.type = sceneLightType(imported.type);
+    light.direction = imported.direction;
+    light.color = imported.color;
+    light.intensity = calibratedLightIntensity(imported);
+    light.range = imported.range;
+    light.innerConeAngle = imported.innerConeAngle;
+    light.outerConeAngle = imported.outerConeAngle;
+    return light;
+}
+
+[[nodiscard]] scene::CameraComponentProjection sceneCameraProjection(assets::ImportedCameraProjection projection)
+{
+    switch (projection) {
+    case assets::ImportedCameraProjection::Perspective:
+        return scene::CameraComponentProjection::Perspective;
+    case assets::ImportedCameraProjection::Orthographic:
+        return scene::CameraComponentProjection::Orthographic;
+    }
+    return scene::CameraComponentProjection::Perspective;
+}
+
+[[nodiscard]] scene::CameraComponent sceneCameraComponent(const assets::ImportedCameraAsset& imported)
+{
+    scene::CameraComponent camera;
+    camera.projection = sceneCameraProjection(imported.projection);
+    camera.direction = imported.direction;
+    camera.right = imported.right;
+    camera.up = imported.up;
+    camera.verticalFovRadians = imported.verticalFovRadians;
+    camera.aspectRatio = imported.aspectRatio;
+    camera.xMagnitude = imported.xMagnitude;
+    camera.yMagnitude = imported.yMagnitude;
+    camera.nearPlane = imported.nearPlane;
+    camera.farPlane = imported.farPlane;
+    return camera;
 }
 
 } // namespace
@@ -159,7 +223,46 @@ void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
 {
     auto& entity = scene_.createEntity(record.displayName);
     const auto importedId = entity.id;
-    if (!scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
+    bool attachedMeshRenderer = false;
+    if (const auto model = assetManager_.model(record.id)) {
+        if (scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
+            attachedMeshRenderer = true;
+        }
+        if (model->primitiveInstances.size() > 1U) {
+            for (std::size_t index = 0; index < model->primitiveInstances.size(); ++index) {
+                const auto& instance = model->primitiveInstances[index];
+                auto& part = scene_.createEntity(
+                    record.displayName + " Part " + std::to_string(index + 1U),
+                    importedId);
+                scene::TransformComponent transform;
+                transform.position = instance.bounds.center;
+                (void)scene_.setTransform(part.id, transform);
+                scene::MeshRendererComponent partRenderer {record.id, static_cast<std::uint32_t>(index)};
+                partRenderer.renderable = false;
+                if (!scene_.setMeshRenderer(part.id, partRenderer)) {
+                    core::logError(core::LogCategory::Assets, "Editor failed to attach imported model part to a scene entity");
+                    return;
+                }
+            }
+        }
+        for (const auto& importedLight : model->lights) {
+            auto& lightEntity = scene_.createEntity(importedLight.name, importedId);
+            scene::TransformComponent transform;
+            transform.position = importedLight.position;
+            (void)scene_.setTransform(lightEntity.id, transform);
+            (void)scene_.setLight(lightEntity.id, sceneLightComponent(importedLight));
+        }
+        for (const auto& importedCamera : model->cameras) {
+            auto& cameraEntity = scene_.createEntity(importedCamera.name, importedId);
+            scene::TransformComponent transform;
+            transform.position = importedCamera.position;
+            (void)scene_.setTransform(cameraEntity.id, transform);
+            (void)scene_.setCamera(cameraEntity.id, sceneCameraComponent(importedCamera));
+        }
+    } else if (scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
+        attachedMeshRenderer = true;
+    }
+    if (!attachedMeshRenderer) {
         core::logError(core::LogCategory::Assets, "Editor failed to attach imported model to a scene entity");
         return;
     }

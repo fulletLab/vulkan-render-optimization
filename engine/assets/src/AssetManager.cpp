@@ -4,6 +4,7 @@
 #include "GltfImageLoader.hpp"
 #include "GltfNodeTransforms.hpp"
 #include "GltfSceneObjects.hpp"
+#include "GltfSidecarTextureImport.hpp"
 #include "GltfTextureImport.hpp"
 #include "KtxTextureImport.hpp"
 #include "MeshBounds.hpp"
@@ -410,6 +411,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     ModelAsset& model,
     std::vector<ImportedPrimitiveKey>& primitiveMap,
     std::vector<ImportedPrimitiveSignature>& signatures,
+    detail::GltfSidecarTextureCatalog& sidecarTextures,
     std::string* errorMessage,
     std::uint32_t& outputIndex)
 {
@@ -428,6 +430,13 @@ void optimizePrimitive(MeshPrimitive& primitive)
     MeshPrimitive imported;
     const auto& primitive = gltf.meshes[static_cast<std::size_t>(meshIndex)].primitives[static_cast<std::size_t>(primitiveIndex)];
     if (!importPrimitive(gltf, primitive, materialCount, imported, errorMessage)) {
+        return false;
+    }
+    const auto& mesh = gltf.meshes[static_cast<std::size_t>(meshIndex)];
+    const auto materialName = imported.materialIndex < model.materials.size()
+        ? model.materials[imported.materialIndex].name
+        : std::string {};
+    if (!sidecarTextures.applyBaseColorTexture(model, imported, mesh.name, materialName, errorMessage)) {
         return false;
     }
     applyGltfTransform(imported, gltfToEngineMatrix(identityGltfMatrix()));
@@ -454,6 +463,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     std::vector<ImportedPrimitiveKey>& primitiveMap,
     std::vector<ImportedPrimitiveSignature>& signatures,
     std::size_t materialCount,
+    detail::GltfSidecarTextureCatalog& sidecarTextures,
     std::string* errorMessage,
     int depth = 0)
 {
@@ -476,6 +486,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
                     model,
                     primitiveMap,
                     signatures,
+                    sidecarTextures,
                     errorMessage,
                     outputIndex)) {
                 return false;
@@ -489,7 +500,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         }
     }
     for (const auto child : node.children) {
-        if (!importNodePrimitives(gltf, child, worldTransform, model, primitiveMap, signatures, materialCount, errorMessage, depth + 1)) {
+        if (!importNodePrimitives(gltf, child, worldTransform, model, primitiveMap, signatures, materialCount, sidecarTextures, errorMessage, depth + 1)) {
             return false;
         }
     }
@@ -540,6 +551,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     model->id = makeId(sourceBytes, AssetType::Model);
     model->name = sourcePath.stem().string().empty() ? "Imported Model" : sourcePath.stem().string();
     std::vector<int> textureMap(gltf.textures.size(), -1);
+    detail::GltfSidecarTextureCatalog sidecarTextures(sourcePath.parent_path(), sourcePath.stem().string());
     for (std::size_t textureIndex = 0; textureIndex < gltf.textures.size(); ++textureIndex) {
         const auto sourceIndex = gltf.textures[textureIndex].source;
         if (sourceIndex < 0 || static_cast<std::size_t>(sourceIndex) >= gltf.images.size()) {
@@ -627,6 +639,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
                     primitiveMap,
                     primitiveSignatures,
                     model->materials.size(),
+                    sidecarTextures,
                     errorMessage)
                 || !detail::importGltfSceneObjects(
                     gltf,
@@ -654,6 +667,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
                         *model,
                         primitiveMap,
                         primitiveSignatures,
+                        sidecarTextures,
                         errorMessage,
                         outputIndex)) {
                     return {};

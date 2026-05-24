@@ -77,6 +77,15 @@ struct DrawTriangle {
     return {value.x * scale.x, value.y * scale.y, value.z * scale.z};
 }
 
+[[nodiscard]] math::Vec3 transformPoint(const std::array<float, 16>& matrix, math::Vec3 point)
+{
+    return {
+        matrix[0] * point.x + matrix[4] * point.y + matrix[8] * point.z + matrix[12],
+        matrix[1] * point.x + matrix[5] * point.y + matrix[9] * point.z + matrix[13],
+        matrix[2] * point.x + matrix[6] * point.y + matrix[10] * point.z + matrix[14],
+    };
+}
+
 [[nodiscard]] std::size_t sourceTriangleCount(const assets::ModelAsset& model)
 {
     std::size_t count = 0;
@@ -288,7 +297,10 @@ void ViewportWidget::drawEntities(QPainter& painter) const
 
     const auto skipDenseMeshOverlay = scene_->entityCount() > kDenseSceneEntityOverlayThreshold;
     for (const auto& entity : scene_->entities()) {
-        if (skipDenseMeshOverlay && entity.id != selectedEntityId_ && entity.meshRenderer.has_value()) {
+        const auto isPrimitiveProxy = entity.meshRenderer.has_value()
+            && entity.meshRenderer->primitiveInstanceIndex.has_value()
+            && !entity.meshRenderer->renderable;
+        if ((skipDenseMeshOverlay || isPrimitiveProxy) && entity.id != selectedEntityId_ && entity.meshRenderer.has_value()) {
             continue;
         }
         if (entity.id != selectedEntityId_) {
@@ -312,11 +324,17 @@ void ViewportWidget::drawEntity(QPainter& painter, const scene::Entity& entity) 
     if ((gpuMeshFrameRendered_ && entity.meshRenderer.has_value()) || drawMeshEntity(painter, entity, *position)) {
         const auto center = projectPoint(*position);
         if (center.visible) {
+            const auto isPrimitiveProxy = entity.meshRenderer.has_value()
+                && entity.meshRenderer->primitiveInstanceIndex.has_value()
+                && !entity.meshRenderer->renderable;
+            const auto showLabel = entity.id == selectedEntityId_ || !isPrimitiveProxy || entity.camera.has_value() || entity.light.has_value();
             painter.setBrush(entity.id == selectedEntityId_ ? QColor(255, 213, 95) : QColor(190, 205, 230));
             painter.setPen(Qt::NoPen);
             painter.drawEllipse(center.point, entity.id == selectedEntityId_ ? 4.0 : 2.5, entity.id == selectedEntityId_ ? 4.0 : 2.5);
-            painter.setPen(withAlpha(QColor(226, 231, 240), entity.id == selectedEntityId_ ? 230 : 170));
-            painter.drawText(center.point + QPointF(8.0, -8.0), entityLabel(entity));
+            if (showLabel) {
+                painter.setPen(withAlpha(QColor(226, 231, 240), entity.id == selectedEntityId_ ? 230 : 170));
+                painter.drawText(center.point + QPointF(8.0, -8.0), entityLabel(entity));
+            }
         }
         return;
     }
@@ -350,17 +368,23 @@ void ViewportWidget::drawEntity(QPainter& painter, const scene::Entity& entity) 
 
     const auto center = projectPoint(*position);
     if (center.visible) {
+        const auto isPrimitiveProxy = entity.meshRenderer.has_value()
+            && entity.meshRenderer->primitiveInstanceIndex.has_value()
+            && !entity.meshRenderer->renderable;
+        const auto showLabel = isSelected || !isPrimitiveProxy || entity.camera.has_value() || entity.light.has_value();
         painter.setBrush(isSelected ? QColor(255, 213, 95) : QColor(190, 205, 230));
         painter.setPen(Qt::NoPen);
         painter.drawEllipse(center.point, isSelected ? 5.0 : 3.5, isSelected ? 5.0 : 3.5);
-        painter.setPen(withAlpha(QColor(226, 231, 240), isSelected ? 230 : 170));
-        painter.drawText(center.point + QPointF(8.0, -8.0), entityLabel(entity));
+        if (showLabel) {
+            painter.setPen(withAlpha(QColor(226, 231, 240), isSelected ? 230 : 170));
+            painter.drawText(center.point + QPointF(8.0, -8.0), entityLabel(entity));
+        }
     }
 }
 
 bool ViewportWidget::drawMeshEntity(QPainter& painter, const scene::Entity& entity, math::Vec3 position) const
 {
-    if (assetManager_ == nullptr || !entity.meshRenderer.has_value()) {
+    if (assetManager_ == nullptr || !entity.meshRenderer.has_value() || !entity.meshRenderer->renderable) {
         return false;
     }
 
@@ -372,7 +396,32 @@ bool ViewportWidget::drawMeshEntity(QPainter& painter, const scene::Entity& enti
     std::vector<DrawTriangle> triangles;
     triangles.reserve(sourceTriangleCount(*model));
 
-    for (const auto& primitive : model->primitives) {
+    struct PrimitiveDrawRef {
+        const assets::MeshPrimitive* primitive {nullptr};
+        const assets::MeshPrimitiveInstance* instance {nullptr};
+        bool recenter {false};
+    };
+    std::vector<PrimitiveDrawRef> primitiveRefs;
+    if (entity.meshRenderer->primitiveInstanceIndex.has_value()
+        && *entity.meshRenderer->primitiveInstanceIndex < model->primitiveInstances.size()) {
+        const auto& instance = model->primitiveInstances[*entity.meshRenderer->primitiveInstanceIndex];
+        if (instance.primitiveIndex < model->primitives.size()) {
+            primitiveRefs.push_back({&model->primitives[instance.primitiveIndex], &instance, true});
+        }
+    } else if (!model->primitiveInstances.empty()) {
+        for (const auto& instance : model->primitiveInstances) {
+            if (instance.primitiveIndex < model->primitives.size()) {
+                primitiveRefs.push_back({&model->primitives[instance.primitiveIndex], &instance, false});
+            }
+        }
+    } else {
+        for (const auto& primitive : model->primitives) {
+            primitiveRefs.push_back({&primitive, nullptr, false});
+        }
+    }
+
+    for (const auto& ref : primitiveRefs) {
+        const auto& primitive = *ref.primitive;
         const auto indices = std::span<const std::uint32_t>(primitive.indices);
         const auto materialIndex = std::min(primitive.materialIndex, model->materials.size() - 1U);
         const auto& material = model->materials[materialIndex];
@@ -395,8 +444,15 @@ bool ViewportWidget::drawMeshEntity(QPainter& painter, const scene::Entity& enti
                 }
 
                 const auto& sourceVertex = primitive.vertices[triangleIndices[vertexIndex]];
+                auto localPosition = sourceVertex.position;
+                if (ref.instance != nullptr) {
+                    localPosition = transformPoint(ref.instance->transform, localPosition);
+                    if (ref.recenter) {
+                        localPosition -= ref.instance->bounds.center;
+                    }
+                }
                 const auto worldPosition = position + rotateEuler(
-                    scaled(sourceVertex.position, entity.transform.scale),
+                    scaled(localPosition, entity.transform.scale),
                     entity.transform.rotationEuler);
                 const auto projected = projectPoint(worldPosition);
                 if (projected.depth <= kNearPlane) {

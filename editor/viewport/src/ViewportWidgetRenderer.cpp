@@ -1,6 +1,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRendererOverlays.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 namespace projectunity::editor {
 namespace {
@@ -113,6 +115,17 @@ namespace {
     matrix.values = values;
     return matrix;
 }
+[[nodiscard]] renderer::RenderMatrix4 translationMatrix(math::Vec3 offset)
+{
+    renderer::RenderMatrix4 matrix;
+    matrix.values = {
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        offset.x, offset.y, offset.z, 1.0F,
+    };
+    return matrix;
+}
 [[nodiscard]] math::Vec3 transformPoint(const renderer::RenderMatrix4& matrix, math::Vec3 point)
 {
     return {
@@ -174,14 +187,14 @@ namespace {
     }
     return value / length;
 }
-[[nodiscard]] renderer::RenderLightType renderLightType(assets::ImportedLightType type)
+[[nodiscard]] renderer::RenderLightType renderLightType(scene::LightComponentType type)
 {
     switch (type) {
-    case assets::ImportedLightType::Directional:
+    case scene::LightComponentType::Directional:
         return renderer::RenderLightType::Directional;
-    case assets::ImportedLightType::Point:
+    case scene::LightComponentType::Point:
         return renderer::RenderLightType::Point;
-    case assets::ImportedLightType::Spot:
+    case scene::LightComponentType::Spot:
         return renderer::RenderLightType::Spot;
     }
     return renderer::RenderLightType::Directional;
@@ -228,85 +241,33 @@ struct ViewportCameraFrame {
     float nearPlane {0.05F};
     float farPlane {4000.0F};
 };
-void appendLineQuad(
-    std::vector<renderer::RenderColorVertex>& vertices,
-    std::vector<std::uint32_t>& indices,
-    math::Vec3 start,
-    math::Vec3 end,
-    std::array<float, 4> color,
-    float thickness,
-    math::Vec3 cameraForward,
-    math::Vec3 cameraRight,
-    float cameraDistance)
-{
-    const auto direction = end - start;
-    if (direction.lengthSquared() <= 0.0000001F) {
-        return;
+
+struct PrimitiveOverrideKey {
+    std::uint64_t modelAssetId {0};
+    std::uint32_t primitiveInstanceIndex {0};
+
+    [[nodiscard]] bool operator==(const PrimitiveOverrideKey&) const noexcept = default;
+};
+
+struct PrimitiveOverrideKeyHash {
+    [[nodiscard]] std::size_t operator()(const PrimitiveOverrideKey& key) const noexcept
+    {
+        const auto mixed = key.modelAssetId ^ (static_cast<std::uint64_t>(key.primitiveInstanceIndex) + 0x9e3779b97f4a7c15ULL + (key.modelAssetId << 6U) + (key.modelAssetId >> 2U));
+        return static_cast<std::size_t>(mixed);
     }
-    const auto side = safeNormalized(math::cross(direction, cameraForward), cameraRight);
-    const auto halfWidth = std::clamp(cameraDistance * 0.00085F * std::max(thickness, 1.0F), 0.006F, 0.08F);
-    const auto offset = side * halfWidth;
-    const auto base = static_cast<std::uint32_t>(vertices.size());
-    vertices.push_back({{start.x - offset.x, start.y - offset.y, start.z - offset.z}, color});
-    vertices.push_back({{start.x + offset.x, start.y + offset.y, start.z + offset.z}, color});
-    vertices.push_back({{end.x + offset.x, end.y + offset.y, end.z + offset.z}, color});
-    vertices.push_back({{end.x - offset.x, end.y - offset.y, end.z - offset.z}, color});
-    indices.insert(indices.end(), {base, base + 1U, base + 2U, base, base + 2U, base + 3U});
-}
-void appendGrid(
-    std::vector<renderer::RenderColorVertex>& vertices,
-    std::vector<std::uint32_t>& indices,
-    math::Vec3 cameraForward,
-    math::Vec3 cameraRight,
-    float cameraDistance)
-{
-    constexpr int divisions = 40;
-    constexpr float halfExtent = 20.0F;
-    constexpr float spacing = halfExtent * 2.0F / static_cast<float>(divisions);
-    for (int line = 0; line <= divisions; ++line) {
-        const auto coordinate = -halfExtent + static_cast<float>(line) * spacing;
-        const auto centerLine = std::abs(coordinate) <= 0.0001F;
-        const auto color = centerLine
-            ? std::array<float, 4> {0.68F, 0.72F, 0.80F, 0.58F}
-            : std::array<float, 4> {0.54F, 0.58F, 0.64F, 0.24F};
-        appendLineQuad(
-            vertices,
-            indices,
-            {-halfExtent, 0.0F, coordinate},
-            {halfExtent, 0.0F, coordinate},
-            color,
-            centerLine ? 1.4F : 1.0F,
-            cameraForward,
-            cameraRight,
-            cameraDistance);
-        appendLineQuad(
-            vertices,
-            indices,
-            {coordinate, 0.0F, -halfExtent},
-            {coordinate, 0.0F, halfExtent},
-            color,
-            centerLine ? 1.4F : 1.0F,
-            cameraForward,
-            cameraRight,
-            cameraDistance);
-    }
-}
-void appendAxes(
-    std::vector<renderer::RenderColorVertex>& vertices,
-    std::vector<std::uint32_t>& indices,
-    math::Vec3 cameraForward,
-    math::Vec3 cameraRight,
-    float cameraDistance)
-{
-    appendLineQuad(vertices, indices, {}, {3.0F, 0.0F, 0.0F}, {0.86F, 0.31F, 0.31F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
-    appendLineQuad(vertices, indices, {}, {0.0F, 3.0F, 0.0F}, {0.37F, 0.75F, 0.43F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
-    appendLineQuad(vertices, indices, {}, {0.0F, 0.0F, 3.0F}, {0.31F, 0.53F, 0.90F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
-}
+};
+
+struct PrimitiveEntityOverride {
+    const scene::Entity* entity {nullptr};
+    math::Vec3 worldPosition;
+};
 void appendHierarchyLinks(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,
     const scene::Scene& scene,
     const auto& worldPositionFor,
+    scene::EntityId selectedEntityId,
+    bool skipPrimitivePartLinks,
     math::Vec3 cameraForward,
     math::Vec3 cameraRight,
     float cameraDistance)
@@ -315,12 +276,18 @@ void appendHierarchyLinks(
         if (!entity.parent.has_value()) {
             continue;
         }
+        if (skipPrimitivePartLinks
+            && entity.id != selectedEntityId
+            && entity.meshRenderer.has_value()
+            && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+            continue;
+        }
         const auto childPosition = worldPositionFor(entity.id);
         const auto parentPosition = worldPositionFor(*entity.parent);
         if (!childPosition.has_value() || !parentPosition.has_value()) {
             continue;
         }
-        appendLineQuad(
+        detail::appendLineQuad(
             vertices,
             indices,
             *parentPosition,
@@ -331,51 +298,6 @@ void appendHierarchyLinks(
             cameraRight,
             cameraDistance);
     }
-}
-void appendEntityMarker(
-    std::vector<renderer::RenderColorVertex>& vertices,
-    std::vector<std::uint32_t>& indices,
-    math::Vec3 position,
-    float halfSize,
-    bool selected,
-    math::Vec3 cameraForward,
-    math::Vec3 cameraRight,
-    math::Vec3 cameraUp,
-    float cameraDistance)
-{
-    const auto color = selected
-        ? std::array<float, 4> {1.0F, 0.76F, 0.24F, 0.95F}
-        : std::array<float, 4> {0.74F, 0.80F, 0.90F, 0.72F};
-    const std::array<math::Vec3, 8> corners {
-        position + math::Vec3 {-halfSize, -halfSize, -halfSize},
-        position + math::Vec3 {halfSize, -halfSize, -halfSize},
-        position + math::Vec3 {halfSize, halfSize, -halfSize},
-        position + math::Vec3 {-halfSize, halfSize, -halfSize},
-        position + math::Vec3 {-halfSize, -halfSize, halfSize},
-        position + math::Vec3 {halfSize, -halfSize, halfSize},
-        position + math::Vec3 {halfSize, halfSize, halfSize},
-        position + math::Vec3 {-halfSize, halfSize, halfSize},
-    };
-    constexpr std::array<std::pair<int, int>, 12> edges {{
-        {0, 1}, {1, 2}, {2, 3}, {3, 0},
-        {4, 5}, {5, 6}, {6, 7}, {7, 4},
-        {0, 4}, {1, 5}, {2, 6}, {3, 7},
-    }};
-    for (const auto& edge : edges) {
-        appendLineQuad(
-            vertices,
-            indices,
-            corners[static_cast<std::size_t>(edge.first)],
-            corners[static_cast<std::size_t>(edge.second)],
-            color,
-            selected ? 1.7F : 1.1F,
-            cameraForward,
-            cameraRight,
-            cameraDistance);
-    }
-    const auto pivotRadius = std::clamp(halfSize * 0.22F, 0.05F, 0.18F);
-    appendLineQuad(vertices, indices, position - cameraRight * pivotRadius, position + cameraRight * pivotRadius, color, selected ? 2.1F : 1.4F, cameraForward, cameraRight, cameraDistance);
-    appendLineQuad(vertices, indices, position - cameraUp * pivotRadius, position + cameraUp * pivotRadius, color, selected ? 2.1F : 1.4F, cameraForward, cameraRight, cameraDistance);
 }
 } // namespace
 bool ViewportWidget::ensureRendererSurface()
@@ -444,7 +366,42 @@ bool ViewportWidget::renderRendererFrame()
         camera_.verticalFovRadians,
         aspectRatio(),
     };
-    if (mode_ == ViewportMode::Game && scene_ != nullptr && assetManager_ != nullptr) {
+    if (mode_ == ViewportMode::Game && scene_ != nullptr) {
+        bool cameraFromSceneEntity = false;
+        for (const auto& entity : scene_->entities()) {
+            if (!entity.camera.has_value()) {
+                continue;
+            }
+            const auto worldPosition = entityWorldPosition(entity.id);
+            if (!worldPosition.has_value()) {
+                continue;
+            }
+            const auto& imported = *entity.camera;
+            if (imported.projection != scene::CameraComponentProjection::Perspective) {
+                continue;
+            }
+            cameraFrame.eye = *worldPosition;
+            cameraFrame.forward = safeNormalized(
+                rotateEuler(imported.direction, entity.transform.rotationEuler),
+                cameraFrame.forward);
+            cameraFrame.right = safeNormalized(
+                rotateEuler(imported.right, entity.transform.rotationEuler),
+                cameraFrame.right);
+            cameraFrame.up = safeNormalized(
+                rotateEuler(imported.up, entity.transform.rotationEuler),
+                cameraFrame.up);
+            cameraFrame.right = safeNormalized(
+                cameraFrame.right - cameraFrame.forward * math::dot(cameraFrame.right, cameraFrame.forward),
+                safeNormalized(math::cross(cameraFrame.forward, cameraFrame.up), cameraFrame.right));
+            cameraFrame.up = safeNormalized(math::cross(cameraFrame.right, cameraFrame.forward), cameraFrame.up);
+            cameraFrame.verticalFovRadians = imported.verticalFovRadians;
+            cameraFrame.aspectRatio = imported.aspectRatio > 0.0F ? imported.aspectRatio : aspectRatio();
+            cameraFrame.nearPlane = imported.nearPlane;
+            cameraFrame.farPlane = imported.farPlane;
+            cameraFromSceneEntity = true;
+            break;
+        }
+        if (!cameraFromSceneEntity && assetManager_ != nullptr) {
         for (const auto& entity : scene_->entities()) {
             if (!entity.meshRenderer.has_value()) {
                 continue;
@@ -480,6 +437,7 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.farPlane = imported->farPlane;
             break;
         }
+        }
     }
     const auto& right = cameraFrame.right;
     const auto& up = cameraFrame.up;
@@ -494,34 +452,62 @@ bool ViewportWidget::renderRendererFrame()
     const auto viewProjection = multiply(projection, view);
     frame.viewProjection = viewProjection;
     frame.cameraPosition = {eye.x, eye.y, eye.z};
+    std::unordered_map<PrimitiveOverrideKey, PrimitiveEntityOverride, PrimitiveOverrideKeyHash> primitiveEntityOverrides;
+    if (scene_ != nullptr) {
+        primitiveEntityOverrides.reserve(scene_->entityCount());
+        for (const auto& entity : scene_->entities()) {
+            if (!entity.meshRenderer.has_value()
+                || entity.meshRenderer->renderable
+                || !entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+                continue;
+            }
+            const auto worldPosition = entityWorldPosition(entity.id);
+            if (!worldPosition.has_value()) {
+                continue;
+            }
+            primitiveEntityOverrides.insert_or_assign(
+                PrimitiveOverrideKey {
+                    entity.meshRenderer->modelAssetId.value(),
+                    *entity.meshRenderer->primitiveInstanceIndex,
+                },
+                PrimitiveEntityOverride {&entity, *worldPosition});
+        }
+    }
     if (scene_ != nullptr && assetManager_ != nullptr) {
         for (const auto& entity : scene_->entities()) {
-            if (!entity.meshRenderer.has_value()) {
+            if (!entity.light.has_value()) {
+                continue;
+            }
+            if (rendererLights_.size() >= renderer::kMaxFrameLights) {
+                break;
+            }
+            const auto worldPosition = entityWorldPosition(entity.id);
+            if (!worldPosition.has_value()) {
+                continue;
+            }
+            const auto& source = *entity.light;
+            const auto direction = safeNormalized(
+                rotateEuler(source.direction, entity.transform.rotationEuler),
+                {0.35F, -0.82F, 0.45F});
+            renderer::RenderLight light;
+            light.type = renderLightType(source.type);
+            light.position = {worldPosition->x, worldPosition->y, worldPosition->z};
+            light.direction = {direction.x, direction.y, direction.z};
+            light.color = source.color;
+            light.intensity = source.intensity;
+            light.range = source.range * maxAbsScale(entity.transform.scale);
+            light.innerConeAngle = source.innerConeAngle;
+            light.outerConeAngle = source.outerConeAngle;
+            rendererLights_.push_back(light);
+        }
+        for (const auto& entity : scene_->entities()) {
+            if (!entity.meshRenderer.has_value() || !entity.meshRenderer->renderable) {
                 continue;
             }
             const auto worldPosition = entityWorldPosition(entity.id);
             const auto model = assetManager_->model(entity.meshRenderer->modelAssetId);
             if (!worldPosition.has_value() || model == nullptr) {
                 continue;
-            }
-            for (const auto& importedLight : model->lights) {
-                if (rendererLights_.size() >= renderer::kMaxFrameLights) {
-                    break;
-                }
-                const auto position = transformPoint(entity, *worldPosition, importedLight.position);
-                const auto direction = safeNormalized(
-                    rotateEuler(importedLight.direction, entity.transform.rotationEuler),
-                    {0.35F, -0.82F, 0.45F});
-                renderer::RenderLight light;
-                light.type = renderLightType(importedLight.type);
-                light.position = {position.x, position.y, position.z};
-                light.direction = {direction.x, direction.y, direction.z};
-                light.color = importedLight.color;
-                light.intensity = importedLight.intensity;
-                light.range = importedLight.range * maxAbsScale(entity.transform.scale);
-                light.innerConeAngle = importedLight.innerConeAngle;
-                light.outerConeAngle = importedLight.outerConeAngle;
-                rendererLights_.push_back(light);
             }
             hasMeshSceneContent = hasMeshSceneContent || !model->primitives.empty();
             const auto entityModelMatrix = modelMatrix(entity, *worldPosition);
@@ -590,12 +576,37 @@ bool ViewportWidget::renderRendererFrame()
                     flipsWinding,
                 });
             };
-            if (!model->primitiveInstances.empty()) {
-                for (const auto& instance : model->primitiveInstances) {
-                    submitPrimitive(
-                        instance.primitiveIndex,
-                        multiply(entityModelMatrix, renderMatrix(instance.transform)),
-                        instance.flipsWinding);
+            if (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                && *entity.meshRenderer->primitiveInstanceIndex < model->primitiveInstances.size()) {
+                const auto& instance = model->primitiveInstances[*entity.meshRenderer->primitiveInstanceIndex];
+                submitPrimitive(
+                    instance.primitiveIndex,
+                    multiply(
+                        multiply(entityModelMatrix, translationMatrix(instance.bounds.center * -1.0F)),
+                        renderMatrix(instance.transform)),
+                    instance.flipsWinding);
+            } else if (!model->primitiveInstances.empty()) {
+                for (std::size_t instanceIndex = 0; instanceIndex < model->primitiveInstances.size(); ++instanceIndex) {
+                    const auto& instance = model->primitiveInstances[instanceIndex];
+                    const auto overrideIt = primitiveEntityOverrides.find(PrimitiveOverrideKey {
+                        entity.meshRenderer->modelAssetId.value(),
+                        static_cast<std::uint32_t>(instanceIndex),
+                    });
+                    if (overrideIt != primitiveEntityOverrides.end() && overrideIt->second.entity != nullptr) {
+                        const auto& overrideEntity = *overrideIt->second.entity;
+                        const auto overrideModelMatrix = modelMatrix(overrideEntity, overrideIt->second.worldPosition);
+                        submitPrimitive(
+                            instance.primitiveIndex,
+                            multiply(
+                                multiply(overrideModelMatrix, translationMatrix(instance.bounds.center * -1.0F)),
+                                renderMatrix(instance.transform)),
+                            instance.flipsWinding);
+                    } else {
+                        submitPrimitive(
+                            instance.primitiveIndex,
+                            multiply(entityModelMatrix, renderMatrix(instance.transform)),
+                            instance.flipsWinding);
+                    }
                 }
             } else {
                 for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
@@ -636,9 +647,15 @@ bool ViewportWidget::renderRendererFrame()
     rendererGizmoIndices_.clear();
     rendererColorMeshDraws_.clear();
     if (mode_ == ViewportMode::Scene) {
-        appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
-        appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
+        detail::appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
+        detail::appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
         if (scene_ != nullptr) {
+            const auto primitiveProxyCount = std::count_if(scene_->entities().begin(), scene_->entities().end(), [](const scene::Entity& entity) {
+                return entity.meshRenderer.has_value()
+                    && entity.meshRenderer->primitiveInstanceIndex.has_value()
+                    && !entity.meshRenderer->renderable;
+            });
+            const auto denseImportedHierarchy = primitiveProxyCount > 24U || scene_->entityCount() > 96U;
             appendHierarchyLinks(
                 rendererGizmoVertices_,
                 rendererGizmoIndices_,
@@ -646,6 +663,8 @@ bool ViewportWidget::renderRendererFrame()
                 [this](scene::EntityId id) {
                     return entityWorldPosition(id);
                 },
+                selectedEntityId_,
+                denseImportedHierarchy,
                 forward,
                 right,
                 camera_.distance);
@@ -666,17 +685,31 @@ bool ViewportWidget::renderRendererFrame()
                 if (!position.has_value()) {
                     continue;
                 }
-                if (!entity.meshRenderer.has_value()) {
-                    appendEntityMarker(
+                const auto isPrimitiveProxy = entity.meshRenderer.has_value()
+                    && entity.meshRenderer->primitiveInstanceIndex.has_value()
+                    && !entity.meshRenderer->renderable;
+                const auto selected = entity.id == selectedEntityId_;
+                const auto showMarker = !entity.meshRenderer.has_value()
+                    || selected
+                    || (isPrimitiveProxy && !denseImportedHierarchy);
+                if (showMarker) {
+                    detail::appendEntityMarker(
                         rendererGizmoVertices_,
                         rendererGizmoIndices_,
                         *position,
                         entityPickRadius(entity),
-                        entity.id == selectedEntityId_,
+                        selected,
                         forward,
                         right,
                         up,
                         camera_.distance);
+                }
+                const auto showLabel = selected
+                    || entity.camera.has_value()
+                    || entity.light.has_value()
+                    || (!denseImportedHierarchy && !isPrimitiveProxy);
+                if (!showLabel) {
+                    continue;
                 }
                 appendViewportLabel(
                     rendererGizmoVertices_,
@@ -684,7 +717,7 @@ bool ViewportWidget::renderRendererFrame()
                     labelCamera,
                     *position,
                     entity.name,
-                    entity.id == selectedEntityId_);
+                    selected);
                 ++labelsSubmitted;
             }
         }

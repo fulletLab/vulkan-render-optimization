@@ -461,8 +461,10 @@ Date: 2026-05-22
   representation without reducing asset fidelity: repeated mesh primitives are
   shared when possible, repeated textures/materials are deduplicated, large flat
   material scalar factors are baked into internal vertex attributes, and very large
-  primitive sets are combined into static material batches. `NodePerformanceTest.glb`
-  is covered by an optional asset test when the local verification pack exists.
+  primitive sets are combined into adaptive spatial material batches instead of one
+  giant batch per texture/material or one draw per source node. `NodePerformanceTest.glb`
+  is covered by an optional asset test when the local verification pack exists; the
+  current local fixture imports as 100 materials/textures and 400 spatial batches.
 - Vulkan mesh and shadow shaders now consume an instance matrix vertex stream, and
   the viewport renderer batches compatible mesh draws with
   `vkCmdDrawIndexed(..., instanceCount)` instead of forcing one GPU draw per scene

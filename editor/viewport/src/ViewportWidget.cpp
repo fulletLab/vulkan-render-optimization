@@ -194,46 +194,6 @@ ViewportRay ViewportWidget::screenPointToRay(QPointF point) const
     return {cameraPosition(), direction};
 }
 
-std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
-{
-    if (scene_ == nullptr) {
-        return std::nullopt;
-    }
-
-    const auto ray = screenPointToRay(point);
-    float closestDistance = std::numeric_limits<float>::max();
-    std::optional<scene::EntityId> closestEntity;
-
-    for (const auto& entity : scene_->entities()) {
-        const auto position = entityWorldPosition(entity.id);
-        if (!position.has_value()) {
-            continue;
-        }
-
-        const auto radius = entityPickRadius(entity);
-        const auto oc = ray.origin - *position;
-        const auto b = math::dot(oc, ray.direction);
-        const auto c = math::dot(oc, oc) - radius * radius;
-        const auto discriminant = b * b - c;
-        if (discriminant < 0.0F) {
-            continue;
-        }
-
-        const auto root = std::sqrt(discriminant);
-        auto distance = -b - root;
-        if (distance < 0.0F) {
-            distance = -b + root;
-        }
-
-        if (distance >= 0.0F && distance < closestDistance) {
-            closestDistance = distance;
-            closestEntity = entity.id;
-        }
-    }
-
-    return closestEntity;
-}
-
 void ViewportWidget::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
@@ -534,16 +494,6 @@ std::optional<math::Vec3> ViewportWidget::entityWorldPosition(scene::EntityId id
     }
 
     return position;
-}
-
-float ViewportWidget::entityPickRadius(const scene::Entity& entity) const
-{
-    const auto maxScale = std::max({
-        std::fabs(entity.transform.scale.x),
-        std::fabs(entity.transform.scale.y),
-        std::fabs(entity.transform.scale.z),
-    });
-    return std::clamp(maxScale * 0.55F, 0.35F, 5.0F);
 }
 
 QString ViewportWidget::toolModeName() const

@@ -3,6 +3,8 @@
 #include <projectunity/core/StableId.hpp>
 #include <projectunity/math/Vec3.hpp>
 
+#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -21,6 +23,42 @@ struct TransformComponent {
 
 struct MeshRendererComponent {
     core::StableId modelAssetId;
+    std::optional<std::uint32_t> primitiveInstanceIndex;
+    bool renderable {true};
+};
+
+enum class LightComponentType : std::uint8_t {
+    Directional,
+    Point,
+    Spot,
+};
+
+struct LightComponent {
+    LightComponentType type {LightComponentType::Directional};
+    math::Vec3 direction {0.35F, -0.82F, 0.45F};
+    std::array<float, 3> color {1.0F, 0.98F, 0.92F};
+    float intensity {3.0F};
+    float range {0.0F};
+    float innerConeAngle {0.0F};
+    float outerConeAngle {0.7853981634F};
+};
+
+enum class CameraComponentProjection : std::uint8_t {
+    Perspective,
+    Orthographic,
+};
+
+struct CameraComponent {
+    CameraComponentProjection projection {CameraComponentProjection::Perspective};
+    math::Vec3 direction {0.0F, 0.0F, 1.0F};
+    math::Vec3 right {1.0F, 0.0F, 0.0F};
+    math::Vec3 up {0.0F, 1.0F, 0.0F};
+    float verticalFovRadians {1.04719755F};
+    float aspectRatio {0.0F};
+    float xMagnitude {1.0F};
+    float yMagnitude {1.0F};
+    float nearPlane {0.05F};
+    float farPlane {4000.0F};
 };
 
 struct Entity {
@@ -30,6 +68,8 @@ struct Entity {
     std::string name;
     TransformComponent transform;
     std::optional<MeshRendererComponent> meshRenderer;
+    std::optional<LightComponent> light;
+    std::optional<CameraComponent> camera;
 };
 
 class Scene final {
@@ -51,6 +91,8 @@ public:
     [[nodiscard]] bool setName(EntityId id, std::string name);
     [[nodiscard]] bool setTransform(EntityId id, const TransformComponent& transform);
     [[nodiscard]] bool setMeshRenderer(EntityId id, std::optional<MeshRendererComponent> component);
+    [[nodiscard]] bool setLight(EntityId id, std::optional<LightComponent> component);
+    [[nodiscard]] bool setCamera(EntityId id, std::optional<CameraComponent> component);
 
     [[nodiscard]] std::vector<EntityId> rootEntities() const;
     [[nodiscard]] const std::vector<Entity>& entities() const noexcept;

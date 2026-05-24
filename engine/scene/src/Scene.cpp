@@ -120,6 +120,8 @@ Entity* Scene::duplicateEntityRecursive(EntityId sourceId, std::optional<EntityI
     auto& duplicate = createEntity(sourceSnapshot.name + " Copy", parentOverride);
     duplicate.transform = sourceSnapshot.transform;
     duplicate.meshRenderer = sourceSnapshot.meshRenderer;
+    duplicate.light = sourceSnapshot.light;
+    duplicate.camera = sourceSnapshot.camera;
     const auto duplicateId = duplicate.id;
 
     for (const auto childId : sourceSnapshot.children) {
@@ -195,6 +197,41 @@ bool Scene::setMeshRenderer(EntityId id, std::optional<MeshRendererComponent> co
     }
 
     entity->meshRenderer = component;
+    return true;
+}
+
+bool Scene::setLight(EntityId id, std::optional<LightComponent> component)
+{
+    auto* entity = findEntityMutable(id);
+    if (entity == nullptr) {
+        return false;
+    }
+
+    if (component.has_value() && component->intensity < 0.0F) {
+        core::logWarning(core::LogCategory::Core, "Scene rejected light with negative intensity");
+        return false;
+    }
+
+    entity->light = component;
+    return true;
+}
+
+bool Scene::setCamera(EntityId id, std::optional<CameraComponent> component)
+{
+    auto* entity = findEntityMutable(id);
+    if (entity == nullptr) {
+        return false;
+    }
+
+    if (component.has_value()
+        && ((component->projection == CameraComponentProjection::Perspective && component->nearPlane <= 0.0F)
+            || component->nearPlane < 0.0F
+            || component->farPlane <= component->nearPlane)) {
+        core::logWarning(core::LogCategory::Core, "Scene rejected camera with invalid clipping planes");
+        return false;
+    }
+
+    entity->camera = component;
     return true;
 }
 

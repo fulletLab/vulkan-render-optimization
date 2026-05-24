@@ -607,6 +607,21 @@ void MainWindow::updateInspector()
             scaleZ_->setValue(1.0);
         }
     }
+    if (componentSummary_ != nullptr) {
+        QStringList components;
+        if (hasSelection && entity->meshRenderer.has_value()) {
+            components << (entity->meshRenderer->renderable
+                ? QStringLiteral("Mesh Renderer")
+                : QStringLiteral("Editable Mesh Part"));
+        }
+        if (hasSelection && entity->light.has_value()) {
+            components << QStringLiteral("Light");
+        }
+        if (hasSelection && entity->camera.has_value()) {
+            components << QStringLiteral("Camera");
+        }
+        componentSummary_->setText(components.isEmpty() ? QStringLiteral("-") : components.join(QStringLiteral(", ")));
+    }
 
     if (deleteEntityButton_ != nullptr) {
         deleteEntityButton_->setEnabled(hasSelection);

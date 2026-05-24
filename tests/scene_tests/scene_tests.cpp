@@ -32,8 +32,30 @@ int main()
     if (!scene.setTransform(childId, transform)) {
         return fail("failed to set transform");
     }
-    if (!scene.setMeshRenderer(childId, MeshRendererComponent {projectunity::core::StableId(77)})) {
+    MeshRendererComponent renderer {projectunity::core::StableId(77), 3U};
+    renderer.renderable = false;
+    if (!scene.setMeshRenderer(childId, renderer)) {
         return fail("failed to set mesh renderer");
+    }
+    LightComponent light;
+    light.type = LightComponentType::Spot;
+    light.direction = {0.0F, -1.0F, 0.0F};
+    light.color = {0.4F, 0.6F, 1.0F};
+    light.intensity = 5.0F;
+    light.range = 12.0F;
+    light.innerConeAngle = 0.25F;
+    light.outerConeAngle = 0.65F;
+    if (!scene.setLight(childId, light)) {
+        return fail("failed to set light");
+    }
+    CameraComponent camera;
+    camera.projection = CameraComponentProjection::Perspective;
+    camera.direction = {0.0F, 0.0F, 1.0F};
+    camera.verticalFovRadians = 0.9F;
+    camera.nearPlane = 0.1F;
+    camera.farPlane = 500.0F;
+    if (!scene.setCamera(childId, camera)) {
+        return fail("failed to set camera");
     }
 
     const auto* parentRead = scene.findEntity(parentId);
@@ -75,8 +97,23 @@ int main()
     if (loadedChild == nullptr || loadedChild->transform.position.x != 1.0F || loadedChild->transform.scale.x != 2.0F) {
         return fail("loaded transform mismatch");
     }
-    if (!loadedChild->meshRenderer.has_value() || loadedChild->meshRenderer->modelAssetId.value() != 77) {
+    if (!loadedChild->meshRenderer.has_value()
+        || loadedChild->meshRenderer->modelAssetId.value() != 77
+        || loadedChild->meshRenderer->primitiveInstanceIndex.value_or(0U) != 3U
+        || loadedChild->meshRenderer->renderable) {
         return fail("loaded mesh renderer mismatch");
+    }
+    if (!loadedChild->light.has_value()
+        || loadedChild->light->type != LightComponentType::Spot
+        || loadedChild->light->color[2] != 1.0F
+        || loadedChild->light->range != 12.0F) {
+        return fail("loaded light component mismatch");
+    }
+    if (!loadedChild->camera.has_value()
+        || loadedChild->camera->projection != CameraComponentProjection::Perspective
+        || loadedChild->camera->direction.z != 1.0F
+        || loadedChild->camera->farPlane != 500.0F) {
+        return fail("loaded camera component mismatch");
     }
 
     const auto path = std::filesystem::temp_directory_path() / "projectunity_scene_test.scene.json";

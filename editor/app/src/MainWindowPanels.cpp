@@ -308,6 +308,7 @@ QWidget* MainWindow::createHierarchyPanel()
         }
         selectedEntityId_ = entityIdFromItem(selectedItems.front());
         updateInspector();
+        refreshViewports();
     });
 
     duplicateButton->setEnabled(false);
@@ -347,6 +348,9 @@ QWidget* MainWindow::createInspectorPanel()
     form->addRow(QStringLiteral("Position"), makeVectorRow(positionX_, positionY_, positionZ_));
     form->addRow(QStringLiteral("Rotation"), makeVectorRow(rotationX_, rotationY_, rotationZ_));
     form->addRow(QStringLiteral("Scale"), makeVectorRow(scaleX_, scaleY_, scaleZ_));
+    componentSummary_ = new QLabel(QStringLiteral("-"));
+    componentSummary_->setWordWrap(true);
+    form->addRow(QStringLiteral("Components"), componentSummary_);
     layout->addLayout(form);
 
     auto* addComponent = makeToolButton(QStringLiteral("Add Component"));

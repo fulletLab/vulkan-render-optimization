@@ -737,10 +737,15 @@ int main()
     if (std::filesystem::exists(nodePerformancePath)) {
         const auto nodePerfResult = manager.importModel(nodePerformancePath);
         const auto nodePerf = manager.model(nodePerfResult.record.id);
+        const auto nodePerfMaterialBatchFloor = nodePerf != nullptr
+            ? std::max<std::size_t>(nodePerf->materials.size(), 1U)
+            : 1U;
         if (!nodePerfResult.success
             || nodePerf == nullptr
-            || nodePerf->primitives.size() > 256U
-            || nodePerf->primitiveInstances.size() > 256U) {
+            || nodePerf->primitives.empty()
+            || nodePerf->primitiveInstances.empty()
+            || nodePerf->primitiveInstances.size() <= nodePerfMaterialBatchFloor
+            || nodePerf->primitiveInstances.size() > 2048U) {
             std::cerr << nodePerfResult.error << '\n';
             if (nodePerf != nullptr) {
                 std::cerr << "primitives=" << nodePerf->primitives.size()
@@ -749,7 +754,7 @@ int main()
                           << " textures=" << nodePerf->textures.size()
                           << " vertices=" << nodePerfResult.record.vertexCount << '\n';
             }
-            return fail("NodePerformanceTest did not collapse into renderer-friendly batches");
+            return fail("NodePerformanceTest did not import into renderer-friendly spatial batches");
         }
         if (nodePerfResult.record.vertexCount > 1'000'000U) {
             return fail("NodePerformanceTest import produced an unexpected vertex count");

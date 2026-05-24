@@ -17,8 +17,11 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <filesystem>
+#include <optional>
 
 namespace projectunity::editor {
 namespace {
@@ -229,6 +232,45 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented))
             .arg(consoleView_->toPlainText().right(1200)));
     }
+    const auto splitImportPath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
+        / "Project" / "Assets" / "VisualVerification" / "OrientationTest.glb";
+    if (std::filesystem::exists(splitImportPath)) {
+        newScene();
+        const auto splitImport = importAssetFromPath(pathToQString(splitImportPath), true);
+        const auto* splitRoot = scene_.findEntity(selectedEntityId_);
+        const auto splitHasPartChild = splitRoot != nullptr && std::any_of(
+            splitRoot->children.begin(),
+            splitRoot->children.end(),
+            [this](const scene::EntityId childId) {
+                const auto* child = scene_.findEntity(childId);
+                return child != nullptr
+                    && child->meshRenderer.has_value()
+                    && child->meshRenderer->primitiveInstanceIndex.has_value()
+                    && !child->meshRenderer->renderable;
+            });
+        if (!splitImport.success
+            || splitRoot == nullptr
+            || !splitRoot->meshRenderer.has_value()
+            || !splitRoot->meshRenderer->renderable
+            || !splitHasPartChild) {
+            return fail(QStringLiteral("Imported multi-instance model did not create a batched root with selectable non-rendering part children"));
+        }
+    }
+    const auto cameraImportPath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
+        / "Project" / "Assets" / "VisualVerification" / "NodePerformanceTest.glb";
+    if (std::filesystem::exists(cameraImportPath)) {
+        newScene();
+        const auto cameraImport = importAssetFromPath(pathToQString(cameraImportPath), true);
+        const auto importedRootId = selectedEntityId_;
+        const auto* importedRoot = scene_.findEntity(importedRootId);
+        const auto hasImportedCamera = std::any_of(scene_.entities().begin(), scene_.entities().end(), [importedRootId](const scene::Entity& entity) {
+            return entity.camera.has_value()
+                && entity.parent == std::optional<scene::EntityId>(importedRootId);
+        });
+        if (!cameraImport.success || importedRoot == nullptr || !importedRoot->meshRenderer.has_value() || !hasImportedCamera) {
+            return fail(QStringLiteral("Imported NodePerformanceTest did not expose its camera as an editable child entity"));
+        }
+    }
     if (skyColorR_ == nullptr || groundColorB_ == nullptr || environmentIntensity_ == nullptr || resetLightingButton_ == nullptr) {
         return fail(QStringLiteral("Lighting panel environment controls were not created"));
     }
@@ -264,23 +306,22 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
         }
     }
     if (!offscreenPlatform) {
-        const auto meshUploadsBefore = renderer_->stats().totalMeshUploadCount;
-        const auto textureUploadsBefore = renderer_->stats().totalTextureUploadCount;
-        const auto staticBytesBefore = renderer_->stats().totalStaticUploadBytes;
-        sceneViewport_->repaint();
-        QApplication::processEvents();
-        const auto& cachedStats = renderer_->stats();
-        if (cachedStats.totalMeshUploadCount != meshUploadsBefore
-            || cachedStats.totalTextureUploadCount != textureUploadsBefore
-            || cachedStats.totalStaticUploadBytes != staticBytesBefore
-            || cachedStats.lastFrameStaticUploadBytes != 0) {
+        std::uint64_t previousStaticBytes = renderer_->stats().totalStaticUploadBytes;
+        bool uploadsIdle = false;
+        for (int frame = 0; frame < 24 && !uploadsIdle; ++frame) {
+            sceneViewport_->repaint();
+            QApplication::processEvents();
+            const auto& cachedStats = renderer_->stats();
+            uploadsIdle = cachedStats.lastFrameStaticUploadBytes == 0
+                && cachedStats.totalStaticUploadBytes == previousStaticBytes;
+            previousStaticBytes = cachedStats.totalStaticUploadBytes;
+        }
+        if (!uploadsIdle) {
+            const auto& cachedStats = renderer_->stats();
             return fail(QStringLiteral(
-                "Second Vulkan frame reuploaded cached static resources: meshUploads=%1/%2 textureUploads=%3/%4 staticBytes=%5/%6 lastBytes=%7")
-                .arg(static_cast<qulonglong>(meshUploadsBefore))
+                "Vulkan static asset streaming did not become idle: meshUploads=%1 textureUploads=%2 staticBytes=%3 lastBytes=%4")
                 .arg(static_cast<qulonglong>(cachedStats.totalMeshUploadCount))
-                .arg(static_cast<qulonglong>(textureUploadsBefore))
                 .arg(static_cast<qulonglong>(cachedStats.totalTextureUploadCount))
-                .arg(static_cast<qulonglong>(staticBytesBefore))
                 .arg(static_cast<qulonglong>(cachedStats.totalStaticUploadBytes))
                 .arg(static_cast<qulonglong>(cachedStats.lastFrameStaticUploadBytes)));
         }
@@ -324,6 +365,20 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     }
     sceneViewport_->resize(960, 540);
     QApplication::processEvents();
+    auto waitForStaticUploadsIdle = [&]() {
+        std::uint64_t previousStaticBytes = renderer_->stats().totalStaticUploadBytes;
+        for (int frame = 0; frame < 24; ++frame) {
+            sceneViewport_->repaint();
+            QApplication::processEvents();
+            const auto& currentStats = renderer_->stats();
+            if (currentStats.lastFrameStaticUploadBytes == 0
+                && currentStats.totalStaticUploadBytes == previousStaticBytes) {
+                return true;
+            }
+            previousStaticBytes = currentStats.totalStaticUploadBytes;
+        }
+        return false;
+    };
 
     const std::array<const char*, 13> assetNames {{
         "OrientationTest.glb",
@@ -344,6 +399,8 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     bool sawDirectionalCascades = false;
     bool sawPointCubemap = false;
     bool sawLargeScene = false;
+    bool sawEditableImportedLight = false;
+    bool sawEditableImportedCamera = false;
     for (const auto* assetName : assetNames) {
         const auto assetPath = assetRoot / assetName;
         if (!std::filesystem::exists(assetPath)) {
@@ -359,10 +416,10 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
         sceneViewport_->setSelectedEntity(selectedEntityId_);
         sceneViewport_->repaint();
         QApplication::processEvents();
-        const auto firstStats = renderer_->stats();
-        sceneViewport_->repaint();
-        QApplication::processEvents();
-        const auto& stats = renderer_->stats();
+        if (!waitForStaticUploadsIdle()) {
+            return fail(QStringLiteral("Phase 6 visual static asset streaming did not become idle for %1").arg(QString::fromUtf8(assetName)));
+        }
+        const auto stats = renderer_->stats();
         if (stats.lastFrameMeshDrawCount == 0
             || stats.lastFrameCandidateMeshDrawCount == 0
             || stats.lastFrameCandidateTriangleCount == 0
@@ -375,12 +432,6 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
                 .arg(static_cast<qulonglong>(stats.lastFrameCandidateTriangleCount))
                 .arg(static_cast<qulonglong>(stats.lastFrameRenderCpuTimeUs)));
         }
-        if (stats.totalMeshUploadCount != firstStats.totalMeshUploadCount
-            || stats.totalTextureUploadCount != firstStats.totalTextureUploadCount
-            || stats.totalStaticUploadBytes != firstStats.totalStaticUploadBytes
-            || stats.lastFrameStaticUploadBytes != 0) {
-            return fail(QStringLiteral("Phase 6 visual second frame reuploaded static assets for %1").arg(QString::fromUtf8(assetName)));
-        }
         sawDirectionalCascades = sawDirectionalCascades
             || stats.lastFrameShadowViewCount == static_cast<std::uint64_t>(renderer::kMaxShadowCascades);
         sawPointCubemap = sawPointCubemap || stats.lastFrameShadowViewCount == 6U;
@@ -389,6 +440,17 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
                 && stats.lastFrameMeshBatchCount > 0U
                 && stats.lastFrameLodTriangleReductionCount > 0U
                 && stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U;
+            sawEditableImportedLight = std::any_of(scene_.entities().begin(), scene_.entities().end(), [](const scene::Entity& entity) {
+                return entity.light.has_value()
+                    && entity.name == "Sun"
+                    && entity.light->type == scene::LightComponentType::Directional
+                    && entity.light->intensity <= 8.0F;
+            });
+            sawEditableImportedCamera = std::any_of(scene_.entities().begin(), scene_.entities().end(), [](const scene::Entity& entity) {
+                return entity.camera.has_value()
+                    && entity.camera->projection == scene::CameraComponentProjection::Perspective
+                    && entity.parent.has_value();
+            });
         }
     }
 
@@ -400,6 +462,12 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     }
     if (!sawLargeScene) {
         return fail(QStringLiteral("Phase 6 visual smoke did not exercise NodePerformanceTest large-scene counters"));
+    }
+    if (!sawEditableImportedLight) {
+        return fail(QStringLiteral("Phase 6 visual smoke did not create an editable imported light for NodePerformanceTest"));
+    }
+    if (!sawEditableImportedCamera) {
+        return fail(QStringLiteral("Phase 6 visual smoke did not create an editable imported camera for NodePerformanceTest"));
     }
     return true;
 }
