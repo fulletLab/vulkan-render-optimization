@@ -43,6 +43,11 @@ struct RendererStats {
     std::uint64_t lastFrameVisibleTriangleCount {0};
     std::uint64_t lastFrameLodMeshDrawCount {0};
     std::uint64_t lastFrameLodTriangleReductionCount {0};
+    std::uint64_t lastFrameSceneNodeCount {0};
+    std::uint64_t lastFrameRenderChunkCount {0};
+    std::uint64_t lastFrameVisibleRenderChunkCount {0};
+    std::uint64_t lastFrameRenderInstanceCount {0};
+    std::uint64_t lastFrameVisibleRenderInstanceCount {0};
     std::uint64_t lastFrameLightCount {0};
     std::uint64_t lastFrameShadowCasterCount {0};
     std::uint64_t lastFrameShadowViewCount {0};
@@ -143,6 +148,9 @@ struct RenderMeshDraw {
     RenderMatrix4 modelMatrix;
     RenderMatrix4 modelViewProjection;
     bool flipsWinding {false};
+    std::uint64_t renderInstanceId {0};
+    std::uint64_t renderChunkId {0};
+    std::uint64_t sceneNodeId {0};
 };
 
 struct RenderColorVertex {
@@ -181,6 +189,11 @@ struct RenderFrame {
     std::uint64_t culledTriangleCount {0};
     std::uint64_t lodMeshDrawCount {0};
     std::uint64_t lodTriangleReductionCount {0};
+    std::uint64_t sceneNodeCount {0};
+    std::uint64_t renderChunkCount {0};
+    std::uint64_t visibleRenderChunkCount {0};
+    std::uint64_t renderInstanceCount {0};
+    std::uint64_t visibleRenderInstanceCount {0};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

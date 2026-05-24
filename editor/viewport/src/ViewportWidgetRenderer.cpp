@@ -1,7 +1,6 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
-#include "ViewportMeshLod.hpp"
-#include "ViewportRendererCulling.hpp"
+#include "ViewportRenderWorld.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
@@ -13,8 +12,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 namespace projectunity::editor {
 namespace {
@@ -90,49 +87,6 @@ namespace {
     value = {value.x * cosY + value.z * sinY, value.y, -value.x * sinY + value.z * cosY};
     return {value.x * cosZ - value.y * sinZ, value.x * sinZ + value.y * cosZ, value.z};
 }
-[[nodiscard]] renderer::RenderMatrix4 modelMatrix(const scene::Entity& entity, math::Vec3 worldPosition)
-{
-    renderer::RenderMatrix4 matrix;
-    matrix.values.fill(0.0F);
-    const auto axisX = rotateEuler({entity.transform.scale.x, 0.0F, 0.0F}, entity.transform.rotationEuler);
-    const auto axisY = rotateEuler({0.0F, entity.transform.scale.y, 0.0F}, entity.transform.rotationEuler);
-    const auto axisZ = rotateEuler({0.0F, 0.0F, entity.transform.scale.z}, entity.transform.rotationEuler);
-    at(matrix, 0, 0) = axisX.x;
-    at(matrix, 1, 0) = axisX.y;
-    at(matrix, 2, 0) = axisX.z;
-    at(matrix, 0, 1) = axisY.x;
-    at(matrix, 1, 1) = axisY.y;
-    at(matrix, 2, 1) = axisY.z;
-    at(matrix, 0, 2) = axisZ.x;
-    at(matrix, 1, 2) = axisZ.y;
-    at(matrix, 2, 2) = axisZ.z;
-    at(matrix, 0, 3) = worldPosition.x;
-    at(matrix, 1, 3) = worldPosition.y;
-    at(matrix, 2, 3) = worldPosition.z;
-    at(matrix, 3, 3) = 1.0F;
-    return matrix;
-}
-[[nodiscard]] renderer::RenderMatrix4 renderMatrix(const std::array<float, 16>& values)
-{
-    renderer::RenderMatrix4 matrix;
-    matrix.values = values;
-    return matrix;
-}
-[[nodiscard]] renderer::RenderMatrix4 translationMatrix(math::Vec3 offset)
-{
-    renderer::RenderMatrix4 matrix;
-    matrix.values = {
-        1.0F, 0.0F, 0.0F, 0.0F,
-        0.0F, 1.0F, 0.0F, 0.0F,
-        0.0F, 0.0F, 1.0F, 0.0F,
-        offset.x, offset.y, offset.z, 1.0F,
-    };
-    return matrix;
-}
-[[nodiscard]] float maxAbsScale(math::Vec3 scale)
-{
-    return std::max({std::fabs(scale.x), std::fabs(scale.y), std::fabs(scale.z)});
-}
 [[nodiscard]] math::Vec3 transformPoint(const scene::Entity& entity, math::Vec3 worldPosition, math::Vec3 point)
 {
     return worldPosition + rotateEuler(
@@ -146,18 +100,6 @@ namespace {
         return fallback;
     }
     return value / length;
-}
-[[nodiscard]] renderer::RenderLightType renderLightType(scene::LightComponentType type)
-{
-    switch (type) {
-    case scene::LightComponentType::Directional:
-        return renderer::RenderLightType::Directional;
-    case scene::LightComponentType::Point:
-        return renderer::RenderLightType::Point;
-    case scene::LightComponentType::Spot:
-        return renderer::RenderLightType::Spot;
-    }
-    return renderer::RenderLightType::Directional;
 }
 struct FrameBounds {
     bool valid {false};
@@ -202,25 +144,6 @@ struct ViewportCameraFrame {
     float farPlane {4000.0F};
 };
 
-struct PrimitiveOverrideKey {
-    std::uint64_t modelAssetId {0};
-    std::uint32_t primitiveInstanceIndex {0};
-
-    [[nodiscard]] bool operator==(const PrimitiveOverrideKey&) const noexcept = default;
-};
-
-struct PrimitiveOverrideKeyHash {
-    [[nodiscard]] std::size_t operator()(const PrimitiveOverrideKey& key) const noexcept
-    {
-        const auto mixed = key.modelAssetId ^ (static_cast<std::uint64_t>(key.primitiveInstanceIndex) + 0x9e3779b97f4a7c15ULL + (key.modelAssetId << 6U) + (key.modelAssetId >> 2U));
-        return static_cast<std::size_t>(mixed);
-    }
-};
-
-struct PrimitiveEntityOverride {
-    const scene::Entity* entity {nullptr};
-    math::Vec3 worldPosition;
-};
 } // namespace
 bool ViewportWidget::ensureRendererSurface()
 {
@@ -374,249 +297,40 @@ bool ViewportWidget::renderRendererFrame()
     const auto viewProjection = multiply(projection, view);
     frame.viewProjection = viewProjection;
     frame.cameraPosition = {eye.x, eye.y, eye.z};
-    std::unordered_map<PrimitiveOverrideKey, PrimitiveEntityOverride, PrimitiveOverrideKeyHash> primitiveEntityOverrides;
-    std::unordered_set<std::uint64_t> modelsWithPrimitiveOverrides;
-    std::optional<PrimitiveOverrideKey> selectedPrimitiveKey;
-    if (scene_ != nullptr) {
-        primitiveEntityOverrides.reserve(scene_->entityCount());
-        if (const auto* selected = scene_->findEntity(selectedEntityId_);
-            selected != nullptr
-            && selected->meshRenderer.has_value()
-            && selected->meshRenderer->primitiveInstanceIndex.has_value()) {
-            selectedPrimitiveKey = PrimitiveOverrideKey {
-                selected->meshRenderer->modelAssetId.value(),
-                *selected->meshRenderer->primitiveInstanceIndex,
-            };
-        }
-        for (const auto& entity : scene_->entities()) {
-            if (!entity.meshRenderer.has_value()
-                || entity.meshRenderer->renderable
-                || !entity.meshRenderer->primitiveInstanceIndex.has_value()) {
-                continue;
-            }
-            const auto model = assetManager_ == nullptr ? nullptr : assetManager_->model(entity.meshRenderer->modelAssetId);
-            const auto instanceIndex = *entity.meshRenderer->primitiveInstanceIndex;
-            if (model != nullptr
-                && instanceIndex < model->primitiveInstances.size()
-                && defaultPrimitiveProxyTransform(entity.transform, model->primitiveInstances[instanceIndex].bounds.center)) {
-                continue;
-            }
-            const auto worldPosition = entityWorldPosition(entity.id);
-            if (!worldPosition.has_value()) {
-                continue;
-            }
-            modelsWithPrimitiveOverrides.insert(entity.meshRenderer->modelAssetId.value());
-            primitiveEntityOverrides.insert_or_assign(
-                PrimitiveOverrideKey {
-                    entity.meshRenderer->modelAssetId.value(),
-                    instanceIndex,
-                },
-                PrimitiveEntityOverride {&entity, *worldPosition});
-        }
-    }
-    if (scene_ != nullptr && assetManager_ != nullptr) {
-        for (const auto& entity : scene_->entities()) {
-            if (!entity.light.has_value()) {
-                continue;
-            }
-            if (rendererLights_.size() >= renderer::kMaxFrameLights) {
-                break;
-            }
-            const auto worldPosition = entityWorldPosition(entity.id);
-            if (!worldPosition.has_value()) {
-                continue;
-            }
-            const auto& source = *entity.light;
-            const auto direction = safeNormalized(
-                rotateEuler(source.direction, entity.transform.rotationEuler),
-                {0.35F, -0.82F, 0.45F});
-            renderer::RenderLight light;
-            light.type = renderLightType(source.type);
-            light.position = {worldPosition->x, worldPosition->y, worldPosition->z};
-            light.direction = {direction.x, direction.y, direction.z};
-            light.color = source.color;
-            light.intensity = source.intensity;
-            light.range = source.range * maxAbsScale(entity.transform.scale);
-            light.innerConeAngle = source.innerConeAngle;
-            light.outerConeAngle = source.outerConeAngle;
-            rendererLights_.push_back(light);
-        }
-        for (const auto& entity : scene_->entities()) {
-            if (!entity.meshRenderer.has_value() || !entity.meshRenderer->renderable) {
-                continue;
-            }
-            const auto worldPosition = entityWorldPosition(entity.id);
-            const auto model = assetManager_->model(entity.meshRenderer->modelAssetId);
-            if (!worldPosition.has_value() || model == nullptr) {
-                continue;
-            }
-            hasMeshSceneContent = hasMeshSceneContent || !model->primitives.empty();
-            const auto entityModelMatrix = modelMatrix(entity, *worldPosition);
-            const auto modelTexture = [&model](std::optional<std::size_t> textureIndex) {
-                return textureIndex.has_value() && *textureIndex < model->textures.size()
-                    ? &model->textures[*textureIndex]
-                    : nullptr;
-            };
-            const auto submitPrimitive = [&](
-                std::size_t primitiveIndex,
-                const renderer::RenderMatrix4& drawModelMatrix,
-                bool flipsWinding,
-                bool forceFullResolution) {
-                if (primitiveIndex >= model->primitives.size()) {
-                    return;
-                }
-                const auto& primitive = model->primitives[primitiveIndex];
-                if (primitive.materialIndex >= model->materials.size()) {
-                    return;
-                }
-                ++frame.candidateMeshDrawCount;
-                const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
-                frame.candidateTriangleCount += sourceTriangleCount;
-                const auto worldBounds = transformViewportBounds(drawModelMatrix, primitive.bounds);
-                const auto boundsCenter = worldBounds.center;
-                const auto boundsRadius = worldBounds.radius;
-                if (!viewportBoundsVisible(
-                        worldBounds,
-                        eye,
-                        right,
-                        up,
-                        forward,
-                        cameraFrame.verticalFovRadians,
-                        cameraFrame.aspectRatio,
-                        cameraFrame.nearPlane,
-                        cameraFrame.farPlane)) {
-                    ++frame.culledMeshDrawCount;
-                    frame.culledTriangleCount += sourceTriangleCount;
-                    return;
-                }
-                visibleBounds.includeSphere(boundsCenter, boundsRadius);
-                const auto& material = model->materials[primitive.materialIndex];
-                const auto mvp = multiply(viewProjection, drawModelMatrix);
-                const auto sortDepth = math::dot(boundsCenter - eye, forward);
-                const auto lodIndex = selectViewportMeshLod(
-                    primitive,
-                    boundsRadius,
-                    sortDepth,
-                    cameraFrame.verticalFovRadians,
-                    static_cast<float>(std::max(height(), 1)),
-                    forceFullResolution);
-                const auto selectedTriangleCount = static_cast<std::uint64_t>(indexCountForViewportLod(primitive, lodIndex) / 3U);
-                if (lodIndex > 0U && selectedTriangleCount < sourceTriangleCount) {
-                    ++frame.lodMeshDrawCount;
-                    frame.lodTriangleReductionCount += sourceTriangleCount - selectedTriangleCount;
-                }
-                rendererMeshDraws_.push_back({
-                    model->id,
-                    static_cast<std::uint32_t>(primitiveIndex),
-                    lodIndex,
-                    &primitive,
-                    &material,
-                    modelTexture(material.baseColorTexture),
-                    modelTexture(material.normalTexture),
-                    modelTexture(material.metallicRoughnessTexture),
-                    modelTexture(material.occlusionTexture),
-                    modelTexture(material.emissiveTexture),
-                    sortDepth,
-                    {boundsCenter.x, boundsCenter.y, boundsCenter.z},
-                    boundsRadius,
-                    drawModelMatrix,
-                    mvp,
-                    flipsWinding,
-                });
-            };
-            if (entity.meshRenderer->primitiveInstanceIndex.has_value()
-                && *entity.meshRenderer->primitiveInstanceIndex < model->primitiveInstances.size()) {
-                const auto& instance = model->primitiveInstances[*entity.meshRenderer->primitiveInstanceIndex];
-                submitPrimitive(
-                    instance.primitiveIndex,
-                    multiply(
-                        multiply(entityModelMatrix, translationMatrix(instance.bounds.center * -1.0F)),
-                        renderMatrix(instance.transform)),
-                    instance.flipsWinding,
-                    entity.id == selectedEntityId_);
-            } else if (!model->primitiveInstances.empty()) {
-                const auto selectedInstance = [&](std::size_t instanceIndex) {
-                    return selectedPrimitiveKey.has_value()
-                        && selectedPrimitiveKey->modelAssetId == entity.meshRenderer->modelAssetId.value()
-                        && selectedPrimitiveKey->primitiveInstanceIndex == instanceIndex;
-                };
-                const auto countCulledInstance = [&](std::uint32_t instanceIndex) {
-                    if (instanceIndex >= model->primitiveInstances.size()) {
-                        return;
-                    }
-                    const auto& instance = model->primitiveInstances[instanceIndex];
-                    if (instance.primitiveIndex >= model->primitives.size()) {
-                        return;
-                    }
-                    ++frame.candidateMeshDrawCount;
-                    ++frame.culledMeshDrawCount;
-                    const auto triangles = static_cast<std::uint64_t>(model->primitives[instance.primitiveIndex].indices.size() / 3U);
-                    frame.candidateTriangleCount += triangles;
-                    frame.culledTriangleCount += triangles;
-                };
-                const auto submitInstance = [&](std::size_t instanceIndex) {
-                    const auto& instance = model->primitiveInstances[instanceIndex];
-                    const auto overrideIt = primitiveEntityOverrides.find(PrimitiveOverrideKey {
-                        entity.meshRenderer->modelAssetId.value(),
-                        static_cast<std::uint32_t>(instanceIndex),
-                    });
-                    if (overrideIt != primitiveEntityOverrides.end() && overrideIt->second.entity != nullptr) {
-                        const auto& overrideEntity = *overrideIt->second.entity;
-                        const auto overrideModelMatrix = modelMatrix(overrideEntity, overrideIt->second.worldPosition);
-                        submitPrimitive(
-                            instance.primitiveIndex,
-                            multiply(
-                                multiply(overrideModelMatrix, translationMatrix(instance.bounds.center * -1.0F)),
-                                renderMatrix(instance.transform)),
-                            instance.flipsWinding,
-                            entity.id == selectedEntityId_ || overrideEntity.id == selectedEntityId_);
-                    } else {
-                        submitPrimitive(
-                            instance.primitiveIndex,
-                            multiply(entityModelMatrix, renderMatrix(instance.transform)),
-                            instance.flipsWinding,
-                            entity.id == selectedEntityId_ || selectedInstance(instanceIndex));
-                    }
-                };
-                const auto modelHasOverrides = modelsWithPrimitiveOverrides.find(model->id.value())
-                    != modelsWithPrimitiveOverrides.end();
-                if (!modelHasOverrides && !model->primitiveClusters.empty()) {
-                    for (const auto& cluster : model->primitiveClusters) {
-                        const auto clusterSelected = std::any_of(
-                            cluster.primitiveInstanceIndices.begin(),
-                            cluster.primitiveInstanceIndices.end(),
-                            selectedInstance);
-                        const auto clusterBounds = transformViewportBounds(entityModelMatrix, cluster.bounds);
-                        if (!clusterSelected
-                            && !viewportBoundsVisible(
-                                clusterBounds,
-                                eye,
-                                right,
-                                up,
-                                forward,
-                                cameraFrame.verticalFovRadians,
-                                cameraFrame.aspectRatio,
-                                cameraFrame.nearPlane,
-                                cameraFrame.farPlane)) {
-                            for (const auto instanceIndex : cluster.primitiveInstanceIndices) {
-                                countCulledInstance(instanceIndex);
-                            }
-                            continue;
-                        }
-                        for (const auto instanceIndex : cluster.primitiveInstanceIndices) {
-                            submitInstance(instanceIndex);
-                        }
-                    }
-                } else {
-                    for (std::size_t instanceIndex = 0; instanceIndex < model->primitiveInstances.size(); ++instanceIndex) {
-                        submitInstance(instanceIndex);
-                    }
-                }
-            } else {
-                for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
-                    submitPrimitive(primitiveIndex, entityModelMatrix, false, entity.id == selectedEntityId_);
-                }
-            }
+    if (renderWorld_ != nullptr) {
+        const ViewportRenderWorldCamera renderWorldCamera {
+            eye,
+            right,
+            up,
+            forward,
+            cameraFrame.verticalFovRadians,
+            cameraFrame.aspectRatio,
+            cameraFrame.nearPlane,
+            cameraFrame.farPlane,
+        };
+        const auto renderWorldFrame = renderWorld_->buildFrame(
+            scene_,
+            assetManager_,
+            selectedEntityId_,
+            renderWorldCamera,
+            viewProjection,
+            height(),
+            rendererMeshDraws_,
+            rendererLights_);
+        hasMeshSceneContent = renderWorldFrame.hasMeshSceneContent;
+        frame.sceneNodeCount = renderWorldFrame.stats.sceneNodeCount;
+        frame.renderChunkCount = renderWorldFrame.stats.renderChunkCount;
+        frame.visibleRenderChunkCount = renderWorldFrame.stats.visibleRenderChunkCount;
+        frame.renderInstanceCount = renderWorldFrame.stats.renderInstanceCount;
+        frame.visibleRenderInstanceCount = renderWorldFrame.stats.visibleRenderInstanceCount;
+        frame.candidateMeshDrawCount = renderWorldFrame.stats.candidateMeshDrawCount;
+        frame.culledMeshDrawCount = renderWorldFrame.stats.culledMeshDrawCount;
+        frame.candidateTriangleCount = renderWorldFrame.stats.candidateTriangleCount;
+        frame.culledTriangleCount = renderWorldFrame.stats.culledTriangleCount;
+        frame.lodMeshDrawCount = renderWorldFrame.stats.lodMeshDrawCount;
+        frame.lodTriangleReductionCount = renderWorldFrame.stats.lodTriangleReductionCount;
+        if (renderWorldFrame.visibleBoundsValid) {
+            visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }
     }
     if (rendererLights_.empty()) {

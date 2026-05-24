@@ -30,6 +30,37 @@ broader manual viewport verification before Phase 6 can be called complete again
   fidelity, keep Qt out of the primary 3D render path, and optimize renderer data flow
   rather than degrading authored content.
 
+## Phase 6.0.02 RenderWorld Plan
+
+Status: PARCIAL
+
+Scope for 6.0.02 is Fase A + Fase B only. Do not mix in complex HLOD, impostors,
+runtime cache replacement, or a full editor rewrite.
+
+- Keep the editor SceneGraph as the editable truth: hierarchy, inspector, transforms,
+  cameras, lights, meshes, materials, and selection must keep working.
+- Add an internal compiled RenderWorld for the viewport: `RenderChunk`,
+  `RenderCluster` when the imported model provides primitive clusters,
+  `RenderInstance`, `RenderBatch`-ready visible draw data, stable bounds, and a
+  `renderInstanceId -> sceneNodeId` mapping for future precise picking.
+- Compile RenderWorld from SceneGraph with dirty tracking. Reuse unchanged entity/model
+  records and rebuild only changed records where practical; do not rebuild all expensive
+  render data every frame when the scene is stable.
+- Move visibility ahead of resource preparation. The viewport must decide visible chunks
+  and visible render instances before filling `RenderMeshDraw`; Vulkan resource prepare
+  should only see visible or otherwise relevant draw data.
+- Profiler/debug counters for this stage must expose total scene nodes, render chunks,
+  visible chunks, total render instances, visible render instances, mesh draws, shadow
+  casters, triangle counts, LOD triangle reduction, resource prepare CPU, render CPU,
+  and GPU frame timing.
+- Acceptance test for a large asset: when the camera looks away, visible chunks, visible
+  instances, mesh draws, triangles, and resource prepare time must drop. Do not mark this
+  phase complete without before/after profiler evidence.
+- Implementation note: the first 6.0.02 pass is integrated in the editor viewport via
+  `ViewportRenderWorld`, and the Phase 6 visual smoke now checks NodePerformanceTest
+  look-away culling. The overall status remains partial until the large external terrain
+  asset is profiled manually in the viewport.
+
 ## Blocking Renderer Status
 
 - The GLB/glTF importer keeps the full source mesh and material data. The default Scene View path must use the full primitive index buffers, not preview triangle budgets or automatic destructive LODs.

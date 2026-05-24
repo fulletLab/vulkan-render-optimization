@@ -29,6 +29,8 @@ class IRenderer;
 
 namespace projectunity::editor {
 
+class ViewportRenderWorld;
+
 enum class ViewportMode {
     Scene,
     Game,
@@ -72,6 +74,7 @@ public:
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
     [[nodiscard]] std::optional<scene::EntityId> pickEntityAt(QPointF point) const;
     [[nodiscard]] bool runSelfTest(QString* errorMessage);
+    void setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -154,6 +157,7 @@ private:
     QPoint lastMousePosition_;
     std::unique_ptr<IEditorDebugDrawBackend> debugDrawBackend_;
     std::unique_ptr<IEditorGizmoBackend> gizmoBackend_;
+    std::unique_ptr<ViewportRenderWorld> renderWorld_;
     bool gizmoMouseLeft_ {false};
     bool gizmoCaptured_ {false};
     bool pendingGizmoModePulse_ {false};

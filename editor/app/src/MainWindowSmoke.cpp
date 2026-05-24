@@ -401,6 +401,7 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     bool sawLargeScene = false;
     bool sawEditableImportedLight = false;
     bool sawEditableImportedCamera = false;
+    bool sawRenderWorldLookAwayCull = false;
     for (const auto* assetName : assetNames) {
         const auto assetPath = assetRoot / assetName;
         if (!std::filesystem::exists(assetPath)) {
@@ -439,7 +440,11 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
             sawLargeScene = stats.lastFrameCandidateTriangleCount > 10000U
                 && stats.lastFrameMeshBatchCount > 0U
                 && stats.lastFrameLodTriangleReductionCount > 0U
-                && stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U;
+                && stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U
+                && stats.lastFrameRenderChunkCount > 0U
+                && stats.lastFrameVisibleRenderChunkCount > 0U
+                && stats.lastFrameRenderInstanceCount > 0U
+                && stats.lastFrameVisibleRenderInstanceCount > 0U;
             sawEditableImportedLight = std::any_of(scene_.entities().begin(), scene_.entities().end(), [](const scene::Entity& entity) {
                 return entity.light.has_value()
                     && entity.name == "Sun"
@@ -451,6 +456,35 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
                     && entity.camera->projection == scene::CameraComponentProjection::Perspective
                     && entity.parent.has_value();
             });
+            sceneViewport_->setCameraForTesting({5000.0F, 5000.0F, 5000.0F}, 500.0F, 0.65F, -0.38F);
+            for (int frame = 0; frame < 3; ++frame) {
+                sceneViewport_->repaint();
+                QApplication::processEvents();
+            }
+            const auto awayStats = renderer_->stats();
+            sawRenderWorldLookAwayCull = awayStats.lastFrameVisibleRenderChunkCount < stats.lastFrameVisibleRenderChunkCount
+                && awayStats.lastFrameVisibleRenderInstanceCount < stats.lastFrameVisibleRenderInstanceCount
+                && awayStats.lastFrameMeshDrawCount < stats.lastFrameMeshDrawCount
+                && awayStats.lastFrameVisibleTriangleCount < stats.lastFrameVisibleTriangleCount
+                && awayStats.lastFrameResourcePrepareCpuTimeUs <= stats.lastFrameResourcePrepareCpuTimeUs;
+            if (!sawRenderWorldLookAwayCull) {
+                return fail(QStringLiteral(
+                    "Phase 6 RenderWorld look-away culling did not reduce NodePerformanceTest workload: chunks %1/%2 -> %3/%4, instances %5/%6 -> %7/%8, draws %9 -> %10, triangles %11 -> %12, prepareUs %13 -> %14")
+                    .arg(static_cast<qulonglong>(stats.lastFrameVisibleRenderChunkCount))
+                    .arg(static_cast<qulonglong>(stats.lastFrameRenderChunkCount))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameVisibleRenderChunkCount))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameRenderChunkCount))
+                    .arg(static_cast<qulonglong>(stats.lastFrameVisibleRenderInstanceCount))
+                    .arg(static_cast<qulonglong>(stats.lastFrameRenderInstanceCount))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameVisibleRenderInstanceCount))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameRenderInstanceCount))
+                    .arg(static_cast<qulonglong>(stats.lastFrameMeshDrawCount))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameMeshDrawCount))
+                    .arg(static_cast<qulonglong>(stats.lastFrameVisibleTriangleCount))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameVisibleTriangleCount))
+                    .arg(static_cast<qulonglong>(stats.lastFrameResourcePrepareCpuTimeUs))
+                    .arg(static_cast<qulonglong>(awayStats.lastFrameResourcePrepareCpuTimeUs)));
+            }
         }
     }
 
@@ -468,6 +502,9 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     }
     if (!sawEditableImportedCamera) {
         return fail(QStringLiteral("Phase 6 visual smoke did not create an editable imported camera for NodePerformanceTest"));
+    }
+    if (!sawRenderWorldLookAwayCull) {
+        return fail(QStringLiteral("Phase 6 visual smoke did not exercise RenderWorld look-away culling"));
     }
     return true;
 }

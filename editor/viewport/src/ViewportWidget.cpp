@@ -1,5 +1,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 
+#include "ViewportRenderWorld.hpp"
+
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 
@@ -51,6 +53,7 @@ ViewportWidget::ViewportWidget(ViewportMode mode, QWidget* parent)
     , mode_(mode)
     , debugDrawBackend_(createIm3dDebugDrawBackend())
     , gizmoBackend_(createTinyGizmoBackend())
+    , renderWorld_(std::make_unique<ViewportRenderWorld>())
 {
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
@@ -70,6 +73,9 @@ ViewportWidget::~ViewportWidget()
 void ViewportWidget::setAssetManager(const assets::IAssetManager* assetManager)
 {
     assetManager_ = assetManager;
+    if (renderWorld_ != nullptr) {
+        renderWorld_->markDirty();
+    }
     update();
 }
 
@@ -96,6 +102,9 @@ void ViewportWidget::setEnvironmentSettings(renderer::RenderEnvironmentSettings 
 void ViewportWidget::setScene(scene::Scene* scene)
 {
     scene_ = scene;
+    if (renderWorld_ != nullptr) {
+        renderWorld_->markDirty();
+    }
     update();
 }
 
@@ -176,6 +185,15 @@ void ViewportWidget::focusSelected()
     camera_.distance = std::clamp(camera_.distance, 4.0F, 20.0F);
     update();
     core::logInfo(core::LogCategory::Editor, "Viewport focused selected entity");
+}
+
+void ViewportWidget::setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians)
+{
+    camera_.target = target;
+    camera_.distance = std::clamp(distance, 0.1F, kMaxCameraDistance);
+    camera_.yawRadians = yawRadians;
+    camera_.pitchRadians = std::clamp(pitchRadians, -1.45F, 1.45F);
+    update();
 }
 
 ViewportRay ViewportWidget::screenPointToRay(QPointF point) const

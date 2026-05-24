@@ -239,6 +239,11 @@ struct VulkanRenderer::Impl {
             stats.lastFrameCulledTriangleCount = frame.culledTriangleCount;
             stats.lastFrameLodMeshDrawCount = frame.lodMeshDrawCount;
             stats.lastFrameLodTriangleReductionCount = frame.lodTriangleReductionCount;
+            stats.lastFrameSceneNodeCount = frame.sceneNodeCount;
+            stats.lastFrameRenderChunkCount = frame.renderChunkCount;
+            stats.lastFrameVisibleRenderChunkCount = frame.visibleRenderChunkCount;
+            stats.lastFrameRenderInstanceCount = frame.renderInstanceCount;
+            stats.lastFrameVisibleRenderInstanceCount = frame.visibleRenderInstanceCount;
             const auto visibleBeforeLod = frame.candidateTriangleCount - frame.culledTriangleCount;
             stats.lastFrameVisibleTriangleCount = visibleBeforeLod > frame.lodTriangleReductionCount
                 ? visibleBeforeLod - frame.lodTriangleReductionCount
