@@ -46,6 +46,8 @@ add_library(projectunity_assets STATIC
     src/MeshPrimitiveChunker.hpp
     src/MeshPrimitiveBatcher.cpp
     src/MeshPrimitiveBatcher.hpp
+    src/MeshPrimitiveClusters.cpp
+    src/MeshPrimitiveClusters.hpp
     src/MeshPrimitiveSignature.cpp
     src/MeshPrimitiveSignature.hpp
     src/StbTextureImport.cpp

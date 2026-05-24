@@ -11,6 +11,7 @@
 #include "MeshLodGenerator.hpp"
 #include "MeshPrimitiveChunker.hpp"
 #include "MeshPrimitiveBatcher.hpp"
+#include "MeshPrimitiveClusters.hpp"
 #include "MeshPrimitiveSignature.hpp"
 #include "StbTextureImport.hpp"
 #include <projectunity/core/Log.hpp>
@@ -686,6 +687,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     reportProgress(progress, 82, "Batching and optimizing meshes");
     detail::batchModelPrimitives(*model);
     detail::splitLargePrimitivesIntoSpatialChunks(*model);
+    detail::buildPrimitiveClusters(*model);
     AssetRecord record;
     record.id = model->id;
     record.type = AssetType::Model;

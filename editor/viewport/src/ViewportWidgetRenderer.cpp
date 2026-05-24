@@ -1,6 +1,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRendererCulling.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
@@ -10,8 +11,10 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 namespace projectunity::editor {
 namespace {
@@ -126,22 +129,6 @@ namespace {
     };
     return matrix;
 }
-[[nodiscard]] math::Vec3 transformPoint(const renderer::RenderMatrix4& matrix, math::Vec3 point)
-{
-    return {
-        at(matrix, 0, 0) * point.x + at(matrix, 0, 1) * point.y + at(matrix, 0, 2) * point.z + at(matrix, 0, 3),
-        at(matrix, 1, 0) * point.x + at(matrix, 1, 1) * point.y + at(matrix, 1, 2) * point.z + at(matrix, 1, 3),
-        at(matrix, 2, 0) * point.x + at(matrix, 2, 1) * point.y + at(matrix, 2, 2) * point.z + at(matrix, 2, 3),
-    };
-}
-[[nodiscard]] float maxScale(const renderer::RenderMatrix4& matrix)
-{
-    const auto axisLength = [&matrix](int column) {
-        const math::Vec3 axis {at(matrix, 0, column), at(matrix, 1, column), at(matrix, 2, column)};
-        return axis.length();
-    };
-    return std::max({axisLength(0), axisLength(1), axisLength(2)});
-}
 [[nodiscard]] float maxAbsScale(math::Vec3 scale)
 {
     return std::max({std::fabs(scale.x), std::fabs(scale.y), std::fabs(scale.z)});
@@ -151,33 +138,6 @@ namespace {
     return worldPosition + rotateEuler(
         {point.x * entity.transform.scale.x, point.y * entity.transform.scale.y, point.z * entity.transform.scale.z},
         entity.transform.rotationEuler);
-}
-[[nodiscard]] bool sphereVisible(
-    math::Vec3 center,
-    float radius,
-    math::Vec3 eye,
-    math::Vec3 right,
-    math::Vec3 up,
-    math::Vec3 forward,
-    float verticalFovRadians,
-    float aspectRatio)
-{
-    constexpr float nearPlane = 0.05F;
-    constexpr float farPlane = 4000.0F;
-    if (radius < 0.0F || !std::isfinite(radius)) {
-        return true;
-    }
-    const auto relative = center - eye;
-    const auto depth = math::dot(relative, forward);
-    if (depth + radius < nearPlane || depth - radius > farPlane) {
-        return false;
-    }
-    const auto extentDepth = std::max(depth, nearPlane);
-    const auto halfHeight = std::tan(verticalFovRadians * 0.5F) * extentDepth;
-    const auto halfWidth = halfHeight * std::max(aspectRatio, 0.001F);
-    const auto x = math::dot(relative, right);
-    const auto y = math::dot(relative, up);
-    return std::fabs(x) <= halfWidth + radius && std::fabs(y) <= halfHeight + radius;
 }
 [[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback)
 {
@@ -261,44 +221,6 @@ struct PrimitiveEntityOverride {
     const scene::Entity* entity {nullptr};
     math::Vec3 worldPosition;
 };
-void appendHierarchyLinks(
-    std::vector<renderer::RenderColorVertex>& vertices,
-    std::vector<std::uint32_t>& indices,
-    const scene::Scene& scene,
-    const auto& worldPositionFor,
-    scene::EntityId selectedEntityId,
-    bool skipPrimitivePartLinks,
-    math::Vec3 cameraForward,
-    math::Vec3 cameraRight,
-    float cameraDistance)
-{
-    for (const auto& entity : scene.entities()) {
-        if (!entity.parent.has_value()) {
-            continue;
-        }
-        if (skipPrimitivePartLinks
-            && entity.id != selectedEntityId
-            && entity.meshRenderer.has_value()
-            && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
-            continue;
-        }
-        const auto childPosition = worldPositionFor(entity.id);
-        const auto parentPosition = worldPositionFor(*entity.parent);
-        if (!childPosition.has_value() || !parentPosition.has_value()) {
-            continue;
-        }
-        detail::appendLineQuad(
-            vertices,
-            indices,
-            *parentPosition,
-            *childPosition,
-            {0.63F, 0.67F, 0.73F, 0.38F},
-            1.0F,
-            cameraForward,
-            cameraRight,
-            cameraDistance);
-    }
-}
 } // namespace
 bool ViewportWidget::ensureRendererSurface()
 {
@@ -453,22 +375,41 @@ bool ViewportWidget::renderRendererFrame()
     frame.viewProjection = viewProjection;
     frame.cameraPosition = {eye.x, eye.y, eye.z};
     std::unordered_map<PrimitiveOverrideKey, PrimitiveEntityOverride, PrimitiveOverrideKeyHash> primitiveEntityOverrides;
+    std::unordered_set<std::uint64_t> modelsWithPrimitiveOverrides;
+    std::optional<PrimitiveOverrideKey> selectedPrimitiveKey;
     if (scene_ != nullptr) {
         primitiveEntityOverrides.reserve(scene_->entityCount());
+        if (const auto* selected = scene_->findEntity(selectedEntityId_);
+            selected != nullptr
+            && selected->meshRenderer.has_value()
+            && selected->meshRenderer->primitiveInstanceIndex.has_value()) {
+            selectedPrimitiveKey = PrimitiveOverrideKey {
+                selected->meshRenderer->modelAssetId.value(),
+                *selected->meshRenderer->primitiveInstanceIndex,
+            };
+        }
         for (const auto& entity : scene_->entities()) {
             if (!entity.meshRenderer.has_value()
                 || entity.meshRenderer->renderable
                 || !entity.meshRenderer->primitiveInstanceIndex.has_value()) {
                 continue;
             }
+            const auto model = assetManager_ == nullptr ? nullptr : assetManager_->model(entity.meshRenderer->modelAssetId);
+            const auto instanceIndex = *entity.meshRenderer->primitiveInstanceIndex;
+            if (model != nullptr
+                && instanceIndex < model->primitiveInstances.size()
+                && defaultPrimitiveProxyTransform(entity.transform, model->primitiveInstances[instanceIndex].bounds.center)) {
+                continue;
+            }
             const auto worldPosition = entityWorldPosition(entity.id);
             if (!worldPosition.has_value()) {
                 continue;
             }
+            modelsWithPrimitiveOverrides.insert(entity.meshRenderer->modelAssetId.value());
             primitiveEntityOverrides.insert_or_assign(
                 PrimitiveOverrideKey {
                     entity.meshRenderer->modelAssetId.value(),
-                    *entity.meshRenderer->primitiveInstanceIndex,
+                    instanceIndex,
                 },
                 PrimitiveEntityOverride {&entity, *worldPosition});
         }
@@ -516,7 +457,11 @@ bool ViewportWidget::renderRendererFrame()
                     ? &model->textures[*textureIndex]
                     : nullptr;
             };
-            const auto submitPrimitive = [&](std::size_t primitiveIndex, const renderer::RenderMatrix4& drawModelMatrix, bool flipsWinding) {
+            const auto submitPrimitive = [&](
+                std::size_t primitiveIndex,
+                const renderer::RenderMatrix4& drawModelMatrix,
+                bool flipsWinding,
+                bool forceFullResolution) {
                 if (primitiveIndex >= model->primitives.size()) {
                     return;
                 }
@@ -527,17 +472,19 @@ bool ViewportWidget::renderRendererFrame()
                 ++frame.candidateMeshDrawCount;
                 const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 frame.candidateTriangleCount += sourceTriangleCount;
-                const auto boundsCenter = transformPoint(drawModelMatrix, primitive.bounds.center);
-                const auto boundsRadius = primitive.bounds.radius * maxScale(drawModelMatrix);
-                if (!sphereVisible(
-                        boundsCenter,
-                        boundsRadius,
+                const auto worldBounds = transformViewportBounds(drawModelMatrix, primitive.bounds);
+                const auto boundsCenter = worldBounds.center;
+                const auto boundsRadius = worldBounds.radius;
+                if (!viewportBoundsVisible(
+                        worldBounds,
                         eye,
                         right,
                         up,
                         forward,
                         cameraFrame.verticalFovRadians,
-                        cameraFrame.aspectRatio)) {
+                        cameraFrame.aspectRatio,
+                        cameraFrame.nearPlane,
+                        cameraFrame.farPlane)) {
                     ++frame.culledMeshDrawCount;
                     frame.culledTriangleCount += sourceTriangleCount;
                     return;
@@ -551,7 +498,8 @@ bool ViewportWidget::renderRendererFrame()
                     boundsRadius,
                     sortDepth,
                     cameraFrame.verticalFovRadians,
-                    static_cast<float>(std::max(height(), 1)));
+                    static_cast<float>(std::max(height(), 1)),
+                    forceFullResolution);
                 const auto selectedTriangleCount = static_cast<std::uint64_t>(indexCountForViewportLod(primitive, lodIndex) / 3U);
                 if (lodIndex > 0U && selectedTriangleCount < sourceTriangleCount) {
                     ++frame.lodMeshDrawCount;
@@ -584,9 +532,29 @@ bool ViewportWidget::renderRendererFrame()
                     multiply(
                         multiply(entityModelMatrix, translationMatrix(instance.bounds.center * -1.0F)),
                         renderMatrix(instance.transform)),
-                    instance.flipsWinding);
+                    instance.flipsWinding,
+                    entity.id == selectedEntityId_);
             } else if (!model->primitiveInstances.empty()) {
-                for (std::size_t instanceIndex = 0; instanceIndex < model->primitiveInstances.size(); ++instanceIndex) {
+                const auto selectedInstance = [&](std::size_t instanceIndex) {
+                    return selectedPrimitiveKey.has_value()
+                        && selectedPrimitiveKey->modelAssetId == entity.meshRenderer->modelAssetId.value()
+                        && selectedPrimitiveKey->primitiveInstanceIndex == instanceIndex;
+                };
+                const auto countCulledInstance = [&](std::uint32_t instanceIndex) {
+                    if (instanceIndex >= model->primitiveInstances.size()) {
+                        return;
+                    }
+                    const auto& instance = model->primitiveInstances[instanceIndex];
+                    if (instance.primitiveIndex >= model->primitives.size()) {
+                        return;
+                    }
+                    ++frame.candidateMeshDrawCount;
+                    ++frame.culledMeshDrawCount;
+                    const auto triangles = static_cast<std::uint64_t>(model->primitives[instance.primitiveIndex].indices.size() / 3U);
+                    frame.candidateTriangleCount += triangles;
+                    frame.culledTriangleCount += triangles;
+                };
+                const auto submitInstance = [&](std::size_t instanceIndex) {
                     const auto& instance = model->primitiveInstances[instanceIndex];
                     const auto overrideIt = primitiveEntityOverrides.find(PrimitiveOverrideKey {
                         entity.meshRenderer->modelAssetId.value(),
@@ -600,17 +568,53 @@ bool ViewportWidget::renderRendererFrame()
                             multiply(
                                 multiply(overrideModelMatrix, translationMatrix(instance.bounds.center * -1.0F)),
                                 renderMatrix(instance.transform)),
-                            instance.flipsWinding);
+                            instance.flipsWinding,
+                            entity.id == selectedEntityId_ || overrideEntity.id == selectedEntityId_);
                     } else {
                         submitPrimitive(
                             instance.primitiveIndex,
                             multiply(entityModelMatrix, renderMatrix(instance.transform)),
-                            instance.flipsWinding);
+                            instance.flipsWinding,
+                            entity.id == selectedEntityId_ || selectedInstance(instanceIndex));
+                    }
+                };
+                const auto modelHasOverrides = modelsWithPrimitiveOverrides.find(model->id.value())
+                    != modelsWithPrimitiveOverrides.end();
+                if (!modelHasOverrides && !model->primitiveClusters.empty()) {
+                    for (const auto& cluster : model->primitiveClusters) {
+                        const auto clusterSelected = std::any_of(
+                            cluster.primitiveInstanceIndices.begin(),
+                            cluster.primitiveInstanceIndices.end(),
+                            selectedInstance);
+                        const auto clusterBounds = transformViewportBounds(entityModelMatrix, cluster.bounds);
+                        if (!clusterSelected
+                            && !viewportBoundsVisible(
+                                clusterBounds,
+                                eye,
+                                right,
+                                up,
+                                forward,
+                                cameraFrame.verticalFovRadians,
+                                cameraFrame.aspectRatio,
+                                cameraFrame.nearPlane,
+                                cameraFrame.farPlane)) {
+                            for (const auto instanceIndex : cluster.primitiveInstanceIndices) {
+                                countCulledInstance(instanceIndex);
+                            }
+                            continue;
+                        }
+                        for (const auto instanceIndex : cluster.primitiveInstanceIndices) {
+                            submitInstance(instanceIndex);
+                        }
+                    }
+                } else {
+                    for (std::size_t instanceIndex = 0; instanceIndex < model->primitiveInstances.size(); ++instanceIndex) {
+                        submitInstance(instanceIndex);
                     }
                 }
             } else {
                 for (std::size_t primitiveIndex = 0; primitiveIndex < model->primitives.size(); ++primitiveIndex) {
-                    submitPrimitive(primitiveIndex, entityModelMatrix, false);
+                    submitPrimitive(primitiveIndex, entityModelMatrix, false, entity.id == selectedEntityId_);
                 }
             }
         }
@@ -656,7 +660,7 @@ bool ViewportWidget::renderRendererFrame()
                     && !entity.meshRenderer->renderable;
             });
             const auto denseImportedHierarchy = primitiveProxyCount > 24U || scene_->entityCount() > 96U;
-            appendHierarchyLinks(
+            detail::appendHierarchyLinks(
                 rendererGizmoVertices_,
                 rendererGizmoIndices_,
                 *scene_,

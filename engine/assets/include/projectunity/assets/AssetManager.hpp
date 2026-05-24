@@ -129,6 +129,7 @@ struct MeshVertex {
 
 struct MeshLod {
     std::vector<std::uint32_t> indices;
+    float error {0.0F};
 };
 
 struct MeshBounds {
@@ -156,6 +157,11 @@ struct MeshPrimitiveInstance {
     };
     MeshBounds bounds;
     bool flipsWinding {false};
+};
+
+struct MeshPrimitiveCluster {
+    std::vector<std::uint32_t> primitiveInstanceIndices;
+    MeshBounds bounds;
 };
 
 struct TextureAsset {
@@ -220,6 +226,7 @@ struct ModelAsset {
     std::string name;
     std::vector<MeshPrimitive> primitives;
     std::vector<MeshPrimitiveInstance> primitiveInstances;
+    std::vector<MeshPrimitiveCluster> primitiveClusters;
     std::vector<MaterialAsset> materials;
     std::vector<TextureAsset> textures;
     std::vector<ImportedLightAsset> lights;

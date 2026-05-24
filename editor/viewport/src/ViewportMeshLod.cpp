@@ -19,9 +19,11 @@ std::uint32_t selectViewportMeshLod(
     float boundsRadius,
     float depth,
     float verticalFovRadians,
-    float viewportHeight) noexcept
+    float viewportHeight,
+    bool forceFullResolution) noexcept
 {
-    if (primitive.lods.empty()
+    if (forceFullResolution
+        || primitive.lods.empty()
         || boundsRadius <= 0.0F
         || depth <= 0.05F
         || viewportHeight < 1.0F
@@ -36,6 +38,23 @@ std::uint32_t selectViewportMeshLod(
     }
     const auto available = static_cast<std::uint32_t>(std::min<std::size_t>(primitive.lods.size(), 6U));
     std::uint32_t requested = 0U;
+    const auto worldUnitsPerPixel = std::max(depth - boundsRadius, 0.0F)
+        * (std::tan(verticalFovRadians * 0.5F) * 2.0F)
+        / viewportHeight;
+    if (worldUnitsPerPixel > 0.0F && std::isfinite(worldUnitsPerPixel)) {
+        const auto sourceTriangles = primitive.indices.size() / 3U;
+        const auto lodFactor = sourceTriangles > 8192U ? 2.5F : 1.5F;
+        for (std::uint32_t candidate = available; candidate > 0U; --candidate) {
+            const auto error = primitive.lods[candidate - 1U].error;
+            if (error > 0.0F
+                && std::isfinite(error)
+                && error <= worldUnitsPerPixel * lodFactor
+                && indexCountForViewportLod(primitive, candidate) < primitive.indices.size()) {
+                requested = candidate;
+                break;
+            }
+        }
+    }
     if (projectedRadius < 56.0F) {
         requested = available;
     } else if (projectedRadius < 112.0F) {
@@ -46,12 +65,21 @@ std::uint32_t selectViewportMeshLod(
         requested = std::min<std::uint32_t>(1U, available);
     }
     const auto sourceTriangles = primitive.indices.size() / 3U;
+    if (sourceTriangles > 8192U && depth > boundsRadius * 2.5F) {
+        requested = std::max<std::uint32_t>(requested, std::min<std::uint32_t>(1U, available));
+    }
+    if (sourceTriangles > 8192U && depth > boundsRadius * 4.0F) {
+        requested = std::max<std::uint32_t>(requested, std::min<std::uint32_t>(2U, available));
+    }
+    if (sourceTriangles > 8192U && depth > boundsRadius * 8.0F) {
+        requested = std::max<std::uint32_t>(requested, std::min<std::uint32_t>(4U, available));
+    }
     if (sourceTriangles > 2048U && depth > boundsRadius * 1.05F) {
         const auto projectedArea = std::clamp(
             3.14159265F * projectedRadius * projectedRadius,
             1.0F,
             viewportHeight * viewportHeight * 1.25F);
-        const auto desiredTriangles = std::clamp(projectedArea * 0.25F, 512.0F, static_cast<float>(sourceTriangles));
+        const auto desiredTriangles = std::clamp(projectedArea * 0.08F, 512.0F, static_cast<float>(sourceTriangles));
         const auto minimumAcceptableTriangles = desiredTriangles * 0.25F;
         for (std::uint32_t candidate = available; candidate > 0U; --candidate) {
             const auto candidateTriangles = static_cast<float>(indexCountForViewportLod(primitive, candidate) / 3U);

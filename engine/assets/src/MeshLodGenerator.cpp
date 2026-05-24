@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cmath>
 #include <utility>
 
 namespace projectunity::assets::detail {
@@ -22,6 +23,10 @@ void rebuildSimplificationLods(MeshPrimitive& primitive)
     if (primitive.vertices.empty() || sourceTriangles < 64U) {
         return;
     }
+    const auto simplifyScale = meshopt_simplifyScale(
+        &primitive.vertices.front().position.x,
+        primitive.vertices.size(),
+        sizeof(MeshVertex));
     for (std::size_t lodIndex = 0; lodIndex < kMeshLodDivisors.size(); ++lodIndex) {
         const auto targetTriangleCount = sourceTriangles / kMeshLodDivisors[lodIndex];
         const auto targetCount = targetTriangleCount * 3U;
@@ -30,6 +35,7 @@ void rebuildSimplificationLods(MeshPrimitive& primitive)
         }
         MeshLod lod;
         lod.indices.resize(primitive.indices.size());
+        float resultError = 0.0F;
         const auto result = meshopt_simplify(
             lod.indices.data(),
             primitive.indices.data(),
@@ -38,8 +44,14 @@ void rebuildSimplificationLods(MeshPrimitive& primitive)
             primitive.vertices.size(),
             sizeof(MeshVertex),
             targetCount,
-            kMeshLodErrors[lodIndex]);
+            kMeshLodErrors[lodIndex],
+            0,
+            &resultError);
         lod.indices.resize(result);
+        lod.error = resultError * simplifyScale;
+        if (!std::isfinite(lod.error) || lod.error <= 0.0F) {
+            lod.error = kMeshLodErrors[lodIndex] * simplifyScale;
+        }
         const auto duplicate = std::any_of(primitive.lods.begin(), primitive.lods.end(), [&lod](const MeshLod& existing) {
             return existing.indices.size() == lod.indices.size();
         });

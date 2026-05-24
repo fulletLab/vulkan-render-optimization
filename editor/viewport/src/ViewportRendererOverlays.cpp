@@ -143,4 +143,43 @@ void appendEntityMarker(
     appendLineQuad(vertices, indices, position - cameraUp * pivotRadius, position + cameraUp * pivotRadius, color, selected ? 2.1F : 1.4F, cameraForward, cameraRight, cameraDistance);
 }
 
+void appendHierarchyLinks(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const scene::Scene& scene,
+    const std::function<std::optional<math::Vec3>(scene::EntityId)>& worldPositionFor,
+    scene::EntityId selectedEntityId,
+    bool skipPrimitivePartLinks,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance)
+{
+    for (const auto& entity : scene.entities()) {
+        if (!entity.parent.has_value()) {
+            continue;
+        }
+        if (skipPrimitivePartLinks
+            && entity.id != selectedEntityId
+            && entity.meshRenderer.has_value()
+            && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+            continue;
+        }
+        const auto childPosition = worldPositionFor(entity.id);
+        const auto parentPosition = worldPositionFor(*entity.parent);
+        if (!childPosition.has_value() || !parentPosition.has_value()) {
+            continue;
+        }
+        appendLineQuad(
+            vertices,
+            indices,
+            *parentPosition,
+            *childPosition,
+            {0.63F, 0.67F, 0.73F, 0.38F},
+            1.0F,
+            cameraForward,
+            cameraRight,
+            cameraDistance);
+    }
+}
+
 } // namespace projectunity::editor::detail

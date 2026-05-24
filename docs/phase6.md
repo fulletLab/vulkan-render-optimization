@@ -15,7 +15,11 @@ Phase 6 covers:
 
 ## Status
 
-Status: COMPLETE
+Status: PARCIAL
+
+The imported-asset path is functional and covered by automated tests/smokes, but
+large-world performance and visual parity for extreme third-party scenes still need
+broader manual viewport verification before Phase 6 can be called complete again.
 
 ## Phase 6.0.01 Research Baseline
 
@@ -30,7 +34,8 @@ Status: COMPLETE
 
 - The GLB/glTF importer keeps the full source mesh and material data. The default Scene View path must use the full primitive index buffers, not preview triangle budgets or automatic destructive LODs.
 - The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU timestamp queries, GPU mesh upload, color-space-aware GPU material texture upload with imported sampler state, generated RGBA8 mip chains, HDR texture import for environment sources, explicit KTX/KTX2 GPU mip upload for supported RGBA8/BC/ETC2/ASTC 2D textures, libktx-backed KTX2 Basis/UASTC/Zstd import with BC7 GPU payload plus RGBA8 fallback for Basis/UASTC when possible, conservative bounds culling, culling/timing renderer stats, glTF material factor and vertex-color preservation, textured imported mesh draws, Lighting panel driven RenderFrame environment settings, generated irradiance/prefiltered IBL cubemaps, renderer-owned cascaded directional shadows, spot 2D shadows, point-light cubemap shadows, shared opaque-caster descriptors, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
-- Imported meshoptimizer LOD index buffers are now selected at runtime by conservative screen-space primitive size. This keeps full-resolution indices for nearby and selected objects, uses lower LODs only when a primitive is small on screen, and leaves imported source geometry/materials/textures unchanged.
+- Imported meshoptimizer LOD index buffers now store simplification error and are selected at runtime by screen-space error plus conservative projected-size fallback. This keeps full-resolution indices for nearby and selected objects, uses lower LODs when a primitive is distant or small on screen, and leaves imported source geometry/materials/textures unchanged.
+- Imported repeated primitive instances now build coarse spatial culling clusters in asset space. The Scene/Game viewport tests these cluster AABBs before expanding to per-primitive draws, so off-camera large assets can skip whole groups before mesh/material preparation and shadow submission.
 - The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails, including Qt offscreen tests. Empty-scene editor aids and transform-only entity markers now use the Vulkan color path when a real viewport surface is available.
 - Phase 6 completion was verified with the normal core/editor suites, visible editor smoke, and a broad Phase 6 visual smoke over the local verification GLB pack, including cascaded directional shadows, `LightsPunctualLamp.glb` point-light cubemap shadows, and `NodePerformanceTest.glb` large-scene counters.
 
@@ -67,7 +72,7 @@ Status: COMPLETE
 - The Vulkan viewport records GPU timestamp queries around the full viewport frame,
   shadow pass, main mesh pass, and editor color-aid pass. The Profiler exposes support/
   validity plus the latest collected GPU times in microseconds.
-- The Profiler also reports runtime LOD draw count and skipped triangles so large-scene distance behavior is measurable instead of guessed.
+- The Profiler also reports runtime LOD draw count and skipped triangles so large-scene distance behavior is measurable instead of guessed. Large imported models now have an asset-side primitive cluster hierarchy, making `Mesh culled last` react to off-camera cluster rejection instead of only single primitive rejection.
 - The shadow pass uses each draw's world-space sphere bounds against the selected shadow
   view-projection clip planes and skips off-map opaque/masked batches conservatively.
   The Profiler reports shadow view count plus both drawn and culled shadow batches.
@@ -260,6 +265,13 @@ ctest --preset dev-editor-local-qt
   passed 8/8, visible Windows `projectunity_editor --smoke-test` passed, and visible
   Windows `projectunity_editor --phase6-visual-smoke` passed after importing the 13 GLB
   assets in `Project/Assets/VisualVerification`.
+- Latest large-scene cluster culling check: `cmake --build --preset dev-editor-local-qt`
+  passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 9/9,
+  visible Windows `projectunity_editor --phase6-visual-smoke` passed,
+  `cmake --build --preset dev-core` passed, `ctest --preset dev-core
+  --output-on-failure` passed 8/8, `git diff --check` reported no whitespace errors
+  beyond LF/CRLF warnings, and source-rule coverage confirmed all source files stay
+  at or below 800 lines.
 - `projectunity_asset_tests` generates a real temporary GLB with a node transform, vertex colors, PBR material factors/maps, sampler wrap/filter state, occlusion strength, emissive texture state, mask alpha state, a punctual spot light, and a perspective camera, imports it, verifies that the transform, transformed bounds, vertex colors, factors, material maps, sampler state, light state, camera state, occlusion/emissive state, alpha mode, and alpha cutoff are preserved, validates tangent data, imports PNG and HDR textures, imports a generated KTX1 ASTC texture while checking GPU mip preservation and 1-100 progress events, imports a small KTX2 Basis texture through libktx when enabled and verifies BC7 GPU mip data plus RGBA fallback output, verifies cache records, imports the textured glTF example, and rejects a missing asset.
 - `projectunity_asset_tests` also generates an asymmetric spatial GLB with left, right, front, back, `node.matrix`, quaternion-rotated, and negative-scale mirrored nodes. It verifies that left/right stays stable, glTF `-Z` maps to engine `+Z`, matrix translation remains column-major, quaternion rotation affects converted bounds, UVs are not flipped, and negative determinant converted transforms preserve bounds, normals, winding, and tangent handedness.
 - `projectunity_scene_tests` verifies `MeshRendererComponent` scene roundtrip.
@@ -464,7 +476,8 @@ Date: 2026-05-22
   primitive sets are combined into adaptive spatial material batches instead of one
   giant batch per texture/material or one draw per source node. `NodePerformanceTest.glb`
   is covered by an optional asset test when the local verification pack exists; the
-  current local fixture imports as 100 materials/textures and 400 spatial batches.
+  current local fixture imports as 100 materials/textures and 400 spatial batches,
+  with a validated primitive cluster hierarchy over those batches.
 - Vulkan mesh and shadow shaders now consume an instance matrix vertex stream, and
   the viewport renderer batches compatible mesh draws with
   `vkCmdDrawIndexed(..., instanceCount)` instead of forcing one GPU draw per scene
@@ -473,6 +486,10 @@ Date: 2026-05-22
   primitive. The viewport chooses those LODs by projected screen radius, reducing
   submitted triangles when a huge scene is fully visible from far away while keeping
   full-resolution editing for close and selected objects.
+- Runtime LOD selection now uses the absolute simplification error returned by
+  `meshopt_simplify`/`meshopt_simplifyScale` so large terrain/world chunks can drop
+  to a lower index buffer based on screen-space error instead of only their projected
+  bounds radius.
 - The initial runtime LOD implementation duplicated vertex buffers per LOD and could
   stall the first visible frame after importing a large scene. The mesh cache now shares
   vertex buffers per primitive and preuploads static mesh/material resources from
@@ -481,6 +498,10 @@ Date: 2026-05-22
   asset-size fix. Current local code now follows the first practical Vulkan guidance
   step: reduce repeated CPU-side resource lookup/bind preparation around the current
   direct draw path before attempting GPU-driven indirect rendering.
+- Large-scene viewport submission now performs a coarse asset-space cluster AABB test
+  before per-instance expansion. This is the local non-ray-tracing analogue of the
+  `TLAS`/`BLAS`/`AABB` guidance from the Phase 6.0.01 notes: keep stable imported
+  instance data, group spatially, and reject irrelevant groups before expensive pass work.
 - The shadow pass no longer prepares full material texture descriptors for every
   opaque caster. Opaque casters share a default descriptor for the frame, while
   `MASK` casters still bind base-color alpha so cutoff shadows stay correct.

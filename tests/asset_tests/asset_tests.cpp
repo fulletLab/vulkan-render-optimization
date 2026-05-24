@@ -710,7 +710,8 @@ int main()
         for (const auto& primitive : largeGrid->primitives) {
             largeGridIndexCount += primitive.indices.size();
             largestGridChunkIndexCount = std::max<std::uint64_t>(largestGridChunkIndexCount, primitive.indices.size());
-            largeGridHasLods = largeGridHasLods || !primitive.lods.empty();
+            largeGridHasLods = largeGridHasLods
+                || (!primitive.lods.empty() && primitive.lods.back().error > 0.0F);
         }
     }
     if (!largeGridResult.success
@@ -737,54 +738,9 @@ int main()
     if (std::filesystem::exists(nodePerformancePath)) {
         const auto nodePerfResult = manager.importModel(nodePerformancePath);
         const auto nodePerf = manager.model(nodePerfResult.record.id);
-        const auto nodePerfMaterialBatchFloor = nodePerf != nullptr
-            ? std::max<std::size_t>(nodePerf->materials.size(), 1U)
-            : 1U;
-        if (!nodePerfResult.success
-            || nodePerf == nullptr
-            || nodePerf->primitives.empty()
-            || nodePerf->primitiveInstances.empty()
-            || nodePerf->primitiveInstances.size() <= nodePerfMaterialBatchFloor
-            || nodePerf->primitiveInstances.size() > 2048U) {
-            std::cerr << nodePerfResult.error << '\n';
-            if (nodePerf != nullptr) {
-                std::cerr << "primitives=" << nodePerf->primitives.size()
-                          << " instances=" << nodePerf->primitiveInstances.size()
-                          << " materials=" << nodePerf->materials.size()
-                          << " textures=" << nodePerf->textures.size()
-                          << " vertices=" << nodePerfResult.record.vertexCount << '\n';
-            }
-            return fail("NodePerformanceTest did not import into renderer-friendly spatial batches");
-        }
-        if (nodePerfResult.record.vertexCount > 1'000'000U) {
-            return fail("NodePerformanceTest import produced an unexpected vertex count");
-        }
-        if (nodePerf->materials.empty()
-            || !nodePerf->materials.front().baseColorTexture.has_value()
-            || *nodePerf->materials.front().baseColorTexture >= nodePerf->textures.size()) {
-            return fail("NodePerformanceTest import lost base-color texture material bindings");
-        }
-        const auto& nodePerfTexture = nodePerf->textures[*nodePerf->materials.front().baseColorTexture];
-        std::uint64_t nodePerfColorTotal = 0;
-        const auto nodePerfPixelCount = nodePerfTexture.rgba8.size() / 4U;
-        for (std::size_t pixel = 0; pixel < nodePerfPixelCount; ++pixel) {
-            nodePerfColorTotal += nodePerfTexture.rgba8[pixel * 4U];
-            nodePerfColorTotal += nodePerfTexture.rgba8[pixel * 4U + 1U];
-            nodePerfColorTotal += nodePerfTexture.rgba8[pixel * 4U + 2U];
-        }
-        const auto nodePerfAverageColor = nodePerfColorTotal / std::max<std::uint64_t>(nodePerfPixelCount * 3U, 1U);
-        projectunity::asset_tests::printNodePerformanceMetrics(*nodePerf, nodePerfResult, nodePerfPixelCount, nodePerfAverageColor);
-        if (!nodePerfTexture.id.isValid()
-            || nodePerfPixelCount == 0U
-            || nodePerfAverageColor > 220U) {
-            return fail("NodePerformanceTest import produced invalid texture data");
-        }
-        const auto nodePerfHasLods = std::any_of(nodePerf->primitives.begin(), nodePerf->primitives.end(), [](const MeshPrimitive& primitive) {
-            return !primitive.lods.empty()
-                && primitive.lods.back().indices.size() < primitive.indices.size();
-        });
-        if (!nodePerfHasLods) {
-            return fail("NodePerformanceTest renderer-friendly batches did not keep runtime LOD data");
+        if (const auto* error = projectunity::asset_tests::validateNodePerformanceImport(nodePerf.get(), nodePerfResult);
+            error != nullptr) {
+            return fail(error);
         }
     }
 

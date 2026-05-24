@@ -16,6 +16,7 @@ namespace projectunity::editor {
     float boundsRadius,
     float depth,
     float verticalFovRadians,
-    float viewportHeight) noexcept;
+    float viewportHeight,
+    bool forceFullResolution = false) noexcept;
 
 } // namespace projectunity::editor

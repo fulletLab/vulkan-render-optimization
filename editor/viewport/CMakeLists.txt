@@ -22,6 +22,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportLabelGeometry.cpp
     src/ViewportMeshLod.cpp
     src/ViewportMeshLod.hpp
+    src/ViewportRendererCulling.cpp
+    src/ViewportRendererCulling.hpp
     src/ViewportRendererOverlays.cpp
     src/ViewportRendererOverlays.hpp
     src/ViewportWidgetRenderer.cpp
