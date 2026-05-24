@@ -7,6 +7,8 @@
 #include "GltfTextureImport.hpp"
 #include "KtxTextureImport.hpp"
 #include "MeshBounds.hpp"
+#include "MeshLodGenerator.hpp"
+#include "MeshPrimitiveChunker.hpp"
 #include "MeshPrimitiveBatcher.hpp"
 #include "MeshPrimitiveSignature.hpp"
 #include "StbTextureImport.hpp"
@@ -182,6 +184,7 @@ void generateTangents(MeshPrimitive& primitive)
         core::logWarning(core::LogCategory::Assets, "MikkTSpace tangent generation used a fallback tangent basis");
     }
 }
+
 void optimizePrimitive(MeshPrimitive& primitive)
 {
     if (primitive.vertices.empty() || primitive.indices.size() < 3) {
@@ -209,37 +212,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
         primitive.vertices.size(),
         sizeof(MeshVertex));
     primitive.vertices = std::move(reordered);
-    const auto appendLod = [&primitive](std::size_t targetTriangleCount) {
-        const auto targetCount = targetTriangleCount * 3U;
-        if (targetCount < 3U || targetCount >= primitive.indices.size()) {
-            return;
-        }
-        const auto duplicate = std::any_of(primitive.lods.begin(), primitive.lods.end(), [targetCount](const MeshLod& lod) {
-            return lod.indices.size() == targetCount;
-        });
-        if (duplicate) {
-            return;
-        }
-        MeshLod lod;
-        lod.indices.resize(primitive.indices.size());
-        const auto result = meshopt_simplify(
-            lod.indices.data(),
-            primitive.indices.data(),
-            primitive.indices.size(),
-            &primitive.vertices.front().position.x,
-            primitive.vertices.size(),
-            sizeof(MeshVertex),
-            targetCount,
-            0.01F);
-        lod.indices.resize(result);
-        if (lod.indices.size() >= 3U && lod.indices.size() < primitive.indices.size()) {
-            primitive.lods.push_back(std::move(lod));
-        }
-    };
-    const auto sourceTriangles = primitive.indices.size() / 3U;
-    appendLod(sourceTriangles / 2U);
-    appendLod(sourceTriangles / 4U);
-    appendLod(sourceTriangles / 8U);
+    detail::rebuildSimplificationLods(primitive);
 }
 [[nodiscard]] std::array<float, 16> toFloatMatrix(GltfMatrix4 matrix)
 {
@@ -698,6 +671,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     }
     reportProgress(progress, 82, "Batching and optimizing meshes");
     detail::batchModelPrimitives(*model);
+    detail::splitLargePrimitivesIntoSpatialChunks(*model);
     AssetRecord record;
     record.id = model->id;
     record.type = AssetType::Model;

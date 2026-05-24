@@ -1,5 +1,6 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
+#include "ViewportMeshLod.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
@@ -164,48 +165,6 @@ namespace {
     const auto x = math::dot(relative, right);
     const auto y = math::dot(relative, up);
     return std::fabs(x) <= halfWidth + radius && std::fabs(y) <= halfHeight + radius;
-}
-[[nodiscard]] std::size_t indexCountForLod(const assets::MeshPrimitive& primitive, std::uint32_t lodIndex)
-{
-    if (lodIndex == 0U || lodIndex - 1U >= primitive.lods.size()) {
-        return primitive.indices.size();
-    }
-    const auto& indices = primitive.lods[lodIndex - 1U].indices;
-    return indices.empty() ? primitive.indices.size() : indices.size();
-}
-[[nodiscard]] std::uint32_t selectMeshLod(
-    const assets::MeshPrimitive& primitive,
-    float boundsRadius,
-    float depth,
-    float verticalFovRadians,
-    float viewportHeight) noexcept
-{
-    if (primitive.lods.empty()
-        || boundsRadius <= 0.0F
-        || depth <= 0.05F
-        || viewportHeight < 1.0F
-        || !std::isfinite(boundsRadius)
-        || !std::isfinite(depth)) {
-        return 0U;
-    }
-    const auto projectionScale = (viewportHeight * 0.5F) / std::max(std::tan(verticalFovRadians * 0.5F), 0.001F);
-    const auto projectedRadius = boundsRadius * projectionScale / std::max(depth, 0.05F);
-    if (!std::isfinite(projectedRadius)) {
-        return 0U;
-    }
-    const auto available = static_cast<std::uint32_t>(std::min<std::size_t>(primitive.lods.size(), 3U));
-    std::uint32_t requested = 0U;
-    if (projectedRadius < 80.0F) {
-        requested = available;
-    } else if (projectedRadius < 160.0F) {
-        requested = std::min<std::uint32_t>(2U, available);
-    } else if (projectedRadius < 320.0F) {
-        requested = std::min<std::uint32_t>(1U, available);
-    }
-    while (requested > 0U && indexCountForLod(primitive, requested) >= primitive.indices.size()) {
-        --requested;
-    }
-    return requested;
 }
 [[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback)
 {
@@ -601,15 +560,13 @@ bool ViewportWidget::renderRendererFrame()
                 const auto& material = model->materials[primitive.materialIndex];
                 const auto mvp = multiply(viewProjection, drawModelMatrix);
                 const auto sortDepth = math::dot(boundsCenter - eye, forward);
-                const auto lodIndex = entity.id == selectedEntityId_
-                    ? 0U
-                    : selectMeshLod(
-                        primitive,
-                        boundsRadius,
-                        sortDepth,
-                        cameraFrame.verticalFovRadians,
-                        static_cast<float>(std::max(height(), 1)));
-                const auto selectedTriangleCount = static_cast<std::uint64_t>(indexCountForLod(primitive, lodIndex) / 3U);
+                const auto lodIndex = selectViewportMeshLod(
+                    primitive,
+                    boundsRadius,
+                    sortDepth,
+                    cameraFrame.verticalFovRadians,
+                    static_cast<float>(std::max(height(), 1)));
+                const auto selectedTriangleCount = static_cast<std::uint64_t>(indexCountForViewportLod(primitive, lodIndex) / 3U);
                 if (lodIndex > 0U && selectedTriangleCount < sourceTriangleCount) {
                     ++frame.lodMeshDrawCount;
                     frame.lodTriangleReductionCount += sourceTriangleCount - selectedTriangleCount;

@@ -511,6 +511,14 @@ bool VulkanViewportTarget::recordFrameCommand(
             return false;
         }
     }
+    textureDescriptors_.clear();
+    descriptorEnvironmentKeyValid_ = false;
+    if (vkResetDescriptorPool(context_.device, descriptorPool_, 0) != VK_SUCCESS) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Failed to reset Vulkan texture descriptor pool";
+        }
+        return false;
+    }
     const auto prepareStart = std::chrono::steady_clock::now();
     if (!buildMeshBatches(frame.meshDraws, uploads, errorMessage)) {
         return false;

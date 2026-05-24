@@ -38,6 +38,10 @@ add_library(projectunity_assets STATIC
     src/KtxTextureImportLibktx.hpp
     src/MeshBounds.cpp
     src/MeshBounds.hpp
+    src/MeshLodGenerator.cpp
+    src/MeshLodGenerator.hpp
+    src/MeshPrimitiveChunker.cpp
+    src/MeshPrimitiveChunker.hpp
     src/MeshPrimitiveBatcher.cpp
     src/MeshPrimitiveBatcher.hpp
     src/MeshPrimitiveSignature.cpp

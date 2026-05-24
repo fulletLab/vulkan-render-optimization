@@ -26,6 +26,7 @@ struct DrawTriangle {
     QPolygonF polygon;
     std::array<QPointF, 3> projectedPoints;
     std::array<std::array<float, 2>, 3> texCoords;
+    std::array<float, 2> fallbackTexCoord {};
     std::array<float, 4> baseColor {1.0F, 1.0F, 1.0F, 1.0F};
     const assets::TextureAsset* texture {nullptr};
     float depth {0.0F};
@@ -117,6 +118,80 @@ struct DrawTriangle {
         static_cast<int>(texture.height),
         static_cast<int>(texture.width * 4U),
         QImage::Format_RGBA8888);
+}
+
+[[nodiscard]] float textureCoordinate(float value, assets::TextureWrapMode mode)
+{
+    if (mode == assets::TextureWrapMode::ClampToEdge) {
+        return std::clamp(value, 0.0F, 1.0F);
+    }
+    if (mode == assets::TextureWrapMode::MirroredRepeat) {
+        const auto period = std::floor(value);
+        auto repeated = value - period;
+        if (repeated < 0.0F) {
+            repeated += 1.0F;
+        }
+        return static_cast<int>(period) % 2 == 0 ? repeated : 1.0F - repeated;
+    }
+    auto repeated = value - std::floor(value);
+    if (repeated < 0.0F) {
+        repeated += 1.0F;
+    }
+    return repeated;
+}
+
+[[nodiscard]] QColor sampledTextureColor(const assets::TextureAsset& texture, std::array<float, 2> uv)
+{
+    const auto u = textureCoordinate(uv[0], texture.sampler.wrapU);
+    const auto v = textureCoordinate(uv[1], texture.sampler.wrapV);
+    const auto x = std::clamp(
+        static_cast<int>(u * static_cast<float>(texture.width - 1U) + 0.5F),
+        0,
+        static_cast<int>(texture.width - 1U));
+    const auto y = std::clamp(
+        static_cast<int>((1.0F - v) * static_cast<float>(texture.height - 1U) + 0.5F),
+        0,
+        static_cast<int>(texture.height - 1U));
+    const auto offset = (static_cast<std::size_t>(y) * texture.width + static_cast<std::size_t>(x)) * 4U;
+    return QColor(
+        texture.rgba8[offset],
+        texture.rgba8[offset + 1U],
+        texture.rgba8[offset + 2U],
+        texture.rgba8[offset + 3U]);
+}
+
+[[nodiscard]] QColor averageTextureColor(const assets::TextureAsset& texture)
+{
+    if (!textureUsable(&texture)) {
+        return QColor(255, 255, 255, 255);
+    }
+    std::uint64_t red = 0;
+    std::uint64_t green = 0;
+    std::uint64_t blue = 0;
+    std::uint64_t alpha = 0;
+    const auto pixelCount = static_cast<std::size_t>(texture.width) * static_cast<std::size_t>(texture.height);
+    for (std::size_t pixel = 0; pixel < pixelCount; ++pixel) {
+        const auto offset = pixel * 4U;
+        red += texture.rgba8[offset];
+        green += texture.rgba8[offset + 1U];
+        blue += texture.rgba8[offset + 2U];
+        alpha += texture.rgba8[offset + 3U];
+    }
+    const auto count = std::max<std::uint64_t>(pixelCount, 1U);
+    return QColor(
+        static_cast<int>(red / count),
+        static_cast<int>(green / count),
+        static_cast<int>(blue / count),
+        static_cast<int>(alpha / count));
+}
+
+[[nodiscard]] QColor modulatedColor(QColor color, const std::array<float, 4>& factor)
+{
+    return QColor::fromRgbF(
+        std::clamp(color.redF() * static_cast<qreal>(factor[0]), 0.0, 1.0),
+        std::clamp(color.greenF() * static_cast<qreal>(factor[1]), 0.0, 1.0),
+        std::clamp(color.blueF() * static_cast<qreal>(factor[2]), 0.0, 1.0),
+        std::clamp(color.alphaF() * static_cast<qreal>(factor[3]), 0.0, 1.0));
 }
 
 } // namespace
@@ -303,9 +378,10 @@ bool ViewportWidget::drawMeshEntity(QPainter& painter, const scene::Entity& enti
 
         for (std::size_t index = 2; index < indices.size(); index += 3U) {
             DrawTriangle triangle;
-            triangle.baseColor = material.baseColor;
             triangle.texture = texture;
             const std::array<std::uint32_t, 3> triangleIndices {indices[index - 2], indices[index - 1], indices[index]};
+            std::array<float, 4> vertexColorSum {};
+            std::array<float, 2> uvSum {};
             bool visible = true;
             for (std::size_t vertexIndex = 0; vertexIndex < triangleIndices.size(); ++vertexIndex) {
                 if (triangleIndices[vertexIndex] >= primitive.vertices.size()) {
@@ -326,11 +402,20 @@ bool ViewportWidget::drawMeshEntity(QPainter& painter, const scene::Entity& enti
                 triangle.polygon << projected.point;
                 triangle.projectedPoints[vertexIndex] = projected.point;
                 triangle.texCoords[vertexIndex] = sourceVertex.texCoord;
+                uvSum[0] += sourceVertex.texCoord[0];
+                uvSum[1] += sourceVertex.texCoord[1];
+                for (std::size_t channel = 0; channel < vertexColorSum.size(); ++channel) {
+                    vertexColorSum[channel] += sourceVertex.color[channel];
+                }
                 triangle.depth += projected.depth;
             }
 
             if (visible && triangle.polygon.boundingRect().intersects(rect().adjusted(-48, -48, 48, 48))) {
                 triangle.depth /= 3.0F;
+                triangle.fallbackTexCoord = {uvSum[0] / 3.0F, uvSum[1] / 3.0F};
+                for (std::size_t channel = 0; channel < triangle.baseColor.size(); ++channel) {
+                    triangle.baseColor[channel] = material.baseColor[channel] * vertexColorSum[channel] / 3.0F;
+                }
                 triangles.push_back(std::move(triangle));
             }
         }
@@ -343,41 +428,51 @@ bool ViewportWidget::drawMeshEntity(QPainter& painter, const scene::Entity& enti
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, false);
     std::unordered_map<const assets::TextureAsset*, QImage> textureCache;
+    std::unordered_map<const assets::TextureAsset*, QColor> averageColorCache;
     for (const auto& triangle : triangles) {
         bool textured = false;
         if (textureUsable(triangle.texture)) {
-            const auto [it, inserted] = textureCache.try_emplace(triangle.texture, textureImage(*triangle.texture));
-            Q_UNUSED(inserted);
-            const auto& image = it->second;
-            QPolygonF sourceQuad;
-            sourceQuad
-                << texturePoint(*triangle.texture, triangle.texCoords[0])
-                << texturePoint(*triangle.texture, triangle.texCoords[1])
-                << texturePoint(*triangle.texture, triangle.texCoords[2]);
-            sourceQuad << sourceQuad[0] + sourceQuad[2] - sourceQuad[1];
+            const auto projectedBounds = triangle.polygon.boundingRect();
+            if (projectedBounds.width() >= 2.0 && projectedBounds.height() >= 2.0) {
+                const auto [it, inserted] = textureCache.try_emplace(triangle.texture, textureImage(*triangle.texture));
+                Q_UNUSED(inserted);
+                const auto& image = it->second;
+                QPolygonF sourceQuad;
+                sourceQuad
+                    << texturePoint(*triangle.texture, triangle.texCoords[0])
+                    << texturePoint(*triangle.texture, triangle.texCoords[1])
+                    << texturePoint(*triangle.texture, triangle.texCoords[2]);
+                sourceQuad << sourceQuad[0] + sourceQuad[2] - sourceQuad[1];
 
-            QPolygonF destinationQuad;
-            destinationQuad
-                << triangle.projectedPoints[0]
-                << triangle.projectedPoints[1]
-                << triangle.projectedPoints[2];
-            destinationQuad << destinationQuad[0] + destinationQuad[2] - destinationQuad[1];
+                QPolygonF destinationQuad;
+                destinationQuad
+                    << triangle.projectedPoints[0]
+                    << triangle.projectedPoints[1]
+                    << triangle.projectedPoints[2];
+                destinationQuad << destinationQuad[0] + destinationQuad[2] - destinationQuad[1];
 
-            QTransform textureTransform;
-            if (QTransform::quadToQuad(sourceQuad, destinationQuad, textureTransform)) {
-                QPainterPath clipPath;
-                clipPath.addPolygon(triangle.polygon);
-                painter.save();
-                painter.setClipPath(clipPath);
-                painter.setTransform(textureTransform, true);
-                painter.drawImage(QPointF(0.0, 0.0), image);
-                painter.restore();
-                textured = true;
+                QTransform textureTransform;
+                if (QTransform::quadToQuad(sourceQuad, destinationQuad, textureTransform)) {
+                    QPainterPath clipPath;
+                    clipPath.addPolygon(triangle.polygon);
+                    painter.save();
+                    painter.setClipPath(clipPath);
+                    painter.setTransform(textureTransform, true);
+                    painter.drawImage(QPointF(0.0, 0.0), image);
+                    painter.restore();
+                    textured = true;
+                }
             }
         }
 
         if (!textured) {
-            painter.setBrush(baseColorToQColor(triangle.baseColor));
+            auto color = baseColorToQColor(triangle.baseColor);
+            if (textureUsable(triangle.texture)) {
+                const auto [it, inserted] = averageColorCache.try_emplace(triangle.texture, averageTextureColor(*triangle.texture));
+                Q_UNUSED(inserted);
+                color = modulatedColor(it->second, triangle.baseColor);
+            }
+            painter.setBrush(color);
             painter.setPen(Qt::NoPen);
             painter.drawPolygon(triangle.polygon);
         }

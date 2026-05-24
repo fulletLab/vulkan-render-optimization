@@ -1,6 +1,7 @@
 #include "MeshPrimitiveBatcher.hpp"
 
 #include "GltfNodeTransforms.hpp"
+#include "MeshLodGenerator.hpp"
 #include "MeshBounds.hpp"
 
 #include <algorithm>
@@ -176,6 +177,7 @@ void batchModelPrimitives(ModelAsset& model)
         }
 
         auto transformed = source;
+        transformed.lods.clear();
         applyGltfTransform(transformed, toMatrix(instance.transform));
         auto& destination = batched[target->primitiveIndex];
         if (destination.vertices.size() + transformed.vertices.size() > std::numeric_limits<std::uint32_t>::max()) {
@@ -193,6 +195,7 @@ void batchModelPrimitives(ModelAsset& model)
     instances.reserve(batched.size());
     for (std::uint32_t index = 0; index < batched.size(); ++index) {
         updateMeshBounds(batched[index]);
+        rebuildSimplificationLods(batched[index]);
         instances.push_back(identityInstance(index, batched[index].bounds));
     }
     model.primitives = std::move(batched);

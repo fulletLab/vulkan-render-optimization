@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -76,6 +77,45 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
     return bytes;
 }
 
+[[nodiscard]] std::vector<std::uint8_t> makeLargeGridBuffer(std::uint32_t side)
+{
+    std::vector<std::uint8_t> bytes;
+    const auto vertexCount = static_cast<std::size_t>(side) * static_cast<std::size_t>(side);
+    const auto quadCount = static_cast<std::size_t>(side - 1U) * static_cast<std::size_t>(side - 1U);
+    bytes.reserve(vertexCount * (sizeof(float) * 8U) + quadCount * 6U * sizeof(std::uint32_t));
+
+    for (std::uint32_t z = 0; z < side; ++z) {
+        for (std::uint32_t x = 0; x < side; ++x) {
+            appendFloat(bytes, static_cast<float>(x));
+            appendFloat(bytes, 0.0F);
+            appendFloat(bytes, static_cast<float>(z));
+        }
+    }
+    for (std::size_t vertex = 0; vertex < vertexCount; ++vertex) {
+        appendFloat(bytes, 0.0F);
+        appendFloat(bytes, 1.0F);
+        appendFloat(bytes, 0.0F);
+    }
+    for (std::uint32_t z = 0; z < side; ++z) {
+        for (std::uint32_t x = 0; x < side; ++x) {
+            appendFloat(bytes, static_cast<float>(x) / static_cast<float>(side - 1U));
+            appendFloat(bytes, static_cast<float>(z) / static_cast<float>(side - 1U));
+        }
+    }
+    for (std::uint32_t z = 0; z + 1U < side; ++z) {
+        for (std::uint32_t x = 0; x + 1U < side; ++x) {
+            const auto i0 = z * side + x;
+            const auto i1 = i0 + 1U;
+            const auto i2 = i0 + side;
+            const auto i3 = i2 + 1U;
+            const std::array<std::uint32_t, 6> indices {{i0, i2, i1, i1, i2, i3}};
+            for (const auto index : indices) {
+                appendU32(bytes, index);
+            }
+        }
+    }
+    return bytes;
+}
 [[nodiscard]] std::vector<std::uint8_t> makeKtx1Astc4x4Texture()
 {
     std::vector<std::uint8_t> bytes {
@@ -239,6 +279,65 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
     glb.insert(glb.end(), binary.begin(), binary.end());
     return writeBinary(path, glb);
 }
+[[nodiscard]] bool writeLargeGridGlb(const std::filesystem::path& path, std::uint32_t side)
+{
+    auto binary = makeLargeGridBuffer(side);
+    while (binary.size() % 4U != 0) {
+        binary.push_back(0);
+    }
+
+    const auto vertexCount = static_cast<std::size_t>(side) * static_cast<std::size_t>(side);
+    const auto indexCount = static_cast<std::size_t>(side - 1U) * static_cast<std::size_t>(side - 1U) * 6U;
+    const auto positionsOffset = 0U;
+    const auto positionsLength = vertexCount * sizeof(float) * 3U;
+    const auto normalsOffset = positionsOffset + positionsLength;
+    const auto normalsLength = vertexCount * sizeof(float) * 3U;
+    const auto texCoordsOffset = normalsOffset + normalsLength;
+    const auto texCoordsLength = vertexCount * sizeof(float) * 2U;
+    const auto indicesOffset = texCoordsOffset + texCoordsLength;
+    const auto indicesLength = indexCount * sizeof(std::uint32_t);
+    std::ostringstream json;
+    json << R"({
+        "asset":{"version":"2.0"},
+        "buffers":[{"byteLength":)" << binary.size() << R"(}],
+        "bufferViews":[
+            {"buffer":0,"byteOffset":)" << positionsOffset << R"(,"byteLength":)" << positionsLength << R"(},
+            {"buffer":0,"byteOffset":)" << normalsOffset << R"(,"byteLength":)" << normalsLength << R"(},
+            {"buffer":0,"byteOffset":)" << texCoordsOffset << R"(,"byteLength":)" << texCoordsLength << R"(},
+            {"buffer":0,"byteOffset":)" << indicesOffset << R"(,"byteLength":)" << indicesLength << R"(}
+        ],
+        "accessors":[
+            {"bufferView":0,"componentType":5126,"count":)" << vertexCount << R"(,"type":"VEC3","min":[0,0,0],"max":[)"
+         << side - 1U << R"(,0,)" << side - 1U << R"(]},
+            {"bufferView":1,"componentType":5126,"count":)" << vertexCount << R"(,"type":"VEC3"},
+            {"bufferView":2,"componentType":5126,"count":)" << vertexCount << R"(,"type":"VEC2"},
+            {"bufferView":3,"componentType":5125,"count":)" << indexCount << R"(,"type":"SCALAR"}
+        ],
+        "materials":[{"pbrMetallicRoughness":{"baseColorFactor":[0.32,0.24,0.18,1.0],"metallicFactor":0.0,"roughnessFactor":0.9}}],
+        "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3,"material":0}]}],
+        "nodes":[{"mesh":0}],
+        "scenes":[{"nodes":[0]}],
+        "scene":0
+    })";
+
+    auto jsonString = json.str();
+    std::vector<std::uint8_t> jsonBytes(jsonString.begin(), jsonString.end());
+    while (jsonBytes.size() % 4U != 0) {
+        jsonBytes.push_back(static_cast<std::uint8_t>(' '));
+    }
+
+    std::vector<std::uint8_t> glb;
+    appendU32(glb, 0x46546C67U);
+    appendU32(glb, 2U);
+    appendU32(glb, static_cast<std::uint32_t>(12U + 8U + jsonBytes.size() + 8U + binary.size()));
+    appendU32(glb, static_cast<std::uint32_t>(jsonBytes.size()));
+    appendU32(glb, 0x4E4F534AU);
+    glb.insert(glb.end(), jsonBytes.begin(), jsonBytes.end());
+    appendU32(glb, static_cast<std::uint32_t>(binary.size()));
+    appendU32(glb, 0x004E4942U);
+    glb.insert(glb.end(), binary.begin(), binary.end());
+    return writeBinary(path, glb);
+}
 
 [[nodiscard]] std::vector<std::uint8_t> makeSpatialBuffer()
 {
@@ -378,6 +477,7 @@ int main()
 
     const auto glbPath = root / "triangle.glb";
     const auto spatialGlbPath = root / "spatial.glb";
+    const auto largeGridGlbPath = root / "large_grid.glb";
     const auto pngPath = root / "tiny.png";
     const auto hdrPath = root / "tiny.hdr";
     const auto ktxPath = root / "astc.ktx";
@@ -386,6 +486,7 @@ int main()
 #endif
     auto wroteFixtures = writeTriangleGlb(glbPath)
         && writeSpatialGlb(spatialGlbPath)
+        && writeLargeGridGlb(largeGridGlbPath, 310U)
         && writeTinyPng(pngPath)
         && writeTinyHdr(hdrPath)
         && writeBinary(ktxPath, makeKtx1Astc4x4Texture());
@@ -597,6 +698,30 @@ int main()
         return fail("glTF texture coordinates were flipped or lost");
     }
 
+    const auto largeGridResult = manager.importModel(largeGridGlbPath);
+    const auto largeGrid = manager.model(largeGridResult.record.id);
+    const auto largeGridExpectedIndexCount = static_cast<std::uint64_t>(309U) * 309U * 6U;
+    std::uint64_t largeGridIndexCount = 0;
+    std::uint64_t largestGridChunkIndexCount = 0;
+    bool largeGridHasLods = false;
+    if (largeGrid != nullptr) {
+        for (const auto& primitive : largeGrid->primitives) {
+            largeGridIndexCount += primitive.indices.size();
+            largestGridChunkIndexCount = std::max<std::uint64_t>(largestGridChunkIndexCount, primitive.indices.size());
+            largeGridHasLods = largeGridHasLods || !primitive.lods.empty();
+        }
+    }
+    if (!largeGridResult.success
+        || largeGrid == nullptr
+        || largeGrid->primitives.size() <= 1U
+        || largeGrid->primitiveInstances.size() <= 1U
+        || largeGridIndexCount != largeGridExpectedIndexCount
+        || largestGridChunkIndexCount >= largeGridExpectedIndexCount
+        || !largeGridHasLods) {
+        std::cerr << largeGridResult.error << '\n';
+        return fail("large glTF primitive was not split into renderer-friendly spatial chunks with LODs");
+    }
+
     const auto examplePath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
         / "examples" / "basic_assets" / "TexturedTriangle.gltf";
     const auto exampleResult = manager.importModel(examplePath);
@@ -636,6 +761,31 @@ int main()
         }
         if (nodePerfResult.record.vertexCount > 1'000'000U) {
             return fail("NodePerformanceTest import produced an unexpected vertex count");
+        }
+        if (nodePerf->materials.empty()
+            || !nodePerf->materials.front().baseColorTexture.has_value()
+            || *nodePerf->materials.front().baseColorTexture >= nodePerf->textures.size()) {
+            return fail("NodePerformanceTest import lost base-color texture material bindings");
+        }
+        const auto& nodePerfTexture = nodePerf->textures[*nodePerf->materials.front().baseColorTexture];
+        std::uint64_t nodePerfColorTotal = 0;
+        const auto nodePerfPixelCount = nodePerfTexture.rgba8.size() / 4U;
+        for (std::size_t pixel = 0; pixel < nodePerfPixelCount; ++pixel) {
+            nodePerfColorTotal += nodePerfTexture.rgba8[pixel * 4U];
+            nodePerfColorTotal += nodePerfTexture.rgba8[pixel * 4U + 1U];
+            nodePerfColorTotal += nodePerfTexture.rgba8[pixel * 4U + 2U];
+        }
+        if (!nodePerfTexture.id.isValid()
+            || nodePerfPixelCount == 0U
+            || nodePerfColorTotal / std::max<std::uint64_t>(nodePerfPixelCount * 3U, 1U) > 220U) {
+            return fail("NodePerformanceTest import produced invalid or whitewashed texture data");
+        }
+        const auto nodePerfHasLods = std::any_of(nodePerf->primitives.begin(), nodePerf->primitives.end(), [](const MeshPrimitive& primitive) {
+            return !primitive.lods.empty()
+                && primitive.lods.back().indices.size() < primitive.indices.size();
+        });
+        if (!nodePerfHasLods) {
+            return fail("NodePerformanceTest renderer-friendly batches did not keep runtime LOD data");
         }
     }
 

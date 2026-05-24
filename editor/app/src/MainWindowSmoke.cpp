@@ -387,6 +387,7 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
         if (QString::fromUtf8(assetName) == QStringLiteral("NodePerformanceTest.glb")) {
             sawLargeScene = stats.lastFrameCandidateTriangleCount > 10000U
                 && stats.lastFrameMeshBatchCount > 0U
+                && stats.lastFrameLodTriangleReductionCount > 0U
                 && stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U;
         }
     }
