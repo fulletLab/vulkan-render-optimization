@@ -24,6 +24,7 @@ namespace {
     return std::tuple {
         draw.modelAssetId.value(),
         draw.primitiveIndex,
+        draw.lodIndex,
         pointerKey(draw.material),
         pointerKey(draw.baseColorTexture),
         pointerKey(draw.normalTexture),

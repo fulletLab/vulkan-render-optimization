@@ -39,10 +39,25 @@ struct RendererStats {
     std::uint64_t lastFrameCandidateTriangleCount {0};
     std::uint64_t lastFrameCulledTriangleCount {0};
     std::uint64_t lastFrameVisibleTriangleCount {0};
+    std::uint64_t lastFrameLodMeshDrawCount {0};
+    std::uint64_t lastFrameLodTriangleReductionCount {0};
     std::uint64_t lastFrameLightCount {0};
     std::uint64_t lastFrameShadowCasterCount {0};
+    std::uint64_t lastFrameShadowBatchCount {0};
+    std::uint64_t lastFrameShadowCulledBatchCount {0};
     std::uint64_t lastFrameRenderCpuTimeUs {0};
     std::uint64_t averageRenderCpuTimeUs {0};
+    std::uint64_t lastFrameResourcePrepareCpuTimeUs {0};
+    std::uint64_t lastFrameCommandRecordCpuTimeUs {0};
+    std::uint64_t lastFrameShadowRecordCpuTimeUs {0};
+    std::uint64_t lastFrameMeshRecordCpuTimeUs {0};
+    std::uint64_t lastFrameColorRecordCpuTimeUs {0};
+    bool gpuTimestampsSupported {false};
+    bool lastFrameGpuTimestampsValid {false};
+    std::uint64_t lastFrameGpuTimeUs {0};
+    std::uint64_t lastFrameShadowGpuTimeUs {0};
+    std::uint64_t lastFrameMeshGpuTimeUs {0};
+    std::uint64_t lastFrameColorGpuTimeUs {0};
     std::uint64_t lastFrameMeshUploadCount {0};
     std::uint64_t lastFrameTextureUploadCount {0};
     std::uint64_t lastFrameStaticUploadBytes {0};
@@ -103,6 +118,7 @@ struct RenderLight {
 struct RenderMeshDraw {
     assets::AssetId modelAssetId;
     std::uint32_t primitiveIndex {0};
+    std::uint32_t lodIndex {0};
     const assets::MeshPrimitive* primitive {nullptr};
     const assets::MaterialAsset* material {nullptr};
     const assets::TextureAsset* baseColorTexture {nullptr};
@@ -111,6 +127,8 @@ struct RenderMeshDraw {
     const assets::TextureAsset* occlusionTexture {nullptr};
     const assets::TextureAsset* emissiveTexture {nullptr};
     float sortDepth {0.0F};
+    std::array<float, 3> worldBoundsCenter {0.0F, 0.0F, 0.0F};
+    float worldBoundsRadius {0.0F};
     RenderMatrix4 modelMatrix;
     RenderMatrix4 modelViewProjection;
     bool flipsWinding {false};
@@ -144,6 +162,8 @@ struct RenderFrame {
     std::uint64_t culledMeshDrawCount {0};
     std::uint64_t candidateTriangleCount {0};
     std::uint64_t culledTriangleCount {0};
+    std::uint64_t lodMeshDrawCount {0};
+    std::uint64_t lodTriangleReductionCount {0};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

@@ -13,6 +13,10 @@ endif()
 projectunity_resolve_tinygltf(PROJECTUNITY_TINYGLTF_TARGET)
 projectunity_resolve_mikktspace(PROJECTUNITY_MIKKTSPACE_TARGET)
 projectunity_resolve_meshoptimizer(PROJECTUNITY_MESHOPTIMIZER_TARGET)
+set(PROJECTUNITY_LIBKTX_TARGET "")
+if(PROJECTUNITY_ENABLE_LIBKTX)
+    projectunity_resolve_libktx(PROJECTUNITY_LIBKTX_TARGET)
+endif()
 
 add_library(projectunity_assets STATIC
     src/AssetCache.cpp
@@ -30,6 +34,8 @@ add_library(projectunity_assets STATIC
     src/GltfTextureImport.hpp
     src/KtxTextureImport.cpp
     src/KtxTextureImport.hpp
+    src/KtxTextureImportLibktx.cpp
+    src/KtxTextureImportLibktx.hpp
     src/MeshBounds.cpp
     src/MeshBounds.hpp
     src/MeshPrimitiveBatcher.cpp
@@ -59,5 +65,10 @@ target_link_libraries(projectunity_assets
         ${PROJECTUNITY_MESHOPTIMIZER_TARGET}
         nlohmann_json::nlohmann_json
 )
+
+if(PROJECTUNITY_LIBKTX_TARGET)
+    target_link_libraries(projectunity_assets PRIVATE ${PROJECTUNITY_LIBKTX_TARGET})
+    target_compile_definitions(projectunity_assets PUBLIC PROJECTUNITY_HAS_LIBKTX=1)
+endif()
 
 projectunity_configure_target(projectunity_assets)

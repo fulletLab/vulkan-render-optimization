@@ -1,6 +1,7 @@
 #include "KtxTextureImport.hpp"
 
 #include "AssetImportUtils.hpp"
+#include "KtxTextureImportLibktx.hpp"
 
 #include <algorithm>
 #include <array>
@@ -285,8 +286,7 @@ constexpr std::uint32_t kKtx2NoSupercompression = 0U;
         return {};
     }
     if (supercompression != kKtx2NoSupercompression) {
-        setError(errorMessage, "KTX2 BasisLZ/Zstd supercompression is not supported by this importer yet");
-        return {};
+        return importKtx2WithLibktx(std::move(name), bytes, errorMessage);
     }
     const auto format = mapKtx2VkFormat(vkFormat);
     if (!format.has_value()) {

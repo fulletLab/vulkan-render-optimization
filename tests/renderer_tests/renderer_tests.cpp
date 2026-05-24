@@ -80,6 +80,21 @@ int main()
         || orderedDraws[3]->modelAssetId != orderedDraws[4]->modelAssetId) {
         return fail("Renderer mesh draw ordering did not group compatible opaque draws for instancing");
     }
+    std::array<RenderMeshDraw, 3> lodDraws {};
+    for (auto& draw : lodDraws) {
+        draw.modelAssetId = projectunity::assets::AssetId(9);
+        draw.primitiveIndex = 4;
+        draw.material = &opaqueMaterial;
+    }
+    lodDraws[0].lodIndex = 1;
+    lodDraws[1].lodIndex = 0;
+    lodDraws[2].lodIndex = 1;
+    orderMeshDraws(lodDraws, orderedDraws);
+    if (orderedDraws.size() != lodDraws.size()
+        || orderedDraws[1]->lodIndex != 1U
+        || orderedDraws[2]->lodIndex != 1U) {
+        return fail("Renderer mesh draw ordering did not keep matching runtime LODs batchable");
+    }
 
     std::array<RenderLight, 3> mixedLights {};
     mixedLights[0].type = RenderLightType::Point;
@@ -109,6 +124,12 @@ int main()
     const std::array<RenderLight, 1> pointOnlyLights {mixedLights[0]};
     if (chooseShadowMap(pointOnlyLights, {0.0F, 0.0F, 0.0F}, 4.0F).enabled) {
         return fail("Renderer shadow selection incorrectly enabled a 2D shadow map for point-only lights");
+    }
+    if (!shadowSphereIntersects(directionalShadow.viewProjection, {0.0F, 0.0F, 0.0F}, 1.0F)) {
+        return fail("Renderer shadow sphere culling rejected the selected visible bounds center");
+    }
+    if (shadowSphereIntersects(directionalShadow.viewProjection, {5000.0F, 5000.0F, 5000.0F}, 1.0F)) {
+        return fail("Renderer shadow sphere culling accepted a distant off-map caster");
     }
 
     const auto brdfLut = generateBrdfIntegrationLut(16U, 32U);
@@ -192,8 +213,22 @@ int main()
         || stats.lastFrameCandidateTriangleCount != 0
         || stats.lastFrameCulledTriangleCount != 0
         || stats.lastFrameVisibleTriangleCount != 0
+        || stats.lastFrameLodMeshDrawCount != 0
+        || stats.lastFrameLodTriangleReductionCount != 0
+        || stats.lastFrameShadowBatchCount != 0
+        || stats.lastFrameShadowCulledBatchCount != 0
         || stats.lastFrameRenderCpuTimeUs != 0
         || stats.averageRenderCpuTimeUs != 0
+        || stats.lastFrameResourcePrepareCpuTimeUs != 0
+        || stats.lastFrameCommandRecordCpuTimeUs != 0
+        || stats.lastFrameShadowRecordCpuTimeUs != 0
+        || stats.lastFrameMeshRecordCpuTimeUs != 0
+        || stats.lastFrameColorRecordCpuTimeUs != 0
+        || stats.lastFrameGpuTimestampsValid
+        || stats.lastFrameGpuTimeUs != 0
+        || stats.lastFrameShadowGpuTimeUs != 0
+        || stats.lastFrameMeshGpuTimeUs != 0
+        || stats.lastFrameColorGpuTimeUs != 0
         || stats.lastFrameMeshUploadCount != 0
         || stats.lastFrameTextureUploadCount != 0
         || stats.lastFrameStaticUploadBytes != 0

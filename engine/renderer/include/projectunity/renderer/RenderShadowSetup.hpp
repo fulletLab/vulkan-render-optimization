@@ -20,4 +20,9 @@ struct RenderShadowMapSelection {
     std::array<float, 3> visibleBoundsCenter,
     float visibleBoundsRadius);
 
+[[nodiscard]] bool shadowSphereIntersects(
+    const RenderMatrix4& shadowViewProjection,
+    std::array<float, 3> worldCenter,
+    float worldRadius);
+
 } // namespace projectunity::renderer

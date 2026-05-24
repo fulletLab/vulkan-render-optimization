@@ -458,7 +458,7 @@ QWidget* MainWindow::createProfilerPanel()
     header->setObjectName(QStringLiteral("PanelHeader"));
     layout->addWidget(header);
 
-    profilerTable_ = new QTableWidget(24, 2);
+    profilerTable_ = new QTableWidget(38, 2);
     profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
     profilerTable_->horizontalHeader()->setStretchLastSection(true);
     profilerTable_->verticalHeader()->setVisible(false);
@@ -469,6 +469,11 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Vulkan API"),
         QStringLiteral("Render CPU time"),
         QStringLiteral("Render CPU avg"),
+        QStringLiteral("Resource prepare CPU"),
+        QStringLiteral("Command record CPU"),
+        QStringLiteral("Shadow record CPU"),
+        QStringLiteral("Mesh record CPU"),
+        QStringLiteral("Color record CPU"),
         QStringLiteral("Viewport frames"),
         QStringLiteral("Mesh candidates last"),
         QStringLiteral("Mesh culled last"),
@@ -476,6 +481,8 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Mesh batches last"),
         QStringLiteral("Triangles candidate/visible"),
         QStringLiteral("Triangles culled last"),
+        QStringLiteral("LOD draws last"),
+        QStringLiteral("LOD triangles skipped"),
         QStringLiteral("Mesh draws total"),
         QStringLiteral("Textured draws total"),
         QStringLiteral("Color draws last"),
@@ -488,7 +495,14 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Resident mesh/texture"),
         QStringLiteral("Lights last"),
         QStringLiteral("Shadow frames"),
+        QStringLiteral("Shadow batches last"),
+        QStringLiteral("Shadow batches culled"),
         QStringLiteral("Shadow casters last/total"),
+        QStringLiteral("GPU timestamps"),
+        QStringLiteral("GPU frame time"),
+        QStringLiteral("GPU shadow time"),
+        QStringLiteral("GPU mesh time"),
+        QStringLiteral("GPU color time"),
     };
     for (int row = 0; row < rows.size(); ++row) {
         profilerTable_->setItem(row, 0, new QTableWidgetItem(rows.at(row)));

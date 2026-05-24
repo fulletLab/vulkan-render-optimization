@@ -53,6 +53,8 @@ add_library(projectunity_renderer STATIC
     src/VulkanEnvironmentTextureCache.cpp
     src/VulkanGpuBuffer.cpp
     src/VulkanGpuBuffer.hpp
+    src/VulkanGpuFrameProfiler.cpp
+    src/VulkanGpuFrameProfiler.hpp
     src/VulkanFrameData.cpp
     src/VulkanFrameData.hpp
     src/VulkanMaterialTextureSet.cpp
@@ -75,6 +77,7 @@ add_library(projectunity_renderer STATIC
     src/VulkanUploadContext.hpp
     src/VulkanViewportTarget.cpp
     src/VulkanViewportTargetDescriptors.cpp
+    src/VulkanViewportTargetResources.cpp
     src/VulkanViewportTarget.hpp
     ${PROJECTUNITY_RENDERER_SHADER_HEADERS}
     include/projectunity/renderer/IRenderer.hpp

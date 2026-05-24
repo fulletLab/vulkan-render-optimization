@@ -4,6 +4,7 @@
 #include "VulkanColorMesh.hpp"
 #include "VulkanColorPipeline.hpp"
 #include "VulkanFrameData.hpp"
+#include "VulkanGpuFrameProfiler.hpp"
 #include "VulkanMeshCache.hpp"
 #include "VulkanMeshPipeline.hpp"
 #include "VulkanShadowPipeline.hpp"
@@ -54,8 +55,26 @@ struct VulkanMaterialTextureKeyHash {
 
 struct VulkanMeshDrawBatch {
     const RenderMeshDraw* draw {nullptr};
+    const VulkanMeshBuffers* mesh {nullptr};
+    VkDescriptorSet materialDescriptor {VK_NULL_HANDLE};
     std::uint32_t firstInstance {0};
     std::uint32_t instanceCount {0};
+};
+
+struct VulkanViewportFrameProfile {
+    std::uint64_t resourcePrepareCpuTimeUs {0};
+    std::uint64_t commandRecordCpuTimeUs {0};
+    std::uint64_t shadowRecordCpuTimeUs {0};
+    std::uint64_t meshRecordCpuTimeUs {0};
+    std::uint64_t colorRecordCpuTimeUs {0};
+    bool gpuTimestampsSupported {false};
+    bool gpuTimestampsValid {false};
+    std::uint64_t frameGpuTimeUs {0};
+    std::uint64_t shadowGpuTimeUs {0};
+    std::uint64_t meshGpuTimeUs {0};
+    std::uint64_t colorGpuTimeUs {0};
+    std::uint64_t shadowBatchCount {0};
+    std::uint64_t shadowCulledBatchCount {0};
 };
 
 class VulkanViewportTarget final {
@@ -68,6 +87,7 @@ public:
 
     [[nodiscard]] bool matches(const ViewportRenderSurfaceDesc& surfaceDesc) const noexcept;
     [[nodiscard]] std::uint64_t lastMeshBatchCount() const noexcept;
+    [[nodiscard]] const VulkanViewportFrameProfile& lastFrameProfile() const noexcept;
     [[nodiscard]] bool renderFrame(
         const RenderFrame& frame,
         VulkanUploadContext& uploads,
@@ -105,12 +125,17 @@ private:
     [[nodiscard]] bool recordShadowPass(
         const RenderFrame& frame,
         VulkanUploadContext& uploads,
-        VulkanMeshCache& meshCache,
         VulkanTextureCache& textureCache,
         std::string* errorMessage);
     [[nodiscard]] bool buildMeshBatches(
         std::span<const RenderMeshDraw> draws,
         VulkanUploadContext& uploads,
+        std::string* errorMessage);
+    [[nodiscard]] bool prepareMeshBatchResources(
+        const RenderFrame& frame,
+        VulkanUploadContext& uploads,
+        VulkanMeshCache& meshCache,
+        VulkanTextureCache& textureCache,
         std::string* errorMessage);
 
     VulkanViewportContext context_;
@@ -132,6 +157,7 @@ private:
     std::vector<VulkanGpuInstance> meshInstances_;
     std::vector<VulkanMeshDrawBatch> meshBatches_;
     VulkanGpuBuffer meshInstanceBuffer_;
+    VulkanViewportFrameProfile lastFrameProfile_;
     std::vector<VulkanColorMeshBuffers> colorMeshes_;
     std::vector<VkFramebuffer> framebuffers_;
     VkDescriptorPool descriptorPool_ {VK_NULL_HANDLE};
@@ -141,6 +167,7 @@ private:
     bool descriptorEnvironmentKeyValid_ {false};
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
+    VulkanGpuFrameProfiler gpuProfiler_;
     PFN_vkCmdBeginDebugUtilsLabelEXT beginDebugLabel_ {nullptr};
     PFN_vkCmdEndDebugUtilsLabelEXT endDebugLabel_ {nullptr};
     VkSemaphore imageAvailable_ {VK_NULL_HANDLE};

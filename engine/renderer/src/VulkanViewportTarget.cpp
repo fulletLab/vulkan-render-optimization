@@ -2,9 +2,12 @@
 #include "VulkanDebugLabels.hpp"
 #include "VulkanMaterialTextureSet.hpp"
 #include "VulkanSupport.hpp"
+#include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
+#include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <stdexcept>
 namespace projectunity::renderer {
@@ -20,6 +23,7 @@ namespace {
 {
     return lhs.modelAssetId == rhs.modelAssetId
         && lhs.primitiveIndex == rhs.primitiveIndex
+        && lhs.lodIndex == rhs.lodIndex
         && lhs.material == rhs.material
         && lhs.baseColorTexture == rhs.baseColorTexture
         && lhs.normalTexture == rhs.normalTexture
@@ -28,6 +32,20 @@ namespace {
         && lhs.emissiveTexture == rhs.emissiveTexture
         && lhs.flipsWinding == rhs.flipsWinding
         && isTransparentMeshDraw(lhs) == isTransparentMeshDraw(rhs);
+}
+[[nodiscard]] std::uint64_t elapsedUs(std::chrono::steady_clock::time_point start) noexcept
+{
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - start).count());
+}
+void copyGpuTimes(VulkanViewportFrameProfile& profile, const VulkanGpuFrameTimes& times) noexcept
+{
+    profile.gpuTimestampsSupported = times.supported;
+    profile.gpuTimestampsValid = times.valid;
+    profile.frameGpuTimeUs = times.frameGpuTimeUs;
+    profile.shadowGpuTimeUs = times.shadowGpuTimeUs;
+    profile.meshGpuTimeUs = times.meshGpuTimeUs;
+    profile.colorGpuTimeUs = times.colorGpuTimeUs;
 }
 } // namespace
 VulkanViewportTarget::VulkanViewportTarget(VulkanViewportContext context, ViewportRenderSurfaceDesc desc)
@@ -52,6 +70,10 @@ VulkanViewportTarget::VulkanViewportTarget(VulkanViewportContext context, Viewpo
         createFramebuffers();
         createDescriptors();
         createCommands();
+        std::string profilerError;
+        if (!gpuProfiler_.create(context_.resources(), &profilerError) && !profilerError.empty()) {
+            core::logWarning(core::LogCategory::Renderer, profilerError);
+        }
         createSync();
     } catch (...) {
         destroy();
@@ -73,6 +95,11 @@ std::uint64_t VulkanViewportTarget::lastMeshBatchCount() const noexcept
 {
     return static_cast<std::uint64_t>(meshBatches_.size());
 }
+
+const VulkanViewportFrameProfile& VulkanViewportTarget::lastFrameProfile() const noexcept
+{
+    return lastFrameProfile_;
+}
 bool VulkanViewportTarget::renderFrame(
     const RenderFrame& frame,
     VulkanUploadContext& uploads,
@@ -87,6 +114,7 @@ bool VulkanViewportTarget::renderFrame(
         }
         return false;
     }
+    gpuProfiler_.collect();
     std::uint32_t imageIndex = 0;
     const auto acquireResult = vkAcquireNextImageKHR(
         context_.device,
@@ -127,6 +155,7 @@ bool VulkanViewportTarget::renderFrame(
         }
         return false;
     }
+    gpuProfiler_.markSubmitted();
     VkPresentInfoKHR present {};
     present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present.waitSemaphoreCount = 1;
@@ -171,6 +200,7 @@ void VulkanViewportTarget::destroy() noexcept
         commandPool_ = VK_NULL_HANDLE;
         commandBuffer_ = VK_NULL_HANDLE;
     }
+    gpuProfiler_.destroy();
     textureDescriptors_.clear();
     descriptorIrradianceKey_ = 0;
     descriptorPrefilteredEnvironmentKey_ = 0;
@@ -437,7 +467,11 @@ bool VulkanViewportTarget::buildMeshBatches(
         if (!meshBatches_.empty() && canBatch(*meshBatches_.back().draw, *draw)) {
             ++meshBatches_.back().instanceCount;
         } else {
-            meshBatches_.push_back({draw, instanceIndex, 1U});
+            VulkanMeshDrawBatch batch;
+            batch.draw = draw;
+            batch.firstInstance = instanceIndex;
+            batch.instanceCount = 1U;
+            meshBatches_.push_back(batch);
         }
     }
     if (meshInstances_.empty()) {
@@ -454,10 +488,10 @@ bool VulkanViewportTarget::buildMeshBatches(
 bool VulkanViewportTarget::recordShadowPass(
     const RenderFrame& frame,
     VulkanUploadContext& uploads,
-    VulkanMeshCache& meshCache,
     VulkanTextureCache& textureCache,
     std::string* errorMessage)
 {
+    const auto passStart = std::chrono::steady_clock::now();
     VkClearValue clear {};
     clear.depthStencil = {1.0F, 0};
     VkRenderPassBeginInfo renderPass {};
@@ -467,6 +501,7 @@ bool VulkanViewportTarget::recordShadowPass(
     renderPass.renderArea.extent = shadowPipeline_->extent();
     renderPass.clearValueCount = 1;
     renderPass.pClearValues = &clear;
+    gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
     vkCmdBeginRenderPass(commandBuffer_, &renderPass, VK_SUBPASS_CONTENTS_INLINE);
     VulkanScopedLabel shadowLabel(
         beginDebugLabel_,
@@ -485,6 +520,8 @@ bool VulkanViewportTarget::recordShadowPass(
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
     if (!frame.shadowsEnabled) {
         vkCmdEndRenderPass(commandBuffer_);
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;
     }
     VkDescriptorSet opaqueShadowDescriptor = VK_NULL_HANDLE;
@@ -520,8 +557,12 @@ bool VulkanViewportTarget::recordShadowPass(
         if (isTransparentMeshDraw(draw)) {
             continue;
         }
-        const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
-        const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+        if (!shadowSphereIntersects(frame.shadowViewProjection, draw.worldBoundsCenter, draw.worldBoundsRadius)) {
+            ++lastFrameProfile_.shadowCulledBatchCount;
+            continue;
+        }
+        ++lastFrameProfile_.shadowBatchCount;
+        const auto* mesh = batch.mesh;
         if (mesh == nullptr) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;
@@ -529,31 +570,7 @@ bool VulkanViewportTarget::recordShadowPass(
         VkDescriptorSet descriptor = VK_NULL_HANDLE;
         const auto needsAlphaTexture = draw.material != nullptr
             && draw.material->alphaMode == assets::MaterialAlphaMode::Mask;
-        if (needsAlphaTexture) {
-            const auto textures = uploadMaterialTextureSet(
-                context_.resources(),
-                uploads,
-                textureCache,
-                draw,
-                frame.environment,
-                errorMessage);
-            if (!textures.complete()) {
-                vkCmdEndRenderPass(commandBuffer_);
-                return false;
-            }
-            descriptor = textureDescriptor(
-                *textures.baseColor,
-                *textures.normal,
-                *textures.metallicRoughness,
-                *textures.occlusion,
-                *textures.emissive,
-                *textures.brdfLut,
-                *textures.irradianceCube,
-                *textures.prefilteredEnvironment,
-                errorMessage);
-        } else {
-            descriptor = getOpaqueShadowDescriptor();
-        }
+        descriptor = needsAlphaTexture ? batch.materialDescriptor : getOpaqueShadowDescriptor();
         if (descriptor == VK_NULL_HANDLE) {
             vkCmdEndRenderPass(commandBuffer_);
             return false;
@@ -577,7 +594,7 @@ bool VulkanViewportTarget::recordShadowPass(
         }
         const VkDeviceSize vertexOffset = 0;
         const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
-        const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices.buffer(), meshInstanceBuffer_.buffer()};
+        const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
         const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
         vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
         vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
@@ -600,6 +617,8 @@ bool VulkanViewportTarget::recordShadowPass(
         vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
     }
     vkCmdEndRenderPass(commandBuffer_);
+    gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+    lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
     return true;
 }
 bool VulkanViewportTarget::recordFrameCommand(
@@ -610,6 +629,8 @@ bool VulkanViewportTarget::recordFrameCommand(
     VulkanTextureCache& textureCache,
     std::string* errorMessage)
 {
+    lastFrameProfile_ = {};
+    copyGpuTimes(lastFrameProfile_, gpuProfiler_.lastTimes());
     if (imageIndex >= framebuffers_.size()) {
         if (errorMessage != nullptr) {
             *errorMessage = "Invalid Vulkan viewport image index";
@@ -626,32 +647,12 @@ bool VulkanViewportTarget::recordFrameCommand(
             }
             return false;
         }
-        const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
-        if (meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage) == nullptr) {
-            return false;
-        }
-        const auto textures = uploadMaterialTextureSet(
-            context_.resources(),
-            uploads,
-            textureCache,
-            draw,
-            frame.environment,
-            errorMessage);
-        if (!textures.complete()
-            || textureDescriptor(
-                *textures.baseColor,
-                *textures.normal,
-                *textures.metallicRoughness,
-                *textures.occlusion,
-                *textures.emissive,
-                *textures.brdfLut,
-                *textures.irradianceCube,
-                *textures.prefilteredEnvironment,
-                errorMessage) == VK_NULL_HANDLE) {
-            return false;
-        }
     }
+    const auto prepareStart = std::chrono::steady_clock::now();
     if (!buildMeshBatches(frame.meshDraws, uploads, errorMessage)) {
+        return false;
+    }
+    if (!prepareMeshBatchResources(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
     colorMeshes_.clear();
@@ -663,6 +664,8 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
         colorMeshes_.push_back(std::move(buffers));
     }
+    lastFrameProfile_.resourcePrepareCpuTimeUs = elapsedUs(prepareStart);
+    const auto commandRecordStart = std::chrono::steady_clock::now();
     vkResetCommandBuffer(commandBuffer_, 0);
     VkCommandBufferBeginInfo begin {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -673,13 +676,14 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
         return false;
     }
+    gpuProfiler_.beginFrame(commandBuffer_);
     VulkanScopedLabel frameLabel(
         beginDebugLabel_,
         endDebugLabel_,
         commandBuffer_,
         "ProjectUnity Viewport Frame",
         {0.10F, 0.62F, 0.90F, 1.0F});
-    if (!recordShadowPass(frame, uploads, meshCache, textureCache, errorMessage)) {
+    if (!recordShadowPass(frame, uploads, textureCache, errorMessage)) {
         return false;
     }
     std::array<VkClearValue, 2> clears {};
@@ -706,7 +710,9 @@ bool VulkanViewportTarget::recordFrameCommand(
     vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
     VkPipeline activeMeshPipeline = VK_NULL_HANDLE;
     {
+        const auto passStart = std::chrono::steady_clock::now();
         VulkanScopedLabel meshLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Mesh Pass", {0.12F, 0.75F, 0.38F, 1.0F});
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::MeshStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
         for (const auto& batch : meshBatches_) {
             const auto& draw = *batch.draw;
             const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
@@ -718,30 +724,9 @@ bool VulkanViewportTarget::recordFrameCommand(
                 vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
                 activeMeshPipeline = drawPipeline;
             }
-            const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex};
-            const auto* mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
-            const auto textures = uploadMaterialTextureSet(
-                context_.resources(),
-                uploads,
-                textureCache,
-                draw,
-                frame.environment,
-                errorMessage);
-            if (mesh == nullptr || !textures.complete()) {
-                vkCmdEndRenderPass(commandBuffer_);
-                return false;
-            }
-            const auto descriptor = textureDescriptor(
-                *textures.baseColor,
-                *textures.normal,
-                *textures.metallicRoughness,
-                *textures.occlusion,
-                *textures.emissive,
-                *textures.brdfLut,
-                *textures.irradianceCube,
-                *textures.prefilteredEnvironment,
-                errorMessage);
-            if (descriptor == VK_NULL_HANDLE) {
+            const auto* mesh = batch.mesh;
+            const auto descriptor = batch.materialDescriptor;
+            if (mesh == nullptr || descriptor == VK_NULL_HANDLE) {
                 vkCmdEndRenderPass(commandBuffer_);
                 return false;
             }
@@ -755,7 +740,7 @@ bool VulkanViewportTarget::recordFrameCommand(
             }
             const VkDeviceSize vertexOffset = 0;
             const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
-            const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices.buffer(), meshInstanceBuffer_.buffer()};
+            const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
             const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
             vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
             vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
@@ -763,10 +748,14 @@ bool VulkanViewportTarget::recordFrameCommand(
             vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
             vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
         }
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::MeshEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        lastFrameProfile_.meshRecordCpuTimeUs = elapsedUs(passStart);
     }
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline_->pipeline());
     {
+        const auto passStart = std::chrono::steady_clock::now();
         VulkanScopedLabel colorLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Scene Aid Pass", {0.95F, 0.70F, 0.18F, 1.0F});
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ColorStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
         for (std::size_t index = 0; index < frame.colorMeshDraws.size(); ++index) {
             VulkanColorPushConstants push;
             push.modelViewProjection = frame.colorMeshDraws[index].modelViewProjection.values;
@@ -777,14 +766,18 @@ bool VulkanViewportTarget::recordFrameCommand(
             vkCmdPushConstants(commandBuffer_, colorPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VulkanColorPushConstants), &push);
             vkCmdDrawIndexed(commandBuffer_, colorMeshes_[index].indexCount, 1, 0, 0, 0);
         }
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ColorEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        lastFrameProfile_.colorRecordCpuTimeUs = elapsedUs(passStart);
     }
     vkCmdEndRenderPass(commandBuffer_);
+    gpuProfiler_.endFrame(commandBuffer_);
     if (vkEndCommandBuffer(commandBuffer_) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to end Vulkan viewport command buffer";
         }
         return false;
     }
+    lastFrameProfile_.commandRecordCpuTimeUs = elapsedUs(commandRecordStart);
     return true;
 }
 } // namespace projectunity::renderer

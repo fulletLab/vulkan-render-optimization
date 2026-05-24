@@ -17,19 +17,30 @@ Phase 6 covers:
 
 Status: PARCIAL
 
+## Phase 6.0.01 Research Baseline
+
+- Vulkan optimization notes are tracked in
+  `docs/phase6_0_01_vulkan_optimization_notes.md`.
+- This checkpoint is research and process guidance, not a completed renderer feature.
+- Future Phase 6 performance work must measure before changing, preserve imported asset
+  fidelity, keep Qt out of the primary 3D render path, and optimize renderer data flow
+  rather than degrading authored content.
+
 ## Blocking Renderer Status
 
 - The GLB/glTF importer keeps the full source mesh and material data. The default Scene View path must use the full primitive index buffers, not preview triangle budgets or automatic destructive LODs.
-- The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, color-space-aware GPU material texture upload with imported sampler state, generated RGBA8 mip chains, explicit KTX/KTX2 GPU mip upload for supported RGBA8/BC/ETC2/ASTC 2D textures, conservative bounds culling, culling/timing renderer stats, glTF material factor and vertex-color preservation, textured imported mesh draws, Lighting panel driven RenderFrame environment settings, generated irradiance/prefiltered IBL cubemaps, renderer-owned directional/spot 2D shadow-map setup with shared opaque-caster descriptors, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
+- The editor now initializes a Vulkan renderer module with device selection, VMA, Win32 viewport surface creation, swapchain creation, swapchain image views, command buffer recording, synchronization, depth-backed render pass, GPU mesh upload, color-space-aware GPU material texture upload with imported sampler state, generated RGBA8 mip chains, explicit KTX/KTX2 GPU mip upload for supported RGBA8/BC/ETC2/ASTC 2D textures, libktx-backed KTX2 Basis/UASTC/Zstd import, conservative bounds culling, culling/timing renderer stats, glTF material factor and vertex-color preservation, textured imported mesh draws, Lighting panel driven RenderFrame environment settings, generated irradiance/prefiltered IBL cubemaps, renderer-owned directional/spot 2D shadow-map setup with shared opaque-caster descriptors, and Scene View color mesh passes for gizmo/grid/axes/hierarchy links.
+- Imported meshoptimizer LOD index buffers are now selected at runtime by conservative screen-space primitive size. This keeps full-resolution indices for nearby and selected objects, uses lower LODs only when a primitive is small on screen, and leaves imported source geometry/materials/textures unchanged.
 - The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails, including Qt offscreen tests. Empty-scene editor aids and transform-only entity markers now use the Vulkan color path when a real viewport surface is available.
-- Phase 6 remains partial until representative imported GLB/glTF content is visually verified with HDR/KTX2 environment asset coverage, KTX2 supercompression/transcoding policy, point/cascaded shadow coverage, renderer-owned labels, and profiling.
+- Phase 6 remains partial until representative imported GLB/glTF content is visually verified with HDR/KTX2 environment asset coverage, point/cascaded shadow coverage, renderer-owned labels, and profiling.
 
 ## Implemented
 
 - `engine/assets` module with `IAssetManager`, `AssetManager`, model/texture/material CPU data, asset records, and cache metadata writes.
 - Stable model and texture asset IDs derived from source/content bytes instead of persisted absolute local paths.
 - Texture import for PNG/JPG through stb image.
-- Texture import for KTX1/KTX2 2D GPU payloads. The current parser preserves RGBA8, BC, ETC2 RGBA8, and ASTC explicit mip levels and rejects KTX2 BasisLZ/Zstd supercompression with a clear error until a compatible transcoder is selected.
+- Texture import for KTX1/KTX2 2D GPU payloads. The internal parser preserves RGBA8, BC, ETC2 RGBA8, and ASTC explicit mip levels; when `PROJECTUNITY_ENABLE_LIBKTX` is enabled, libktx imports KTX2 supercompressed assets, transcodes Basis/UASTC to RGBA8 mip payloads, and preserves uploadable Zstd explicit mips for supported VkFormats.
+- License check for this dependency: KTX-Software/libktx is fetched at `v4.4.2` and the upstream license is Apache-2.0, so it is acceptable for the current non-GPL dependency policy.
 - Model import for `.gltf` and `.glb` through TinyGLTF with validation for accessors, index bounds, triangle primitive mode, images, missing files, and default scene node hierarchy traversal.
 - glTF node matrix/TRS transforms are applied during import so multi-object exports keep their authored positions, rotations, and scale instead of collapsing raw mesh primitives.
 - Mesh primitive bounds are computed at import time and refreshed after glTF node transforms for viewport culling.
@@ -50,6 +61,13 @@ Status: PARCIAL
 - Scene/Game viewport CPU fallback mesh drawing from `IAssetManager`, including base-color textured triangle mapping for the Phase 6 editor bridge.
 - Initial `engine/renderer` Vulkan module with instance/device creation, validation-layer discovery, debug-utils availability check, VMA allocator creation, Win32 viewport surface/swapchain preparation, render pass/pipeline creation, staged vertex/index/texture upload caches with sRGB color, linear data-map, imported sampler variants, generated material texture mip chains, explicit KTX/KTX2 mip upload when the Vulkan device supports the stored format, conservative viewport culling, frame-uniform camera/light/environment state, Cook-Torrance-style direct material shading, Lighting panel driven renderer-generated irradiance and prefiltered environment cubemaps, a renderer-generated BRDF integration LUT bound as Vulkan material descriptors, renderer-owned 4096 directional/spot 2D shadow-map pass with `MASK` alpha cutoff sampling, Vulkan comparison-sampler PCF, and shared opaque-caster descriptor reuse, glTF alpha mode/cutoff handling, transparent primitive draw ordering, vertex-color-aware textured mesh draw path, controlled Scene View editor color mesh draw path, renderer stats, and renderer tests.
 - The editor Profiler tab displays renderer GPU/API, frame, draw, light, and shadow counters from `RendererStats`.
+- The Profiler separates CPU frame cost into resource preparation, Vulkan command
+  recording, shadow pass recording, main mesh pass recording, and editor color-aid
+  recording so large-scene stalls can be diagnosed by renderer stage instead of guessed.
+- The Profiler also reports runtime LOD draw count and skipped triangles so large-scene distance behavior is measurable instead of guessed.
+- The shadow pass uses each draw's world-space sphere bounds against the selected shadow
+  view-projection clip planes and skips off-map opaque/masked batches conservatively.
+  The Profiler reports both drawn and culled shadow batches.
 - Example textured asset at `examples/basic_assets/TexturedTriangle.gltf`.
 
 ## Files Involved
@@ -74,6 +92,8 @@ Status: PARCIAL
 - `engine/assets/src/GltfTextureImport.hpp`
 - `engine/assets/src/KtxTextureImport.cpp`
 - `engine/assets/src/KtxTextureImport.hpp`
+- `engine/assets/src/KtxTextureImportLibktx.cpp`
+- `engine/assets/src/KtxTextureImportLibktx.hpp`
 - `engine/assets/src/MeshBounds.cpp`
 - `engine/assets/src/MeshBounds.hpp`
 - `engine/assets/src/StbTextureImport.cpp`
@@ -171,6 +191,9 @@ Status: PARCIAL
 - Qt owns editor UI, docking, menus, panels, and input dispatch. The renderer module is independent of Qt and is injected into editor viewports through `IRenderer`.
 - Coordinate convention: glTF/GLB source data is read in glTF's right-handed, Y-up convention with local `-Z` forward, then converted once at import into the engine/editor convention: Y-up with `+Z` forward. The conversion is a single Z reflection applied after glTF node `matrix`/TRS evaluation; UVs are not flipped. `node.matrix` is treated as column-major and TRS is built as column-vector `T * R * S`. When node transforms are baked into mesh vertices, positions and tangents use the converted linear transform, normals use the inverse-transpose linear transform, bounds are recomputed after baking, and negative-determinant converted transforms flip triangle winding plus tangent handedness so future culling remains consistent without mirroring the asset. Imported cameras/lights are converted through the same matrix, and Game View uses imported camera local `+X` as screen-right instead of reconstructing it from forward/up.
 - The current Vulkan renderer owns core GPU initialization, viewport presentation resources, textured mesh draws, vertex-color multiplication, base-color/normal/metallic-roughness/occlusion/emissive texture slots with generated mip chains, separate sRGB color, linear data-map, and imported sampler cache entries, conservative bounds culling, a per-frame camera/light/environment UBO/API, punctual imported-light submission, direct PBR material shading with sampled renderer-generated irradiance and prefiltered environment cubemaps plus a sampled split-sum BRDF integration LUT, renderer-owned selection of a 2D shadow map for the first directional light or first spot light, RenderDoc-friendly command labels around the viewport frame and key passes, basic glTF alpha mode/cutoff handling, back-to-front transparent primitive ordering, Scene View grid/axes/hierarchy/gizmo/entity-label/empty-marker color mesh draws, Lighting panel selected RGBA8 texture environment input, and the upload caches needed by imported primitives/textures. Imported HDR/KTX2 environment assets, point/cascaded shadows, full shadow/material coverage, and broader renderer-owned text overlays are not claimed as complete here.
+- Runtime LOD policy is non-destructive: LOD index buffers are uploaded and cached separately by `(asset, primitive, lod)`, draw batching includes the active LOD, and the full mesh remains available for close-up or selected Scene View editing.
+- Vertex buffer ownership is separate from runtime LOD index buffers: one GPU vertex buffer is cached per imported primitive, and each active LOD owns only its index buffer. This avoids multiplying vertex uploads when the viewport chooses a different LOD.
+- Static renderer resources are now prepared per batch before command recording. Shadow and mesh passes reuse the resolved `VulkanMeshBuffers` pointer and material descriptor instead of repeating mesh upload checks, material texture lookups, and descriptor lookup/update work in each pass.
 - Assimp stays unintegrated in this phase because GLB/glTF coverage is real through TinyGLTF and no FBX/OBJ DoD was claimed.
 
 ## Build And Test
@@ -198,7 +221,23 @@ ctest --preset dev-editor-local-qt
 - Latest repeated-asset batching check: `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 29.63 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 34.42 seconds, visible Windows `projectunity_editor --smoke-test` passed with exit code 0, and `git diff --check` reported no whitespace errors beyond existing LF/CRLF warnings.
 - Latest shadow-pass CPU work reduction check: `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 38.58 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 42.89 seconds, and visible Windows `projectunity_editor --smoke-test` passed with exit code 0.
 - Latest KTX/KTX2/progress/shadow-sampler check: `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 29.69 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 32.89 seconds after the final import-progress UI adjustment, visible Windows `projectunity_editor --smoke-test` passed with exit code 0, `git diff --check` reported no whitespace errors beyond LF/CRLF warnings, and source-rule coverage confirmed all source files stay at or below 800 lines.
-- `projectunity_asset_tests` generates a real temporary GLB with a node transform, vertex colors, PBR material factors/maps, sampler wrap/filter state, occlusion strength, emissive texture state, mask alpha state, a punctual spot light, and a perspective camera, imports it, verifies that the transform, transformed bounds, vertex colors, factors, material maps, sampler state, light state, camera state, occlusion/emissive state, alpha mode, and alpha cutoff are preserved, validates tangent data, imports a PNG, imports a generated KTX1 ASTC texture while checking GPU mip preservation and 1-100 progress events, verifies cache records, imports the textured glTF example, and rejects a missing asset.
+- Latest libktx KTX2 Basis transcode check: `cmake --preset dev-core` passed, `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 32.45 seconds, `cmake --preset dev-editor-local-qt` passed, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 37.11 seconds, visible Windows `projectunity_editor --smoke-test` passed with exit code 0, `git diff --check` reported no whitespace errors beyond LF/CRLF warnings, and source-rule coverage confirmed all source files stay at or below 800 lines.
+- Latest runtime screen-space LOD check: `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 35.89 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 41.15 seconds, visible Windows `projectunity_editor --smoke-test` passed with exit code 0, `git diff --check` reported no whitespace errors beyond LF/CRLF warnings, and source-rule coverage confirmed all source files stay at or below 800 lines.
+- Latest runtime LOD cache correction check: `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 38.12 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 39.04 seconds, and visible Windows `projectunity_editor --smoke-test` passed with exit code 0.
+- Latest renderer batch resource preparation check: `cmake --build --preset dev-core` passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 31.04 seconds, `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 35.07 seconds, and visible Windows `projectunity_editor --smoke-test` passed with exit code 0.
+- Latest per-pass profiling check: `cmake --build --preset dev-core` passed,
+  `ctest --preset dev-core --output-on-failure` passed 7/7 in 37.64 seconds,
+  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8 in 34.89 seconds, visible
+  Windows `projectunity_editor --smoke-test` passed with exit code 0, and source
+  files stayed under the 800-line rule.
+- Latest shadow-frustum culling check: `cmake --build --preset dev-core` passed,
+  `ctest --preset dev-core --output-on-failure` passed 7/7 in 37.47 seconds,
+  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8 in 36.87 seconds, visible
+  Windows `projectunity_editor --smoke-test` passed with exit code 0, and source
+  files stayed under the 800-line rule.
+- `projectunity_asset_tests` generates a real temporary GLB with a node transform, vertex colors, PBR material factors/maps, sampler wrap/filter state, occlusion strength, emissive texture state, mask alpha state, a punctual spot light, and a perspective camera, imports it, verifies that the transform, transformed bounds, vertex colors, factors, material maps, sampler state, light state, camera state, occlusion/emissive state, alpha mode, and alpha cutoff are preserved, validates tangent data, imports a PNG, imports a generated KTX1 ASTC texture while checking GPU mip preservation and 1-100 progress events, imports a small KTX2 Basis texture through libktx when enabled and verifies RGBA mip output, verifies cache records, imports the textured glTF example, and rejects a missing asset.
 - `projectunity_asset_tests` also generates an asymmetric spatial GLB with left, right, front, back, `node.matrix`, quaternion-rotated, and negative-scale mirrored nodes. It verifies that left/right stays stable, glTF `-Z` maps to engine `+Z`, matrix translation remains column-major, quaternion rotation affects converted bounds, UVs are not flipped, and negative determinant converted transforms preserve bounds, normals, winding, and tangent handedness.
 - `projectunity_scene_tests` verifies `MeshRendererComponent` scene roundtrip.
 - `projectunity_renderer_tests` verifies opaque/masked before back-to-front blended primitive ordering, renderer-owned directional/spot/point shadow-map selection policy, deterministic BRDF integration LUT generation, deterministic irradiance/prefiltered environment cubemap generation, RenderFrame environment settings affecting generated cubemap data, RGBA8 source texture data affecting generated cubemap data, creates the Vulkan renderer, verifies ready state, GPU name, VMA allocator creation, lighting/shadow stat initialization, surface descriptor validation, and invalid surface rejection.
@@ -386,9 +425,9 @@ Date: 2026-05-22
   expected checks documented in `docs/phase6_visual_verification_assets.md`.
 - The local Vulkan Samples `vokselia` pack is a glTF-plus-external-KTX stress
   case, not proof that every hardware path is complete. Current Phase 6 can parse
-  the `.gltf` structure/geometry path and import/upload external KTX/KTX2 payloads
-  when the selected Vulkan device supports the stored GPU format; unsupported
-  compressed formats are logged/rejected instead of silently replaced.
+  the `.gltf` structure/geometry path, import/upload external explicit KTX/KTX2
+  payloads when the selected Vulkan device supports the stored GPU format, and
+  transcode KTX2 Basis/UASTC through libktx to RGBA8 mips for upload.
 - Large glTF files with thousands of nodes/primitives now keep renderer-friendly
   representation without reducing asset fidelity: repeated mesh primitives are
   shared when possible, repeated textures/materials are deduplicated, large flat
@@ -399,9 +438,25 @@ Date: 2026-05-22
   the viewport renderer batches compatible mesh draws with
   `vkCmdDrawIndexed(..., instanceCount)` instead of forcing one GPU draw per scene
   instance when the mesh/material state is shareable.
+- The Vulkan mesh cache now keys GPU index buffers by runtime LOD as well as asset
+  primitive. The viewport chooses those LODs by projected screen radius, reducing
+  submitted triangles when a huge scene is fully visible from far away while keeping
+  full-resolution editing for close and selected objects.
+- The initial runtime LOD implementation duplicated vertex buffers per LOD and could
+  stall the first visible frame after importing a large scene. The mesh cache now shares
+  vertex buffers per primitive and preuploads static mesh/material resources from
+  renderer batches instead of raw draw submissions.
+- Large-scene optimization is being treated as renderer architecture work, not a single
+  asset-size fix. Current local code now follows the first practical Vulkan guidance
+  step: reduce repeated CPU-side resource lookup/bind preparation around the current
+  direct draw path before attempting GPU-driven indirect rendering.
 - The shadow pass no longer prepares full material texture descriptors for every
   opaque caster. Opaque casters share a default descriptor for the frame, while
   `MASK` casters still bind base-color alpha so cutoff shadows stay correct.
+- KTX-Software is added as an `EXCLUDE_FROM_ALL` FetchContent dependency and only
+  `ktx_read` is linked. This avoids building KTX tool/version helper targets that
+  can be blocked by Windows protected-folder policy while still enabling import-time
+  KTX2 transcode through the asset module.
 - Adding vertex color support pushed `AssetManager.cpp` over the 800-line project
   rule. Attribute/accessor decoding was split into `GltfAttributeReader` and
   `projectunity_source_rule_tests` passes again.
@@ -410,5 +465,5 @@ Date: 2026-05-22
 
 - Complete renderer-owned material/shader coverage, lighting integration, and GPU editor
   overlay passes remain renderer and lighting work after this first imported mesh path.
-- KTX2 BasisLZ/Zstd transcoding, thumbnails, asset database persistence, and build-time asset packaging remain later asset pipeline work.
+- Thumbnails, asset database persistence, compressed GPU target selection for Basis/UASTC, and build-time asset packaging remain later asset pipeline work.
 - Assimp import for FBX/OBJ remains optional later work after its own integration decision.

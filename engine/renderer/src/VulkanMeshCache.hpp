@@ -31,16 +31,28 @@ struct VulkanGpuInstance {
 struct VulkanMeshKey {
     std::uint64_t modelAssetId {0};
     std::uint32_t primitiveIndex {0};
+    std::uint32_t lodIndex {0};
 
     [[nodiscard]] bool operator==(const VulkanMeshKey&) const noexcept = default;
+};
+
+struct VulkanPrimitiveKey {
+    std::uint64_t modelAssetId {0};
+    std::uint32_t primitiveIndex {0};
+
+    [[nodiscard]] bool operator==(const VulkanPrimitiveKey&) const noexcept = default;
 };
 
 struct VulkanMeshKeyHash {
     [[nodiscard]] std::size_t operator()(const VulkanMeshKey& key) const noexcept;
 };
 
+struct VulkanPrimitiveKeyHash {
+    [[nodiscard]] std::size_t operator()(const VulkanPrimitiveKey& key) const noexcept;
+};
+
 struct VulkanMeshBuffers {
-    VulkanGpuBuffer vertices;
+    VkBuffer vertices {VK_NULL_HANDLE};
     VulkanGpuBuffer indices;
     std::uint32_t indexCount {0};
 };
@@ -59,6 +71,15 @@ public:
     [[nodiscard]] std::uint64_t meshCount() const noexcept;
 
 private:
+    [[nodiscard]] bool ensureVertexUploaded(
+        VulkanResourceContext context,
+        VulkanUploadContext& uploads,
+        VulkanPrimitiveKey key,
+        const assets::MeshPrimitive& primitive,
+        VkBuffer* vertexBuffer,
+        std::string* errorMessage);
+
+    std::unordered_map<VulkanPrimitiveKey, VulkanGpuBuffer, VulkanPrimitiveKeyHash> vertexBuffers_;
     std::unordered_map<VulkanMeshKey, VulkanMeshBuffers, VulkanMeshKeyHash> meshes_;
     std::uint64_t uploadCount_ {0};
     std::uint64_t uploadedBytes_ {0};

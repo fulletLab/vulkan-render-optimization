@@ -6,6 +6,10 @@ Date: 2026-05-23
 
 Status: PARCIAL
 
+Phase 6.0.01 research notes for Vulkan optimization are recorded in
+`docs/phase6_0_01_vulkan_optimization_notes.md`. They are guidance for future
+renderer changes and do not count as a completed engine feature.
+
 The editor has a real renderer module boundary and initializes Vulkan through `IRenderer`.
 The Vulkan path currently creates the instance, selects a GPU, creates a logical device,
 checks validation/debug marker support, and creates a VMA allocator.
@@ -24,6 +28,14 @@ a textured mesh pipeline with opaque and transparent depth-write behavior.
 Opaque and masked draws are also grouped by compatible mesh/material/texture state
 before Vulkan command recording, allowing duplicated imported models to collapse into
 instanced batches while transparent draws keep their depth ordering.
+The viewport now selects imported meshoptimizer LOD index buffers by conservative
+screen-space primitive radius at submission time, keeping the full source mesh for
+near/selected objects and preserving the original imported asset data unchanged.
+Vertex buffers are shared per imported primitive while index buffers are cached per
+runtime LOD, avoiding duplicate vertex uploads when a primitive changes LOD.
+Static mesh/material resources are prepared once per renderer batch before command
+recording; the shadow and mesh passes then reuse the resolved mesh buffers and
+material descriptor instead of repeating cache lookups for every pass.
 Base-color and emissive texture uploads use sRGB cache entries while normal,
 metallic-roughness, and occlusion uploads keep linear cache entries.
 The Vulkan texture cache also keeps imported glTF wrap/filter sampler state in the
@@ -32,8 +44,9 @@ The asset pipeline now recognizes standalone and glTF-referenced `.ktx`/`.ktx2`
 textures, preserves KTX1/KTX2 GPU mip payloads for RGBA8, BC, ETC2 RGBA8, and ASTC
 2D textures without destructive decode/resampling, and the Vulkan texture cache uploads
 those explicit mip levels through VMA staging when the selected device reports sampled
-image support for the stored format. KTX2 BasisLZ/Zstd supercompression is rejected with
-a clear error instead of being treated as decoded pixels.
+image support for the stored format. KTX2 supercompressed textures are imported through
+libktx when enabled: Basis/UASTC payloads are transcoded to RGBA8 mip data for upload,
+and Zstd explicit payloads keep their mapped VkFormat when the engine supports it.
 The textured mesh shader now reads a frame uniform buffer with view projection,
 camera position, imported punctual lights, and the selected shadow transform instead
 of using a fixed shader-local light direction.
@@ -64,8 +77,15 @@ as forward, then converted once at import into the engine/editor convention: Y-u
 `+Z` forward. UVs are not flipped. Imported Game View cameras use the converted explicit
 local `+X` right axis so they do not mirror the view horizontally.
 Renderer stats expose last-frame lights, shadow caster counts, total shadow frames,
-total shadow caster draws, submitted/culling counts, and render CPU timing for the editor
-Profiler panel and smoke coverage.
+total shadow caster draws, submitted/culling counts, screen-space LOD reductions, and
+render CPU timing for the editor Profiler panel and smoke coverage. The same stats now
+split CPU frame cost into resource preparation, full Vulkan command recording, shadow
+pass recording, mesh pass recording, and editor color-aid recording, plus shadow batch
+count, so large imported scenes can be profiled by pass before adding heavier renderer
+features.
+The shadow pass conservatively culls opaque/masked batches whose world-space sphere
+bounds do not intersect the selected shadow view-projection clip volume; the Profiler
+reports both recorded and culled shadow batches.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.
@@ -100,14 +120,17 @@ color path when a real viewport surface is available.
 - Expand shadows beyond the current directional/spot 2D map with point-light cubemaps,
   cascaded directional shadows, higher quality filtering controls, and transparent
   caster policy.
-- Add anisotropic filtering and KTX2 BasisLZ/Zstd transcoding when a compatible
-  non-GPL decoder/transcoder is selected.
+- Add anisotropic filtering and compressed GPU target selection for Basis/UASTC
+  instead of always transcoding those payloads to RGBA8 mips.
 - Verify glTF scenes with external `.ktx` textures, such as the local Vulkan Samples
   `vokselia` pack, on hardware that supports the stored compressed formats; unsupported
   formats now fail loudly instead of being silently replaced.
 - Expand renderer-owned labels/text overlays beyond the current Scene View entity labels.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
   renderer-owned passes.
+- Add GPU timestamp queries around the same pass boundaries now exposed as CPU timing,
+  so future large-scene profiling can distinguish CPU command cost from real GPU pass
+  cost.
 - Expand RenderDoc markers from frame/pass scopes to selected high-value draw/resource
   scopes once material and render graph ownership is more complete.
 
@@ -290,6 +313,18 @@ color path when a real viewport surface is available.
   `projectunity_editor --smoke-test` passed, source files stayed under the 800-line
   rule, and `git diff --check` reported no whitespace errors beyond existing LF/CRLF
   warnings.
+- Latest runtime LOD verification: `cmake --build --preset dev-core` passed,
+  `ctest --preset dev-core --output-on-failure` passed 7/7 in 35.89 seconds,
+  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8 in 41.15 seconds, visible
+  `projectunity_editor --smoke-test` passed with exit code 0, `git diff --check`
+  reported no whitespace errors beyond LF/CRLF warnings, and source-rule coverage
+  confirmed all source files stay at or below 800 lines.
+- Latest runtime LOD cache correction verification: `cmake --build --preset dev-core`
+  passed, `ctest --preset dev-core --output-on-failure` passed 7/7 in 38.12 seconds,
+  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8 in 39.04 seconds, and visible
+  `projectunity_editor --smoke-test` passed with exit code 0.
 - The NodePerformance-style worst case no longer relies on one CPU/UI draw path or
   one unique Vulkan draw for every imported node. The asset importer preserves visual
   fidelity while deduplicating identical texture/material data, baking scalar material
@@ -298,11 +333,43 @@ color path when a real viewport surface is available.
   per-instance matrix stream, sorts repeated opaque/masked state together, exposes
   `Mesh batches last` in the Profiler, and uses instanced indexed draws for compatible
   batches.
+- Very large scenes viewed from far away now use non-destructive runtime LOD selection:
+  the importer keeps full index buffers plus meshoptimizer-generated LOD index buffers,
+  and the viewport chooses an LOD only when a primitive projects to a small screen-space
+  radius. Selected objects and nearby objects stay on the full-resolution index buffer.
+  The Profiler reports LOD draw count and skipped triangles so this is measurable.
+- The first runtime LOD cache revision keyed the whole GPU mesh by LOD and could upload
+  the same vertex buffer once per LOD. The cache now stores one vertex buffer per
+  imported primitive plus separate index buffers per LOD, and resource preupload walks
+  renderer batches instead of every raw submitted draw.
+- Renderer batch preparation now resolves static mesh buffers and material descriptor
+  sets once per batch. The shadow pass reuses the batch mesh pointer and only switches
+  between the shared opaque shadow descriptor or the already prepared masked material
+  descriptor; the main mesh pass reuses the prepared material descriptor.
+- The Profiler now reports CPU timing for resource preparation, command recording,
+  shadow pass recording, main mesh pass recording, and editor color-aid recording.
+  Latest verification: `cmake --build --preset dev-core` passed, `ctest --preset
+  dev-core --output-on-failure` passed 7/7 in 37.64 seconds, `cmake --build --preset
+  dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt
+  --output-on-failure` passed 8/8 in 34.89 seconds, visible `projectunity_editor
+  --smoke-test` passed with exit code 0, and source files stayed under the 800-line
+  rule.
+- Shadow pass culling now skips off-map opaque/masked batches before binding mesh and
+  material state. Latest verification: `cmake --build --preset dev-core` passed,
+  `ctest --preset dev-core --output-on-failure` passed 7/7 in 37.47 seconds,
+  `cmake --build --preset dev-editor-local-qt` passed, `ctest --preset
+  dev-editor-local-qt --output-on-failure` passed 8/8 in 36.87 seconds, visible
+  `projectunity_editor --smoke-test` passed with exit code 0, and source files stayed
+  under the 800-line rule.
+- Current Phase 6 performance direction is based on Vulkan/meshoptimizer guidance:
+  reduce draw/resource binding work, keep cache-friendly mesh data, cull by pass,
+  and measure before moving to larger GPU-driven indirect rendering work.
 
 ## Rules
 
 - Do not modify imported source geometry destructively for viewport performance.
 - Do not remove textures or replace materials as a performance shortcut.
-- Optional LOD data may be generated at import time, but it must be selected deliberately
-  and never become the default Scene View fidelity loss.
+- Optional LOD data may be generated at import time and selected at runtime by explicit
+  screen-space policy, but it must never modify the source asset or replace nearby/
+  selected Scene View fidelity.
 - Qt is editor UI only. It must not remain the primary 3D renderer.

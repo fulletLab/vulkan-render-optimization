@@ -171,6 +171,30 @@ struct Vec3 {
     const auto fov = std::clamp(outerCone * 2.16F, 0.15F, 2.75F);
     return multiply(perspectiveMatrix(fov, 0.05F, farPlane), viewMatrix(position, right, up, forward));
 }
+
+struct ClipPlane {
+    float x {0.0F};
+    float y {0.0F};
+    float z {0.0F};
+    float w {0.0F};
+};
+
+[[nodiscard]] ClipPlane clipPlane(const RenderMatrix4& matrix, int lhsRow, int rhsRow, float rhsScale)
+{
+    return {
+        at(matrix, lhsRow, 0) + at(matrix, rhsRow, 0) * rhsScale,
+        at(matrix, lhsRow, 1) + at(matrix, rhsRow, 1) * rhsScale,
+        at(matrix, lhsRow, 2) + at(matrix, rhsRow, 2) * rhsScale,
+        at(matrix, lhsRow, 3) + at(matrix, rhsRow, 3) * rhsScale,
+    };
+}
+
+[[nodiscard]] bool sphereOutsidePlane(ClipPlane plane, Vec3 center, float radius)
+{
+    const auto planeRadius = radius * std::sqrt(plane.x * plane.x + plane.y * plane.y + plane.z * plane.z);
+    const auto distance = plane.x * center.x + plane.y * center.y + plane.z * center.z + plane.w;
+    return distance < -planeRadius;
+}
 } // namespace
 
 RenderShadowMapSelection chooseShadowMap(
@@ -195,6 +219,28 @@ RenderShadowMapSelection chooseShadowMap(
         return {true, index, RenderLightType::Spot, spotShadowMatrix(*spot, center, radius)};
     }
     return {};
+}
+
+bool shadowSphereIntersects(
+    const RenderMatrix4& shadowViewProjection,
+    std::array<float, 3> worldCenter,
+    float worldRadius)
+{
+    if (!std::isfinite(worldRadius) || worldRadius <= 0.0F) {
+        return true;
+    }
+    const auto center = vec3(worldCenter);
+    const std::array<ClipPlane, 6> planes {
+        clipPlane(shadowViewProjection, 3, 0, 1.0F),
+        clipPlane(shadowViewProjection, 3, 0, -1.0F),
+        clipPlane(shadowViewProjection, 3, 1, 1.0F),
+        clipPlane(shadowViewProjection, 3, 1, -1.0F),
+        clipPlane(shadowViewProjection, 2, 2, 0.0F),
+        clipPlane(shadowViewProjection, 3, 2, -1.0F),
+    };
+    return std::none_of(planes.begin(), planes.end(), [center, worldRadius](ClipPlane plane) {
+        return sphereOutsidePlane(plane, center, worldRadius);
+    });
 }
 
 } // namespace projectunity::renderer

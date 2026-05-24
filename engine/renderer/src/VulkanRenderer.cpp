@@ -113,12 +113,19 @@ struct VulkanRenderer::Impl {
 
         VkPhysicalDeviceProperties properties {};
         vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+        std::uint32_t familyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
         stats.gpuName = properties.deviceName;
         stats.apiVersionMajor = vulkan::major(properties.apiVersion);
         stats.apiVersionMinor = vulkan::minor(properties.apiVersion);
         stats.apiVersionPatch = vulkan::patch(properties.apiVersion);
         stats.validationEnabled = validationEnabled;
         stats.debugMarkersAvailable = debugMarkersAvailable;
+        stats.gpuTimestampsSupported = queueFamilyIndex < families.size()
+            && families[queueFamilyIndex].timestampValidBits > 0
+            && properties.limits.timestampPeriod > 0.0F;
     }
 
     void createDevice()
@@ -230,10 +237,29 @@ struct VulkanRenderer::Impl {
             stats.lastFrameColorMeshDrawCount = static_cast<std::uint64_t>(frame.colorMeshDraws.size());
             stats.lastFrameCandidateTriangleCount = frame.candidateTriangleCount;
             stats.lastFrameCulledTriangleCount = frame.culledTriangleCount;
-            stats.lastFrameVisibleTriangleCount = frame.candidateTriangleCount - frame.culledTriangleCount;
+            stats.lastFrameLodMeshDrawCount = frame.lodMeshDrawCount;
+            stats.lastFrameLodTriangleReductionCount = frame.lodTriangleReductionCount;
+            const auto visibleBeforeLod = frame.candidateTriangleCount - frame.culledTriangleCount;
+            stats.lastFrameVisibleTriangleCount = visibleBeforeLod > frame.lodTriangleReductionCount
+                ? visibleBeforeLod - frame.lodTriangleReductionCount
+                : 0U;
             stats.lastFrameLightCount = static_cast<std::uint64_t>(frame.lights.size());
             stats.lastFrameShadowCasterCount = 0;
             stats.lastFrameRenderCpuTimeUs = static_cast<std::uint64_t>(std::max<std::int64_t>(frameElapsedUs, 0));
+            const auto& profile = existing->second->lastFrameProfile();
+            stats.lastFrameShadowBatchCount = profile.shadowBatchCount;
+            stats.lastFrameShadowCulledBatchCount = profile.shadowCulledBatchCount;
+            stats.lastFrameResourcePrepareCpuTimeUs = profile.resourcePrepareCpuTimeUs;
+            stats.lastFrameCommandRecordCpuTimeUs = profile.commandRecordCpuTimeUs;
+            stats.lastFrameShadowRecordCpuTimeUs = profile.shadowRecordCpuTimeUs;
+            stats.lastFrameMeshRecordCpuTimeUs = profile.meshRecordCpuTimeUs;
+            stats.lastFrameColorRecordCpuTimeUs = profile.colorRecordCpuTimeUs;
+            stats.gpuTimestampsSupported = profile.gpuTimestampsSupported;
+            stats.lastFrameGpuTimestampsValid = profile.gpuTimestampsValid;
+            stats.lastFrameGpuTimeUs = profile.frameGpuTimeUs;
+            stats.lastFrameShadowGpuTimeUs = profile.shadowGpuTimeUs;
+            stats.lastFrameMeshGpuTimeUs = profile.meshGpuTimeUs;
+            stats.lastFrameColorGpuTimeUs = profile.colorGpuTimeUs;
             if (stats.viewportFramesPresented == 1U) {
                 stats.averageRenderCpuTimeUs = stats.lastFrameRenderCpuTimeUs;
             } else {

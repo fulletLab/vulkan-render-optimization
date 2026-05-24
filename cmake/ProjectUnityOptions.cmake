@@ -6,6 +6,8 @@ option(PROJECTUNITY_FETCH_IM3D "Fetch Im3d for editor debug draw rendering." ON)
 option(PROJECTUNITY_FETCH_TINYGLTF "Fetch TinyGLTF and its bundled stb image headers for asset import." ON)
 option(PROJECTUNITY_FETCH_MIKKTSPACE "Fetch MikkTSpace for imported mesh tangent generation." ON)
 option(PROJECTUNITY_FETCH_MESHOPTIMIZER "Fetch meshoptimizer for imported mesh optimization and LODs." ON)
+option(PROJECTUNITY_ENABLE_LIBKTX "Enable libktx for KTX2 Basis/UASTC/Zstd texture import." ON)
+option(PROJECTUNITY_FETCH_LIBKTX "Fetch libktx when an installed package is not found." ON)
 option(PROJECTUNITY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors." OFF)
 
 set(CMAKE_CXX_STANDARD 20)

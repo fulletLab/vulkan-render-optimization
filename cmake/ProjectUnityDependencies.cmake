@@ -260,3 +260,86 @@ function(projectunity_resolve_meshoptimizer out_target)
     add_library(ProjectUnity::Meshoptimizer ALIAS meshoptimizer)
     set(${out_target} ProjectUnity::Meshoptimizer PARENT_SCOPE)
 endfunction()
+
+function(projectunity_resolve_libktx out_target)
+    if(TARGET ProjectUnity::LibKTX)
+        set(${out_target} ProjectUnity::LibKTX PARENT_SCOPE)
+        return()
+    endif()
+
+    find_package(ktx CONFIG QUIET)
+    set(_ktx_candidates
+        ktx_read
+        ktx::ktx_read
+        KTX::ktx_read
+        ktx
+        ktx::ktx
+        KTX::ktx
+    )
+    foreach(_candidate IN LISTS _ktx_candidates)
+        if(TARGET ${_candidate})
+            set(${out_target} ${_candidate} PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    if(NOT PROJECTUNITY_FETCH_LIBKTX)
+        message(FATAL_ERROR
+            "libktx was not found. Install KTX-Software, provide its CMake package, "
+            "or configure with -DPROJECTUNITY_FETCH_LIBKTX=ON."
+        )
+    endif()
+
+    message(STATUS "Fetching KTX-Software v4.4.2 (Apache-2.0) for KTX2 transcoding.")
+    set(_projectunity_build_shared_libs_was_defined FALSE)
+    if(DEFINED BUILD_SHARED_LIBS)
+        set(_projectunity_build_shared_libs_was_defined TRUE)
+        set(_projectunity_build_shared_libs_value "${BUILD_SHARED_LIBS}")
+    endif()
+    set(KTX_FEATURE_TESTS OFF CACHE BOOL "Build KTX tests" FORCE)
+    set(KTX_FEATURE_TOOLS OFF CACHE BOOL "Build KTX tools" FORCE)
+    set(KTX_FEATURE_LOADTEST_APPS OFF CACHE STRING "Build KTX load-test apps" FORCE)
+    set(KTX_FEATURE_DOC OFF CACHE BOOL "Build KTX docs" FORCE)
+    set(KTX_FEATURE_JNI OFF CACHE BOOL "Build KTX Java bindings" FORCE)
+    set(KTX_FEATURE_PY OFF CACHE BOOL "Build KTX Python bindings" FORCE)
+    set(KTX_FEATURE_VK_UPLOAD OFF CACHE BOOL "Build KTX Vulkan upload helpers" FORCE)
+    set(KTX_FEATURE_GL_UPLOAD OFF CACHE BOOL "Build KTX OpenGL upload helpers" FORCE)
+    set(KTX_WERROR OFF CACHE BOOL "Treat KTX warnings as errors" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
+
+    FetchContent_Declare(ktx
+        GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software.git
+        GIT_TAG v4.4.2
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_GetProperties(ktx)
+    if(NOT ktx_POPULATED)
+        if(POLICY CMP0169)
+            cmake_policy(PUSH)
+            cmake_policy(SET CMP0169 OLD)
+        endif()
+        FetchContent_Populate(ktx)
+        if(POLICY CMP0169)
+            cmake_policy(POP)
+        endif()
+    endif()
+    add_subdirectory("${ktx_SOURCE_DIR}" "${ktx_BINARY_DIR}" EXCLUDE_FROM_ALL)
+    if(_projectunity_build_shared_libs_was_defined)
+        set(BUILD_SHARED_LIBS "${_projectunity_build_shared_libs_value}" CACHE BOOL "Build shared libraries" FORCE)
+    else()
+        unset(BUILD_SHARED_LIBS CACHE)
+    endif()
+
+    if(TARGET ktx_read)
+        add_library(ProjectUnity::LibKTX ALIAS ktx_read)
+        set(${out_target} ProjectUnity::LibKTX PARENT_SCOPE)
+        return()
+    endif()
+    if(TARGET ktx)
+        add_library(ProjectUnity::LibKTX ALIAS ktx)
+        set(${out_target} ProjectUnity::LibKTX PARENT_SCOPE)
+        return()
+    endif()
+
+    message(FATAL_ERROR "KTX-Software was fetched, but no libktx CMake target was created.")
+endfunction()
