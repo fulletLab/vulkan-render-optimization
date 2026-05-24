@@ -21,6 +21,7 @@ namespace projectunity::editor {
 namespace {
 
 constexpr float kNearPlane = 0.05F;
+constexpr std::size_t kDenseSceneEntityOverlayThreshold = 512;
 
 struct DrawTriangle {
     QPolygonF polygon;
@@ -285,7 +286,11 @@ void ViewportWidget::drawEntities(QPainter& painter) const
         return;
     }
 
+    const auto skipDenseMeshOverlay = scene_->entityCount() > kDenseSceneEntityOverlayThreshold;
     for (const auto& entity : scene_->entities()) {
+        if (skipDenseMeshOverlay && entity.id != selectedEntityId_ && entity.meshRenderer.has_value()) {
+            continue;
+        }
         if (entity.id != selectedEntityId_) {
             drawEntity(painter, entity);
         }

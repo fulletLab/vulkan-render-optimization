@@ -14,9 +14,9 @@
 namespace projectunity::assets::detail {
 namespace {
 
-constexpr std::size_t kLargePrimitiveTriangleThreshold = 131'072;
-constexpr std::size_t kTargetTrianglesPerChunk = 65'536;
-constexpr std::size_t kMaxChunksPerPrimitive = 64;
+constexpr std::size_t kLargePrimitiveTriangleThreshold = 32'768;
+constexpr std::size_t kTargetTrianglesPerChunk = 16'384;
+constexpr std::size_t kMaxChunksPerPrimitive = 128;
 constexpr std::uint32_t kInvalidVertex = std::numeric_limits<std::uint32_t>::max();
 
 [[nodiscard]] float component(math::Vec3 value, int axis) noexcept

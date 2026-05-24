@@ -737,8 +737,8 @@ int main()
         const auto nodePerf = manager.model(nodePerfResult.record.id);
         if (!nodePerfResult.success
             || nodePerf == nullptr
-            || nodePerf->primitives.size() > 256U
-            || nodePerf->primitiveInstances.size() > 256U) {
+            || nodePerf->primitives.size() > 512U
+            || nodePerf->primitiveInstances.size() > 512U) {
             std::cerr << nodePerfResult.error << '\n';
             if (nodePerf != nullptr) {
                 std::cerr << "primitives=" << nodePerf->primitives.size()
@@ -777,8 +777,9 @@ int main()
         }
         if (!nodePerfTexture.id.isValid()
             || nodePerfPixelCount == 0U
-            || nodePerfColorTotal / std::max<std::uint64_t>(nodePerfPixelCount * 3U, 1U) > 220U) {
-            return fail("NodePerformanceTest import produced invalid or whitewashed texture data");
+            || nodePerfColorTotal / std::max<std::uint64_t>(nodePerfPixelCount * 3U, 1U) > 220U
+            || nodePerf->primitiveInstances.size() <= nodePerf->materials.size()) {
+            return fail("NodePerformanceTest import produced invalid texture or spatial batch data");
         }
         const auto nodePerfHasLods = std::any_of(nodePerf->primitives.begin(), nodePerf->primitives.end(), [](const MeshPrimitive& primitive) {
             return !primitive.lods.empty()

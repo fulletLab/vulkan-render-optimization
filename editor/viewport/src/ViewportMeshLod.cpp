@@ -46,13 +46,13 @@ std::uint32_t selectViewportMeshLod(
         requested = std::min<std::uint32_t>(1U, available);
     }
     const auto sourceTriangles = primitive.indices.size() / 3U;
-    if (sourceTriangles > 4096U && depth > boundsRadius * 1.20F) {
+    if (sourceTriangles > 2048U && depth > boundsRadius * 1.05F) {
         const auto projectedArea = std::clamp(
             3.14159265F * projectedRadius * projectedRadius,
             1.0F,
-            viewportHeight * viewportHeight * 1.85F);
-        const auto desiredTriangles = std::clamp(projectedArea * 0.55F, 1024.0F, static_cast<float>(sourceTriangles));
-        const auto minimumAcceptableTriangles = desiredTriangles * 0.42F;
+            viewportHeight * viewportHeight * 1.25F);
+        const auto desiredTriangles = std::clamp(projectedArea * 0.25F, 512.0F, static_cast<float>(sourceTriangles));
+        const auto minimumAcceptableTriangles = desiredTriangles * 0.25F;
         for (std::uint32_t candidate = available; candidate > 0U; --candidate) {
             const auto candidateTriangles = static_cast<float>(indexCountForViewportLod(primitive, candidate) / 3U);
             if (candidateTriangles >= minimumAcceptableTriangles

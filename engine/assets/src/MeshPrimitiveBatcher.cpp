@@ -5,19 +5,35 @@
 #include "MeshBounds.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::size_t kBatchThreshold = 512;
+constexpr std::size_t kSpatialBatchTargetInstances = 96;
 
 struct BatchTarget {
     std::size_t materialIndex {0};
+    std::size_t cellX {0};
+    std::size_t cellY {0};
     std::uint32_t primitiveIndex {0};
+};
+
+struct SpatialBatchGrid {
+    std::size_t side {1};
+    int axisA {0};
+    int axisB {2};
+    float minA {0.0F};
+    float minB {0.0F};
+    float extentA {0.0F};
+    float extentB {0.0F};
 };
 
 [[nodiscard]] GltfMatrix4 toMatrix(const std::array<float, 16>& values)
@@ -35,6 +51,123 @@ struct BatchTarget {
     instance.primitiveIndex = primitiveIndex;
     instance.bounds = bounds;
     return instance;
+}
+
+[[nodiscard]] float component(math::Vec3 value, int axis) noexcept
+{
+    if (axis == 0) {
+        return value.x;
+    }
+    if (axis == 1) {
+        return value.y;
+    }
+    return value.z;
+}
+
+void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized) noexcept
+{
+    if (!initialized) {
+        bounds.minimum = next.minimum;
+        bounds.maximum = next.maximum;
+        initialized = true;
+        return;
+    }
+    bounds.minimum.x = std::min(bounds.minimum.x, next.minimum.x);
+    bounds.minimum.y = std::min(bounds.minimum.y, next.minimum.y);
+    bounds.minimum.z = std::min(bounds.minimum.z, next.minimum.z);
+    bounds.maximum.x = std::max(bounds.maximum.x, next.maximum.x);
+    bounds.maximum.y = std::max(bounds.maximum.y, next.maximum.y);
+    bounds.maximum.z = std::max(bounds.maximum.z, next.maximum.z);
+}
+
+[[nodiscard]] std::array<int, 2> spatialAxes(const MeshBounds& bounds) noexcept
+{
+    std::array<std::pair<float, int>, 3> extents {{
+        {std::fabs(bounds.maximum.x - bounds.minimum.x), 0},
+        {std::fabs(bounds.maximum.y - bounds.minimum.y), 1},
+        {std::fabs(bounds.maximum.z - bounds.minimum.z), 2},
+    }};
+    std::sort(extents.begin(), extents.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first > rhs.first;
+    });
+    return {extents[0].second, extents[1].second};
+}
+
+[[nodiscard]] std::size_t materialGridSide(std::size_t materialCount) noexcept
+{
+    if (materialCount >= 64U) {
+        return 2U;
+    }
+    if (materialCount >= 24U) {
+        return 3U;
+    }
+    if (materialCount >= 8U) {
+        return 4U;
+    }
+    if (materialCount >= 2U) {
+        return 8U;
+    }
+    return 12U;
+}
+
+[[nodiscard]] std::size_t instanceGridSide(std::size_t instanceCount) noexcept
+{
+    const auto wantedCells = std::max<std::size_t>(
+        1U,
+        (instanceCount + kSpatialBatchTargetInstances - 1U) / kSpatialBatchTargetInstances);
+    return static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedCells))));
+}
+
+[[nodiscard]] std::size_t gridCoordinate(float value, float minimum, float extent, std::size_t side) noexcept
+{
+    if (side <= 1U || extent <= 0.0001F || !std::isfinite(value)) {
+        return 0;
+    }
+    const auto normalized = std::clamp((value - minimum) / extent, 0.0F, 0.999999F);
+    return std::min(static_cast<std::size_t>(normalized * static_cast<float>(side)), side - 1U);
+}
+
+[[nodiscard]] SpatialBatchGrid makeSpatialBatchGrid(const ModelAsset& model) noexcept
+{
+    SpatialBatchGrid grid;
+    const auto materialCount = std::max<std::size_t>(model.materials.size(), 1U);
+    grid.side = std::min(materialGridSide(materialCount), instanceGridSide(model.primitiveInstances.size()));
+    if (grid.side <= 1U) {
+        return grid;
+    }
+
+    MeshBounds sceneBounds;
+    bool initialized = false;
+    for (const auto& instance : model.primitiveInstances) {
+        includeBounds(sceneBounds, instance.bounds, initialized);
+    }
+    if (!initialized) {
+        grid.side = 1U;
+        return grid;
+    }
+
+    sceneBounds.center = (sceneBounds.minimum + sceneBounds.maximum) * 0.5F;
+    const auto axes = spatialAxes(sceneBounds);
+    grid.axisA = axes[0];
+    grid.axisB = axes[1];
+    grid.minA = component(sceneBounds.minimum, grid.axisA);
+    grid.minB = component(sceneBounds.minimum, grid.axisB);
+    grid.extentA = component(sceneBounds.maximum, grid.axisA) - grid.minA;
+    grid.extentB = component(sceneBounds.maximum, grid.axisB) - grid.minB;
+    if (std::fabs(grid.extentA) <= 0.0001F && std::fabs(grid.extentB) <= 0.0001F) {
+        grid.side = 1U;
+    }
+    return grid;
+}
+
+[[nodiscard]] std::pair<std::size_t, std::size_t> spatialCell(
+    const SpatialBatchGrid& grid,
+    math::Vec3 center) noexcept
+{
+    return {
+        gridCoordinate(component(center, grid.axisA), grid.minA, grid.extentA, grid.side),
+        gridCoordinate(component(center, grid.axisB), grid.minB, grid.extentB, grid.side),
+    };
 }
 
 [[nodiscard]] bool sameMaterial(const MaterialAsset& lhs, const MaterialAsset& rhs) noexcept
@@ -157,6 +290,7 @@ void batchModelPrimitives(ModelAsset& model)
     bakeFlatBaseColors(model);
     deduplicateMaterials(model);
 
+    const auto spatialGrid = makeSpatialBatchGrid(model);
     std::vector<MeshPrimitive> batched;
     std::vector<BatchTarget> targets;
     for (const auto& instance : model.primitiveInstances) {
@@ -164,15 +298,18 @@ void batchModelPrimitives(ModelAsset& model)
             continue;
         }
         const auto& source = model.primitives[instance.primitiveIndex];
-        auto target = std::find_if(targets.begin(), targets.end(), [&source](const BatchTarget& value) {
-            return value.materialIndex == source.materialIndex;
+        const auto [cellX, cellY] = spatialCell(spatialGrid, instance.bounds.center);
+        auto target = std::find_if(targets.begin(), targets.end(), [&source, cellX, cellY](const BatchTarget& value) {
+            return value.materialIndex == source.materialIndex
+                && value.cellX == cellX
+                && value.cellY == cellY;
         });
         if (target == targets.end()) {
             const auto outputIndex = static_cast<std::uint32_t>(batched.size());
             MeshPrimitive next;
             next.materialIndex = source.materialIndex;
             batched.push_back(std::move(next));
-            targets.push_back({source.materialIndex, outputIndex});
+            targets.push_back({source.materialIndex, cellX, cellY, outputIndex});
             target = targets.end() - 1;
         }
 
