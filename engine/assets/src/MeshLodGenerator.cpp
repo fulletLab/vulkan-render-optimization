@@ -11,8 +11,8 @@
 namespace projectunity::assets::detail {
 namespace {
 
-constexpr std::array<std::size_t, 6> kMeshLodDivisors {{2U, 4U, 8U, 16U, 32U, 64U}};
-constexpr std::array<float, 6> kMeshLodErrors {{0.005F, 0.01F, 0.02F, 0.035F, 0.055F, 0.08F}};
+constexpr std::array<std::size_t, 8> kMeshLodDivisors {{2U, 4U, 8U, 16U, 32U, 64U, 128U, 256U}};
+constexpr std::array<float, 8> kMeshLodErrors {{0.005F, 0.012F, 0.025F, 0.05F, 0.09F, 0.14F, 0.22F, 0.32F}};
 
 } // namespace
 

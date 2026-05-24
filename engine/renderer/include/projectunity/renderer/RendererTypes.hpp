@@ -48,6 +48,10 @@ struct RendererStats {
     std::uint64_t lastFrameVisibleRenderChunkCount {0};
     std::uint64_t lastFrameRenderInstanceCount {0};
     std::uint64_t lastFrameVisibleRenderInstanceCount {0};
+    std::uint64_t lastFrameLargeRenderChunkCount {0};
+    std::uint64_t lastFrameLargestRenderChunkTriangleCount {0};
+    std::uint64_t lastFrameLargestRenderChunkInstanceCount {0};
+    float lastFrameMaxRenderChunkExtent {0.0F};
     std::uint64_t lastFrameLightCount {0};
     std::uint64_t lastFrameShadowCasterCount {0};
     std::uint64_t lastFrameShadowViewCount {0};
@@ -148,6 +152,7 @@ struct RenderMeshDraw {
     RenderMatrix4 modelMatrix;
     RenderMatrix4 modelViewProjection;
     bool flipsWinding {false};
+    bool castsShadow {true};
     std::uint64_t renderInstanceId {0};
     std::uint64_t renderChunkId {0};
     std::uint64_t sceneNodeId {0};
@@ -194,6 +199,10 @@ struct RenderFrame {
     std::uint64_t visibleRenderChunkCount {0};
     std::uint64_t renderInstanceCount {0};
     std::uint64_t visibleRenderInstanceCount {0};
+    std::uint64_t largeRenderChunkCount {0};
+    std::uint64_t largestRenderChunkTriangleCount {0};
+    std::uint64_t largestRenderChunkInstanceCount {0};
+    float maxRenderChunkExtent {0.0F};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

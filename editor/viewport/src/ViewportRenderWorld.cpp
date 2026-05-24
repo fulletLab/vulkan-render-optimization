@@ -1,6 +1,8 @@
 #include "ViewportRenderWorld.hpp"
 
+#include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldShadowPolicy.hpp"
 #include "ViewportRendererCulling.hpp"
 
 #include <algorithm>
@@ -11,6 +13,7 @@
 #include <limits>
 #include <span>
 #include <unordered_set>
+#include <vector>
 
 namespace projectunity::editor {
 namespace {
@@ -261,6 +264,7 @@ struct ViewportRenderWorld::EntityRecord {
         scene::EntityId sceneNodeId;
         ViewportWorldBounds worldBounds;
         std::vector<std::size_t> instanceIndices;
+        std::uint64_t triangleCount {0};
     };
 
     scene::EntityId entityId;
@@ -334,6 +338,15 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
         chunk.renderChunkId = chunkId;
         chunk.worldBounds = bounds;
         chunk.instanceIndices.assign(instanceIndices.begin(), instanceIndices.end());
+        for (const auto instanceIndex : chunk.instanceIndices) {
+            if (instanceIndex >= record->instances.size()) {
+                continue;
+            }
+            const auto& instance = record->instances[instanceIndex];
+            if (instance.primitiveIndex < model->primitives.size()) {
+                chunk.triangleCount += model->primitives[instance.primitiveIndex].indices.size() / 3U;
+            }
+        }
         record->chunks.push_back(std::move(chunk));
     };
 
@@ -556,7 +569,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         ? *selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex
         : UINT32_MAX;
 
-    std::uint64_t visibleSourceTriangleCount = 0;
+    FrameBounds allChunkBounds;
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {
             continue;
@@ -572,7 +585,49 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             result.stats.candidateTriangleCount += instance.model->primitives[instance.primitiveIndex].indices.size() / 3U;
         }
         for (const auto& chunk : record->chunks) {
-            if (!viewportBoundsVisible(
+            allChunkBounds.includeSphere(chunk.worldBounds.center, chunk.worldBounds.radius);
+            const auto extent = renderWorldChunkMaxExtent(chunk.worldBounds.corners);
+            result.stats.maxRenderChunkExtent = std::max(result.stats.maxRenderChunkExtent, extent);
+            result.stats.largestRenderChunkTriangleCount = std::max(
+                result.stats.largestRenderChunkTriangleCount,
+                chunk.triangleCount);
+            result.stats.largestRenderChunkInstanceCount = std::max<std::uint64_t>(
+                result.stats.largestRenderChunkInstanceCount,
+                chunk.instanceIndices.size());
+        }
+    }
+
+    const auto sceneExtent = allChunkBounds.valid
+        ? std::max({
+            allChunkBounds.maximum.x - allChunkBounds.minimum.x,
+            allChunkBounds.maximum.y - allChunkBounds.minimum.y,
+            allChunkBounds.maximum.z - allChunkBounds.minimum.z,
+        })
+        : 0.0F;
+    const auto largeChunkExtent = sceneExtent > 0.0001F ? sceneExtent * 0.35F : std::numeric_limits<float>::infinity();
+    const auto collectChunkDebug = result.stats.renderInstanceCount >= 512U || result.stats.renderChunkCount > 32U;
+    if (collectChunkDebug) {
+        result.debugChunks.reserve(static_cast<std::size_t>(std::min<std::uint64_t>(result.stats.renderChunkCount, 512U)));
+    }
+
+    std::vector<ViewportRenderWorldChunkLogRow> chunkDebugRows;
+    if (collectChunkDebug) {
+        chunkDebugRows.reserve(static_cast<std::size_t>(result.stats.renderChunkCount));
+    }
+
+    std::uint64_t visibleSourceTriangleCount = 0;
+    for (const auto* record : orderedRecords_) {
+        if (record == nullptr) {
+            continue;
+        }
+        for (const auto& chunk : record->chunks) {
+            const auto chunkExtent = renderWorldChunkMaxExtent(chunk.worldBounds.corners);
+            const auto largeChunk = chunkExtent >= largeChunkExtent
+                || chunk.triangleCount == result.stats.largestRenderChunkTriangleCount;
+            if (largeChunk) {
+                ++result.stats.largeRenderChunkCount;
+            }
+            const auto chunkVisible = viewportBoundsVisible(
                     chunk.worldBounds,
                     camera.eye,
                     camera.right,
@@ -581,7 +636,27 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     camera.verticalFovRadians,
                     camera.aspectRatio,
                     camera.nearPlane,
-                    camera.farPlane)) {
+                    camera.farPlane);
+            if (collectChunkDebug) {
+                chunkDebugRows.push_back({
+                    chunk.renderChunkId,
+                    chunk.triangleCount,
+                    static_cast<std::uint64_t>(chunk.instanceIndices.size()),
+                    chunkExtent,
+                    chunkVisible,
+                });
+                if (result.debugChunks.size() < 512U) {
+                    result.debugChunks.push_back({
+                        chunk.worldBounds.corners,
+                        chunk.triangleCount,
+                        static_cast<std::uint64_t>(chunk.instanceIndices.size()),
+                        chunkExtent,
+                        chunkVisible,
+                        largeChunk,
+                    });
+                }
+            }
+            if (!chunkVisible) {
                 continue;
             }
             ++result.stats.visibleRenderChunkCount;
@@ -648,6 +723,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     instance.modelMatrix,
                     multiply(viewProjection, instance.modelMatrix),
                     instance.flipsWinding,
+                    true,
                     instance.renderInstanceId,
                     chunk.renderChunkId,
                     instance.sceneNodeId.value(),
@@ -655,6 +731,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             }
         }
     }
+
+    logRenderWorldChunkDiagnostics(result.stats, chunkDebugRows, lastDebugSignature_);
 
     if (visibleBounds.valid) {
         result.visibleBoundsValid = true;
@@ -667,6 +745,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     result.stats.culledTriangleCount = result.stats.candidateTriangleCount > visibleSourceTriangleCount
         ? result.stats.candidateTriangleCount - visibleSourceTriangleCount
         : 0U;
+    applyViewportShadowPolicy(meshDraws, selectedEntityId, camera, viewportHeight);
     return result;
 }
 

@@ -143,6 +143,35 @@ void appendEntityMarker(
     appendLineQuad(vertices, indices, position - cameraUp * pivotRadius, position + cameraUp * pivotRadius, color, selected ? 2.1F : 1.4F, cameraForward, cameraRight, cameraDistance);
 }
 
+void appendBounds(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const std::array<math::Vec3, 8>& corners,
+    std::array<float, 4> color,
+    float thickness,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance)
+{
+    constexpr std::array<std::pair<int, int>, 12> edges {{
+        {0, 1}, {1, 3}, {3, 2}, {2, 0},
+        {4, 5}, {5, 7}, {7, 6}, {6, 4},
+        {0, 4}, {1, 5}, {2, 6}, {3, 7},
+    }};
+    for (const auto& edge : edges) {
+        appendLineQuad(
+            vertices,
+            indices,
+            corners[static_cast<std::size_t>(edge.first)],
+            corners[static_cast<std::size_t>(edge.second)],
+            color,
+            thickness,
+            cameraForward,
+            cameraRight,
+            cameraDistance);
+    }
+}
+
 void appendHierarchyLinks(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,

@@ -462,7 +462,7 @@ QWidget* MainWindow::createProfilerPanel()
     header->setObjectName(QStringLiteral("PanelHeader"));
     layout->addWidget(header);
 
-    profilerTable_ = new QTableWidget(44, 2);
+    profilerTable_ = new QTableWidget(48, 2);
     profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
     profilerTable_->horizontalHeader()->setStretchLastSection(true);
     profilerTable_->verticalHeader()->setVisible(false);
@@ -484,6 +484,10 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Visible chunks"),
         QStringLiteral("Render instances total"),
         QStringLiteral("Visible render instances"),
+        QStringLiteral("Large chunks"),
+        QStringLiteral("Max chunk extent"),
+        QStringLiteral("Top chunk triangles"),
+        QStringLiteral("Top chunk instances"),
         QStringLiteral("Mesh candidates last"),
         QStringLiteral("Mesh culled last"),
         QStringLiteral("Mesh draws last"),

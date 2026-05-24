@@ -5,6 +5,7 @@
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -38,6 +39,19 @@ struct ViewportRenderWorldStats {
     std::uint64_t culledTriangleCount {0};
     std::uint64_t lodMeshDrawCount {0};
     std::uint64_t lodTriangleReductionCount {0};
+    std::uint64_t largeRenderChunkCount {0};
+    std::uint64_t largestRenderChunkTriangleCount {0};
+    std::uint64_t largestRenderChunkInstanceCount {0};
+    float maxRenderChunkExtent {0.0F};
+};
+
+struct ViewportRenderWorldChunkDebug {
+    std::array<math::Vec3, 8> corners {};
+    std::uint64_t triangleCount {0};
+    std::uint64_t instanceCount {0};
+    float maxExtent {0.0F};
+    bool visible {false};
+    bool large {false};
 };
 
 struct ViewportRenderWorldFrame {
@@ -46,6 +60,7 @@ struct ViewportRenderWorldFrame {
     math::Vec3 visibleBoundsCenter;
     float visibleBoundsRadius {0.0F};
     ViewportRenderWorldStats stats;
+    std::vector<ViewportRenderWorldChunkDebug> debugChunks;
 };
 
 class ViewportRenderWorld final {
@@ -78,6 +93,7 @@ private:
     const scene::Scene* scene_ {nullptr};
     const assets::IAssetManager* assetManager_ {nullptr};
     bool dirty_ {true};
+    std::uint64_t lastDebugSignature_ {0};
     std::unordered_map<std::uint64_t, std::shared_ptr<EntityRecord>> records_;
     std::vector<const EntityRecord*> orderedRecords_;
 };

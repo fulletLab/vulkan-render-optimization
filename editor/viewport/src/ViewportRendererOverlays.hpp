@@ -48,6 +48,16 @@ void appendEntityMarker(
     math::Vec3 cameraUp,
     float cameraDistance);
 
+void appendBounds(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const std::array<math::Vec3, 8>& corners,
+    std::array<float, 4> color,
+    float thickness,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    float cameraDistance);
+
 void appendHierarchyLinks(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,

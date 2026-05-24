@@ -24,6 +24,10 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportMeshLod.hpp
     src/ViewportRenderWorld.cpp
     src/ViewportRenderWorld.hpp
+    src/ViewportRenderWorldDiagnostics.cpp
+    src/ViewportRenderWorldDiagnostics.hpp
+    src/ViewportRenderWorldShadowPolicy.cpp
+    src/ViewportRenderWorldShadowPolicy.hpp
     src/ViewportRendererCulling.cpp
     src/ViewportRendererCulling.hpp
     src/ViewportRendererOverlays.cpp

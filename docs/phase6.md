@@ -60,6 +60,9 @@ runtime cache replacement, or a full editor rewrite.
   `ViewportRenderWorld`, and the Phase 6 visual smoke now checks NodePerformanceTest
   look-away culling. The overall status remains partial until the large external terrain
   asset is profiled manually in the viewport.
+- Diagnostic note: the second 6.0.02 pass adds RenderChunk bounds drawing, chunk extent/
+  large-chunk counters, and console top-10 chunk diagnostics so the 400 MB terrain case can
+  show whether its chunks are real spatial cells or oversized logical groups.
 
 ## Blocking Renderer Status
 

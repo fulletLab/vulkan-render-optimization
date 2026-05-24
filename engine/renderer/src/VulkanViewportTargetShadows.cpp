@@ -175,7 +175,7 @@ bool VulkanViewportTarget::recordShadowPass(
         const auto& shadowViewProjection = shadowViewProjectionFor(frame, viewIndex);
         for (const auto& batch : meshBatches_) {
             const auto& draw = *batch.draw;
-            if (isTransparentMeshDraw(draw)) {
+            if (!draw.castsShadow || isTransparentMeshDraw(draw)) {
                 continue;
             }
             if (!shadowSphereIntersects(shadowViewProjection, draw.worldBoundsCenter, draw.worldBoundsRadius)) {

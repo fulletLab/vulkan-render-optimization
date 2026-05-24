@@ -9,12 +9,30 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 namespace projectunity::editor {
 namespace {
+[[nodiscard]] bool renderWorldChunkBoundsDebugEnabled() noexcept
+{
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (::_dupenv_s(&value, &length, "PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS") != 0 || value == nullptr) {
+        return false;
+    }
+    const bool enabled = length > 1U && value[0] != '\0' && value[0] != '0';
+    std::free(value);
+    return enabled;
+#else
+    const auto* value = std::getenv("PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+#endif
+}
+
 [[nodiscard]] float& at(renderer::RenderMatrix4& matrix, int row, int column)
 {
     return matrix.values[static_cast<std::size_t>(column * 4 + row)];
@@ -297,6 +315,7 @@ bool ViewportWidget::renderRendererFrame()
     const auto viewProjection = multiply(projection, view);
     frame.viewProjection = viewProjection;
     frame.cameraPosition = {eye.x, eye.y, eye.z};
+    std::vector<ViewportRenderWorldChunkDebug> renderWorldDebugChunks;
     if (renderWorld_ != nullptr) {
         const ViewportRenderWorldCamera renderWorldCamera {
             eye,
@@ -323,6 +342,10 @@ bool ViewportWidget::renderRendererFrame()
         frame.visibleRenderChunkCount = renderWorldFrame.stats.visibleRenderChunkCount;
         frame.renderInstanceCount = renderWorldFrame.stats.renderInstanceCount;
         frame.visibleRenderInstanceCount = renderWorldFrame.stats.visibleRenderInstanceCount;
+        frame.largeRenderChunkCount = renderWorldFrame.stats.largeRenderChunkCount;
+        frame.largestRenderChunkTriangleCount = renderWorldFrame.stats.largestRenderChunkTriangleCount;
+        frame.largestRenderChunkInstanceCount = renderWorldFrame.stats.largestRenderChunkInstanceCount;
+        frame.maxRenderChunkExtent = renderWorldFrame.stats.maxRenderChunkExtent;
         frame.candidateMeshDrawCount = renderWorldFrame.stats.candidateMeshDrawCount;
         frame.culledMeshDrawCount = renderWorldFrame.stats.culledMeshDrawCount;
         frame.candidateTriangleCount = renderWorldFrame.stats.candidateTriangleCount;
@@ -332,6 +355,7 @@ bool ViewportWidget::renderRendererFrame()
         if (renderWorldFrame.visibleBoundsValid) {
             visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }
+        renderWorldDebugChunks = renderWorldFrame.debugChunks;
     }
     if (rendererLights_.empty()) {
         rendererLights_.push_back({});
@@ -367,6 +391,24 @@ bool ViewportWidget::renderRendererFrame()
     if (mode_ == ViewportMode::Scene) {
         detail::appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
         detail::appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
+        if (renderWorldDebugChunks.size() > 1U && renderWorldChunkBoundsDebugEnabled()) {
+            for (const auto& chunk : renderWorldDebugChunks) {
+                const auto color = chunk.visible
+                    ? (chunk.large
+                        ? std::array<float, 4> {1.0F, 0.72F, 0.22F, 0.38F}
+                        : std::array<float, 4> {0.32F, 0.86F, 0.62F, 0.22F})
+                    : std::array<float, 4> {0.28F, 0.48F, 1.0F, 0.18F};
+                detail::appendBounds(
+                    rendererGizmoVertices_,
+                    rendererGizmoIndices_,
+                    chunk.corners,
+                    color,
+                    chunk.large ? 1.4F : 0.85F,
+                    forward,
+                    right,
+                    camera_.distance);
+            }
+        }
         if (scene_ != nullptr) {
             const auto primitiveProxyCount = std::count_if(scene_->entities().begin(), scene_->entities().end(), [](const scene::Entity& entity) {
                 return entity.meshRenderer.has_value()

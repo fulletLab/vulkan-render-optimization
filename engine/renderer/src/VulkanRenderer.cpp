@@ -244,6 +244,10 @@ struct VulkanRenderer::Impl {
             stats.lastFrameVisibleRenderChunkCount = frame.visibleRenderChunkCount;
             stats.lastFrameRenderInstanceCount = frame.renderInstanceCount;
             stats.lastFrameVisibleRenderInstanceCount = frame.visibleRenderInstanceCount;
+            stats.lastFrameLargeRenderChunkCount = frame.largeRenderChunkCount;
+            stats.lastFrameLargestRenderChunkTriangleCount = frame.largestRenderChunkTriangleCount;
+            stats.lastFrameLargestRenderChunkInstanceCount = frame.largestRenderChunkInstanceCount;
+            stats.lastFrameMaxRenderChunkExtent = frame.maxRenderChunkExtent;
             const auto visibleBeforeLod = frame.candidateTriangleCount - frame.culledTriangleCount;
             stats.lastFrameVisibleTriangleCount = visibleBeforeLod > frame.lodTriangleReductionCount
                 ? visibleBeforeLod - frame.lodTriangleReductionCount
@@ -285,7 +289,7 @@ struct VulkanRenderer::Impl {
             stats.totalStaticUploadBytes = meshCache.uploadedBytes() + textureCache.uploadedBytes();
             stats.totalColorUploadBytes += dynamicColorBytes;
             for (const auto& draw : frame.meshDraws) {
-                if (frame.shadowsEnabled && !isTransparentMeshDraw(draw)) {
+                if (frame.shadowsEnabled && draw.castsShadow && !isTransparentMeshDraw(draw)) {
                     ++stats.lastFrameShadowCasterCount;
                 }
                 if (draw.baseColorTexture != nullptr && draw.baseColorTexture->id.isValid()) {

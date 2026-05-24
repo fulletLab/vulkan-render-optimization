@@ -11,8 +11,8 @@ namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::size_t kClusterMinInstances = 128;
-constexpr std::size_t kClusterTargetInstances = 64;
-constexpr std::size_t kClusterMaxGridSide = 32;
+constexpr std::size_t kClusterTargetInstances = 8;
+constexpr std::size_t kClusterMaxGridSide = 64;
 
 [[nodiscard]] float component(math::Vec3 value, int axis) noexcept
 {
