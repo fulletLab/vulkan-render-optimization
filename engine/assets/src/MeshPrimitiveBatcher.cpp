@@ -96,7 +96,7 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
 [[nodiscard]] std::size_t materialGridSide(std::size_t materialCount) noexcept
 {
     if (materialCount >= 64U) {
-        return 2U;
+        return 1U;
     }
     if (materialCount >= 24U) {
         return 3U;
