@@ -72,6 +72,11 @@ inline void setError(std::string* errorMessage, std::string message)
     auto hash = hashBytes(texture.rgba8, hashBytes(
         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(texture.name.data()), texture.name.size()),
         kFnvOffsetBasis));
+    hash = hashBytes(
+        std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t*>(texture.rgba32f.data()),
+            texture.rgba32f.size() * sizeof(float)),
+        hash);
     for (const auto& mip : texture.gpuMipLevels) {
         hash = hashBytes(mip.bytes, hash);
     }

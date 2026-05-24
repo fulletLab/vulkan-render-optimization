@@ -75,7 +75,7 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
     VkDescriptorBufferInfo frameInfo {};
     frameInfo.buffer = frameData_.buffer();
     frameInfo.range = sizeof(VulkanFrameUniforms);
-    const std::array<VkDescriptorImageInfo, 9> imageInfos {{
+    const std::array<VkDescriptorImageInfo, 10> imageInfos {{
         {baseColor.sampler, baseColor.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {normal.sampler, normal.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {metallicRoughness.sampler, metallicRoughness.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
@@ -85,6 +85,7 @@ VkDescriptorSet VulkanViewportTarget::textureDescriptor(
         {brdfLut.sampler, brdfLut.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {irradianceCube.sampler, irradianceCube.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {prefilteredEnvironment.sampler, prefilteredEnvironment.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {shadowPipeline_->pointCubeSampler(), shadowPipeline_->pointCubeImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
     }};
     std::array<VkWriteDescriptorSet, imageInfos.size() + 1U> writes {};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

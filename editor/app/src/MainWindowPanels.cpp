@@ -458,7 +458,7 @@ QWidget* MainWindow::createProfilerPanel()
     header->setObjectName(QStringLiteral("PanelHeader"));
     layout->addWidget(header);
 
-    profilerTable_ = new QTableWidget(38, 2);
+    profilerTable_ = new QTableWidget(39, 2);
     profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
     profilerTable_->horizontalHeader()->setStretchLastSection(true);
     profilerTable_->verticalHeader()->setVisible(false);
@@ -495,6 +495,7 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("Resident mesh/texture"),
         QStringLiteral("Lights last"),
         QStringLiteral("Shadow frames"),
+        QStringLiteral("Shadow views last"),
         QStringLiteral("Shadow batches last"),
         QStringLiteral("Shadow batches culled"),
         QStringLiteral("Shadow casters last/total"),

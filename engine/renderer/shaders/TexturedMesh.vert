@@ -28,10 +28,13 @@ struct FrameLight {
 layout(set = 0, binding = 0) uniform FrameData {
     mat4 viewProjection;
     mat4 shadowViewProjection;
+    mat4 shadowViewProjections[6];
     vec4 cameraPositionLightCount;
     vec4 ambientSky;
     vec4 ambientGround;
     vec4 shadowSettings;
+    vec4 shadowCascadeSplits;
+    vec4 shadowAtlasSettings;
     FrameLight lights[8];
 } frameData;
 

@@ -10,6 +10,7 @@ namespace projectunity::renderer {
 struct RenderCubeMip {
     std::uint32_t faceSize {0};
     std::vector<std::uint8_t> rgba8;
+    std::vector<float> rgba32f;
 };
 
 struct RenderCubeMap {

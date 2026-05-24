@@ -17,6 +17,7 @@
 #include <QTableWidget>
 #include <QTemporaryDir>
 
+#include <array>
 #include <filesystem>
 
 namespace projectunity::editor {
@@ -294,6 +295,111 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
         return fail(QStringLiteral("Lighting reset defaults did not restore procedural environment state"));
     }
 
+    return true;
+}
+
+bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
+{
+    auto fail = [errorMessage](const QString& message) {
+        if (errorMessage != nullptr) {
+            *errorMessage = message;
+        }
+        return false;
+    };
+    if (QApplication::platformName() == QStringLiteral("offscreen")) {
+        return fail(QStringLiteral("Phase 6 visual smoke requires a visible Qt platform"));
+    }
+    if (renderer_ == nullptr || !renderer_->isReady() || sceneViewport_ == nullptr) {
+        return fail(QStringLiteral("Phase 6 visual smoke requires a ready Vulkan renderer and Scene View"));
+    }
+    const auto assetRoot = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
+        / "Project" / "Assets" / "VisualVerification";
+    if (!std::filesystem::exists(assetRoot)) {
+        return fail(QStringLiteral("Missing Phase 6 visual asset pack at %1").arg(pathToQString(assetRoot)));
+    }
+    if (auto* sceneDock = dockManager_->dockWidgetsMap().value(QStringLiteral("Scene View"), nullptr)) {
+        sceneDock->toggleView(true);
+        sceneDock->setAsCurrentTab();
+        sceneDock->raise();
+    }
+    sceneViewport_->resize(960, 540);
+    QApplication::processEvents();
+
+    const std::array<const char*, 13> assetNames {{
+        "OrientationTest.glb",
+        "NegativeScaleTest.glb",
+        "TextureCoordinateTest.glb",
+        "NormalTangentTest.glb",
+        "NormalTangentMirrorTest.glb",
+        "Avocado.glb",
+        "BoomBox.glb",
+        "Lantern.glb",
+        "MetalRoughSpheres.glb",
+        "AlphaBlendModeTest.glb",
+        "DirectionalLight.glb",
+        "LightsPunctualLamp.glb",
+        "NodePerformanceTest.glb",
+    }};
+
+    bool sawDirectionalCascades = false;
+    bool sawPointCubemap = false;
+    bool sawLargeScene = false;
+    for (const auto* assetName : assetNames) {
+        const auto assetPath = assetRoot / assetName;
+        if (!std::filesystem::exists(assetPath)) {
+            return fail(QStringLiteral("Missing Phase 6 visual asset %1").arg(QString::fromUtf8(assetName)));
+        }
+        newScene();
+        const auto imported = importAssetFromPath(pathToQString(assetPath), true);
+        if (!imported.success) {
+            return fail(QStringLiteral("Phase 6 visual import failed for %1: %2")
+                .arg(QString::fromUtf8(assetName))
+                .arg(QString::fromStdString(imported.error)));
+        }
+        sceneViewport_->setSelectedEntity(selectedEntityId_);
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        const auto firstStats = renderer_->stats();
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        const auto& stats = renderer_->stats();
+        if (stats.lastFrameMeshDrawCount == 0
+            || stats.lastFrameCandidateMeshDrawCount == 0
+            || stats.lastFrameCandidateTriangleCount == 0
+            || stats.lastFrameRenderCpuTimeUs == 0) {
+            return fail(QStringLiteral(
+                "Phase 6 visual render produced no measurable mesh frame for %1: draws=%2 candidates=%3 triangles=%4 cpuUs=%5")
+                .arg(QString::fromUtf8(assetName))
+                .arg(static_cast<qulonglong>(stats.lastFrameMeshDrawCount))
+                .arg(static_cast<qulonglong>(stats.lastFrameCandidateMeshDrawCount))
+                .arg(static_cast<qulonglong>(stats.lastFrameCandidateTriangleCount))
+                .arg(static_cast<qulonglong>(stats.lastFrameRenderCpuTimeUs)));
+        }
+        if (stats.totalMeshUploadCount != firstStats.totalMeshUploadCount
+            || stats.totalTextureUploadCount != firstStats.totalTextureUploadCount
+            || stats.totalStaticUploadBytes != firstStats.totalStaticUploadBytes
+            || stats.lastFrameStaticUploadBytes != 0) {
+            return fail(QStringLiteral("Phase 6 visual second frame reuploaded static assets for %1").arg(QString::fromUtf8(assetName)));
+        }
+        sawDirectionalCascades = sawDirectionalCascades
+            || stats.lastFrameShadowViewCount == static_cast<std::uint64_t>(renderer::kMaxShadowCascades);
+        sawPointCubemap = sawPointCubemap || stats.lastFrameShadowViewCount == 6U;
+        if (QString::fromUtf8(assetName) == QStringLiteral("NodePerformanceTest.glb")) {
+            sawLargeScene = stats.lastFrameCandidateTriangleCount > 10000U
+                && stats.lastFrameMeshBatchCount > 0U
+                && stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U;
+        }
+    }
+
+    if (!sawDirectionalCascades) {
+        return fail(QStringLiteral("Phase 6 visual smoke did not exercise cascaded directional shadows"));
+    }
+    if (!sawPointCubemap) {
+        return fail(QStringLiteral("Phase 6 visual smoke did not exercise point-light cubemap shadows"));
+    }
+    if (!sawLargeScene) {
+        return fail(QStringLiteral("Phase 6 visual smoke did not exercise NodePerformanceTest large-scene counters"));
+    }
     return true;
 }
 

@@ -1,10 +1,10 @@
 # Renderer Status
 
-Date: 2026-05-23
+Date: 2026-05-24
 
 ## Current State
 
-Status: PARCIAL
+Status: COMPLETE
 
 Phase 6.0.01 research notes for Vulkan optimization are recorded in
 `docs/phase6_0_01_vulkan_optimization_notes.md`. They are guidance for future
@@ -45,44 +45,50 @@ textures, preserves KTX1/KTX2 GPU mip payloads for RGBA8, BC, ETC2 RGBA8, and AS
 2D textures without destructive decode/resampling, and the Vulkan texture cache uploads
 those explicit mip levels through VMA staging when the selected device reports sampled
 image support for the stored format. KTX2 supercompressed textures are imported through
-libktx when enabled: Basis/UASTC payloads are transcoded to RGBA8 mip data for upload,
-and Zstd explicit payloads keep their mapped VkFormat when the engine supports it.
+libktx when enabled: Basis/UASTC payloads prefer a BC7 GPU mip payload plus RGBA8
+fallback data when possible, and Zstd explicit payloads keep their mapped VkFormat when
+the engine supports it. If a selected Vulkan device cannot sample the stored compressed
+Basis/UASTC candidate, the texture cache falls back to the preserved RGBA8 payload.
 The textured mesh shader now reads a frame uniform buffer with view projection,
-camera position, imported punctual lights, and the selected shadow transform instead
+camera position, imported punctual lights, and selected shadow view transforms instead
 of using a fixed shader-local light direction.
 Direct lighting uses a Cook-Torrance-style metallic/roughness path, ambient lighting
 uses RenderFrame-controlled renderer-generated irradiance/prefiltered environment
 cubemaps plus a generated split-sum BRDF integration LUT, and the viewport records a
-VMA-backed 4096-square 2D shadow map before the main pass.
+VMA-backed 4096-square 2D shadow atlas plus a point-light depth cubemap before the main pass.
 The editor Lighting / Bake panel now owns sky color, ground color, and IBL intensity
 controls that feed `RenderFrame::environment`; Vulkan regenerates the generated IBL
 cube resources only when that environment key changes, and the editor persists those
 values through `QSettings`. The same panel can assign an imported Texture2D Project
-asset as an equirectangular RGBA8 environment source; the renderer samples it into
-generated cubemaps without modifying the source texture.
+asset as an equirectangular RGBA8 or HDR environment source; the renderer samples it
+into generated cubemaps without modifying the source texture and uploads HDR cubemaps
+as float data when the selected Vulkan format supports sampled linear filtering.
 The panel debounces numeric edits, makes procedural-versus-texture mode visible in the
 environment field, auto-selects newly imported Project Browser rows, and exposes a reset
 button for restoring procedural defaults.
 The shadow pass now has a small fragment shader that samples base-color alpha and
 respects imported `MASK` cutoff values for opaque/masked casters. Shadow-map selection
-lives in `engine/renderer`, prefers a visible-bounds directional map, falls back to a
-perspective 2D spot-light map when no directional light exists, and filters shadow
-lookups with a Vulkan comparison sampler plus weighted PCF in the mesh shader. Opaque shadow casters share a default
-descriptor instead of preparing full material texture descriptors per caster; `MASK`
-casters still bind base-color alpha for correct cutoff silhouettes.
+lives in `engine/renderer`, prefers four visible-bounds directional cascades in a 2D
+atlas, falls back to a perspective 2D spot-light map when no directional light exists,
+then renders six point-light cubemap faces when only point lights are available, and
+filters shadow lookups with Vulkan comparison samplers plus weighted PCF in the mesh
+shader. Opaque shadow casters share a default descriptor instead of preparing full
+material texture descriptors per caster; `MASK` casters still bind base-color alpha for
+correct cutoff silhouettes.
 Imported glTF light nodes are instantiated from model data, and Game View can render
 through the first imported perspective camera while Scene View stays on the editor camera.
 glTF source spatial data is read as right-handed, Y-up, with camera/light local `-Z`
 as forward, then converted once at import into the engine/editor convention: Y-up with
 `+Z` forward. UVs are not flipped. Imported Game View cameras use the converted explicit
 local `+X` right axis so they do not mirror the view horizontally.
-Renderer stats expose last-frame lights, shadow caster counts, total shadow frames,
+Renderer stats expose last-frame lights, shadow caster counts, shadow view count, total shadow frames,
 total shadow caster draws, submitted/culling counts, screen-space LOD reductions, and
 render CPU timing for the editor Profiler panel and smoke coverage. The same stats now
 split CPU frame cost into resource preparation, full Vulkan command recording, shadow
 pass recording, mesh pass recording, and editor color-aid recording, plus shadow batch
-count, so large imported scenes can be profiled by pass before adding heavier renderer
-features.
+count. The viewport also records GPU timestamp queries around the full frame, shadow
+pass, mesh pass, and editor color-aid pass, so large imported scenes can be profiled by
+CPU and GPU pass cost before adding heavier renderer features.
 The shadow pass conservatively culls opaque/masked batches whose world-space sphere
 bounds do not intersect the selected shadow view-projection clip volume; the Profiler
 reports both recorded and culled shadow batches.
@@ -113,24 +119,18 @@ color path when a real viewport surface is available.
 
 ## Vulkan Work Remaining
 
-- Add imported/user-selectable HDR environment assets and KTX/KTX2 environment sampling
-  on top of the current RenderFrame-controlled generated cubemaps and RGBA8 texture
-  environment source.
 - Add editor/scene-owned lights and camera components beyond imported glTF model data.
-- Expand shadows beyond the current directional/spot 2D map with point-light cubemaps,
-  cascaded directional shadows, higher quality filtering controls, and transparent
-  caster policy.
-- Add anisotropic filtering and compressed GPU target selection for Basis/UASTC
-  instead of always transcoding those payloads to RGBA8 mips.
+- Expand shadows beyond the current cascaded directional, spot 2D, and point cubemap
+  paths with higher quality filtering controls and transparent caster policy.
+- Add anisotropic filtering and more compressed GPU target choices for Basis/UASTC
+  beyond the current BC7 candidate plus RGBA8 fallback.
 - Verify glTF scenes with external `.ktx` textures, such as the local Vulkan Samples
-  `vokselia` pack, on hardware that supports the stored compressed formats; unsupported
-  formats now fail loudly instead of being silently replaced.
+  `vokselia` pack, on hardware that supports the stored compressed formats.
 - Expand renderer-owned labels/text overlays beyond the current Scene View entity labels.
 - Add broader resource lifetime/cache policy around descriptors, materials, and
   renderer-owned passes.
-- Add GPU timestamp queries around the same pass boundaries now exposed as CPU timing,
-  so future large-scene profiling can distinguish CPU command cost from real GPU pass
-  cost.
+- Continue using CPU/GPU pass timing data during future large-scene optimization work so
+  bottlenecks are measured instead of guessed.
 - Expand RenderDoc markers from frame/pass scopes to selected high-value draw/resource
   scopes once material and render graph ownership is more complete.
 
@@ -238,18 +238,17 @@ color path when a real viewport surface is available.
   behavior are visible before adding heavier lighting work. The visible editor smoke path
   now verifies that a second frame of the same imported model does not reupload cached
   static mesh or texture data.
-- The directional shadow pass now derives its orthographic fit from visible submitted
-  bounds, snaps the light-space center to shadow-map texels, and uses weighted PCF in
+- Directional shadows now derive four orthographic cascade fits from visible submitted
+  bounds, snap light-space centers to the 2D shadow atlas texels, and use weighted PCF in
   the mesh shader to reduce edge harshness without modifying imported geometry.
 - Shadow-map choice no longer lives in the Qt viewport bridge. `RenderShadowSetup`
-  chooses the first directional light, or the first spot light if no directional light
-  exists, and deliberately leaves point-light cubemap and cascaded directional shadows
-  disabled until those renderer passes exist.
+  chooses the first directional light for cascades, the first spot light if no
+  directional light exists, or a six-face point-light cubemap when only point lights
+  are available.
 - The mesh shader now samples generated Vulkan irradiance and prefiltered environment
   cubemaps plus the generated BRDF integration LUT for split-sum ambient lighting. The
   generated cubemaps are keyed by `RenderFrame::environment`, so future Lighting panel
   edits regenerate IBL resources without shader-local constants or stale descriptors.
-  This is still not user-authored IBL because HDR/KTX2 environment assets remain pending.
 - The Lighting / Bake panel now exposes sky RGB, ground RGB, and IBL intensity controls.
   Scene View and Game View both receive those values through `ViewportWidget`, and the
   values are saved/restored through editor settings. The visible smoke test verifies
@@ -259,6 +258,13 @@ color path when a real viewport surface is available.
   environment source. `RenderFrame::environment` carries a non-owning texture pointer
   kept alive by `MainWindow`, and Vulkan keys the generated cubemaps by the texture
   asset ID, dimensions, byte count, and intensity.
+- HDR texture import preserves floating-point RGBA radiance data. When an HDR texture is
+  selected as the Lighting environment source, the generated cubemaps keep float radiance
+  and Vulkan uploads them as `VK_FORMAT_R16G16B16A16_SFLOAT` when the device supports
+  sampled linear filtering for that format, with RGBA8 preview/fallback data retained.
+- KTX2 Basis/UASTC import now prefers a libktx BC7 GPU payload and keeps RGBA8 fallback
+  bytes for devices that cannot sample the stored compressed candidate or for CPU-side
+  environment cubemap generation.
 - Repeated Lighting / Bake edits no longer allocate unbounded material descriptors for
   every environment cubemap key. The viewport target clears cached texture descriptors
   and resets its descriptor pool when the generated irradiance or prefiltered environment
@@ -290,6 +296,10 @@ color path when a real viewport surface is available.
   `Project/Assets/VisualVerification` and documented in
   `docs/phase6_visual_verification_assets.md`; they cover orientation, negative
   scale, UVs, tangents, alpha modes, lights, PBR response, and large-node profiling.
+- The visible `--phase6-visual-smoke` command imports all 13 local verification GLBs,
+  repaints Scene View, checks renderer counters, requires cascaded directional shadows,
+  requires point-light cubemap shadows through `LightsPunctualLamp.glb`, and requires
+  large-scene counters through `NodePerformanceTest.glb`.
 - Latest verification after adding renderer-owned IBL cubemaps, the BRDF LUT, moving
   shadow setup into `engine/renderer`, and keying generated environment cubemaps by
   `RenderFrame::environment`: `cmake --preset dev-core` passed, `cmake --build
@@ -361,6 +371,25 @@ color path when a real viewport surface is available.
   dev-editor-local-qt --output-on-failure` passed 8/8 in 36.87 seconds, visible
   `projectunity_editor --smoke-test` passed with exit code 0, and source files stayed
   under the 800-line rule.
+- GPU timestamp queries now wrap the viewport frame, shadow pass, mesh pass, and Scene
+  View color-aid pass through a per-viewport timestamp `VkQueryPool`. Results are read
+  after the in-flight fence and exposed in the editor Profiler. Latest verification:
+  `cmake --build --preset dev-core` passed, `ctest --preset dev-core
+  --output-on-failure` passed 7/7 in 35.81 seconds, `cmake --build --preset
+  dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt
+  --output-on-failure` passed 8/8 in 36.29 seconds, and visible `projectunity_editor
+  --smoke-test` passed with exit code 0.
+- Latest HDR/KTX2/point-shadow verification: `cmake --build --preset dev-core` passed,
+  `ctest --preset dev-core --output-on-failure` passed 7/7 in 34.13 seconds after
+  point-light shadow selection, `cmake --build --preset dev-editor-local-qt` passed,
+  `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 36.57
+  seconds, and visible `projectunity_editor --smoke-test` passed with exit code 0.
+- Latest Phase 6 completion verification after cascaded directional shadows, point-light
+  cubemap shadows, and broad visual smoke: `cmake --build --preset dev-core` passed,
+  `ctest --preset dev-core --output-on-failure` passed 7/7, `cmake --build --preset
+  dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure`
+  passed 8/8, visible `projectunity_editor --smoke-test` passed, and visible
+  `projectunity_editor --phase6-visual-smoke` passed.
 - Current Phase 6 performance direction is based on Vulkan/meshoptimizer guidance:
   reduce draw/resource binding work, keep cache-friendly mesh data, cull by pass,
   and measure before moving to larger GPU-driven indirect rendering work.

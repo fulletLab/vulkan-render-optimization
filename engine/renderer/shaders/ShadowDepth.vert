@@ -19,10 +19,13 @@ struct FrameLight {
 layout(set = 0, binding = 0) uniform FrameData {
     mat4 viewProjection;
     mat4 shadowViewProjection;
+    mat4 shadowViewProjections[6];
     vec4 cameraPositionLightCount;
     vec4 ambientSky;
     vec4 ambientGround;
     vec4 shadowSettings;
+    vec4 shadowCascadeSplits;
+    vec4 shadowAtlasSettings;
     FrameLight lights[8];
 } frameData;
 
@@ -37,6 +40,8 @@ layout(push_constant) uniform DrawPush {
 void main()
 {
     mat4 instanceModel = mat4(inModel0, inModel1, inModel2, inModel3);
-    gl_Position = frameData.shadowViewProjection * instanceModel * vec4(inPosition, 1.0);
+    int viewCount = max(int(frameData.shadowAtlasSettings.x + 0.5), 1);
+    int viewIndex = clamp(int(pushData.materialExtras.w + 0.5), 0, viewCount - 1);
+    gl_Position = frameData.shadowViewProjections[viewIndex] * instanceModel * vec4(inPosition, 1.0);
     outTexCoord = inTexCoord;
 }

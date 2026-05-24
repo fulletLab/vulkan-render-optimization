@@ -49,11 +49,30 @@ struct Vec3 {
 
 [[nodiscard]] bool textureUsable(const assets::TextureAsset* texture)
 {
+    const auto pixelCount = texture != nullptr
+        ? static_cast<std::size_t>(texture->width) * texture->height
+        : 0U;
     return texture != nullptr
         && texture->id.isValid()
         && texture->width > 0
         && texture->height > 0
-        && texture->rgba8.size() >= static_cast<std::size_t>(texture->width) * texture->height * 4U;
+        && (texture->rgba8.size() >= pixelCount * 4U
+            || texture->rgba32f.size() >= pixelCount * 4U);
+}
+
+[[nodiscard]] bool textureUsesHdr(const assets::TextureAsset* texture)
+{
+    return textureUsable(texture)
+        && texture->rgba32f.size() >= static_cast<std::size_t>(texture->width) * texture->height * 4U;
+}
+
+[[nodiscard]] std::uint8_t colorByte(float value, bool toneMap)
+{
+    if (!std::isfinite(value)) {
+        return value > 0.0F ? 255U : 0U;
+    }
+    const auto mapped = toneMap ? value / (1.0F + std::max(value, 0.0F)) : value;
+    return static_cast<std::uint8_t>(std::clamp(mapped, 0.0F, 1.0F) * 255.0F + 0.5F);
 }
 
 [[nodiscard]] Vec3 toVec3(const std::array<float, 3>& value)
@@ -90,6 +109,13 @@ struct Vec3 {
         static_cast<std::uint32_t>(v * static_cast<float>(texture.height)),
         texture.height - 1U);
     const auto offset = (static_cast<std::size_t>(y) * texture.width + x) * 4U;
+    if (texture.rgba32f.size() >= static_cast<std::size_t>(texture.width) * texture.height * 4U) {
+        return {
+            texture.rgba32f[offset],
+            texture.rgba32f[offset + 1U],
+            texture.rgba32f[offset + 2U],
+        };
+    }
     return {
         static_cast<float>(texture.rgba8[offset]) / 255.0F,
         static_cast<float>(texture.rgba8[offset + 1U]) / 255.0F,
@@ -140,7 +166,11 @@ void appendCubeMip(
 {
     RenderCubeMip mip;
     mip.faceSize = faceSize;
+    const auto keepFloat = textureUsesHdr(settings.sourceTexture);
     mip.rgba8.resize(static_cast<std::size_t>(faceSize) * faceSize * 6U * 4U);
+    if (keepFloat) {
+        mip.rgba32f.resize(mip.rgba8.size());
+    }
     for (std::uint32_t face = 0; face < 6U; ++face) {
         for (std::uint32_t y = 0; y < faceSize; ++y) {
             for (std::uint32_t x = 0; x < faceSize; ++x) {
@@ -150,9 +180,15 @@ void appendCubeMip(
                 const auto offset = ((static_cast<std::size_t>(face) * faceSize * faceSize)
                     + static_cast<std::size_t>(y) * faceSize + x)
                     * 4U;
-                mip.rgba8[offset] = static_cast<std::uint8_t>(std::clamp(color.x, 0.0F, 1.0F) * 255.0F + 0.5F);
-                mip.rgba8[offset + 1U] = static_cast<std::uint8_t>(std::clamp(color.y, 0.0F, 1.0F) * 255.0F + 0.5F);
-                mip.rgba8[offset + 2U] = static_cast<std::uint8_t>(std::clamp(color.z, 0.0F, 1.0F) * 255.0F + 0.5F);
+                if (keepFloat) {
+                    mip.rgba32f[offset] = color.x;
+                    mip.rgba32f[offset + 1U] = color.y;
+                    mip.rgba32f[offset + 2U] = color.z;
+                    mip.rgba32f[offset + 3U] = 1.0F;
+                }
+                mip.rgba8[offset] = colorByte(color.x, keepFloat);
+                mip.rgba8[offset + 1U] = colorByte(color.y, keepFloat);
+                mip.rgba8[offset + 2U] = colorByte(color.z, keepFloat);
                 mip.rgba8[offset + 3U] = 255U;
             }
         }

@@ -4,6 +4,7 @@
 #include <projectunity/renderer/RenderEnvironmentMap.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -108,8 +109,18 @@ int main()
     if (!directionalShadow.enabled
         || directionalShadow.lightIndex != 2U
         || directionalShadow.lightType != RenderLightType::Directional
+        || directionalShadow.mode != RenderShadowMode::DirectionalCascades
+        || directionalShadow.viewCount != kMaxShadowCascades
+        || directionalShadow.cascadeCount != kMaxShadowCascades
         || !matrixIsFinite(directionalShadow.viewProjection)) {
         return fail("Renderer shadow selection did not prefer a finite directional shadow map");
+    }
+    for (std::size_t index = 0; index < kMaxShadowCascades; ++index) {
+        if (!matrixIsFinite(directionalShadow.viewProjections[index])
+            || directionalShadow.cascadeSplits[index] <= 0.0F
+            || (index > 0U && directionalShadow.cascadeSplits[index] <= directionalShadow.cascadeSplits[index - 1U])) {
+            return fail("Renderer directional shadow selection did not create finite ordered cascades");
+        }
     }
 
     const std::array<RenderLight, 2> spotOnlyLights {mixedLights[0], mixedLights[1]};
@@ -117,16 +128,33 @@ int main()
     if (!spotShadow.enabled
         || spotShadow.lightIndex != 1U
         || spotShadow.lightType != RenderLightType::Spot
+        || spotShadow.mode != RenderShadowMode::Spot2D
+        || spotShadow.viewCount != 1U
         || !matrixIsFinite(spotShadow.viewProjection)) {
         return fail("Renderer shadow selection did not fall back to a finite spot shadow map");
     }
 
     const std::array<RenderLight, 1> pointOnlyLights {mixedLights[0]};
-    if (chooseShadowMap(pointOnlyLights, {0.0F, 0.0F, 0.0F}, 4.0F).enabled) {
-        return fail("Renderer shadow selection incorrectly enabled a 2D shadow map for point-only lights");
+    const auto pointShadow = chooseShadowMap(pointOnlyLights, {0.0F, 0.0F, 0.0F}, 4.0F);
+    if (!pointShadow.enabled
+        || pointShadow.lightIndex != 0U
+        || pointShadow.lightType != RenderLightType::Point
+        || pointShadow.mode != RenderShadowMode::PointCubemap
+        || pointShadow.viewCount != 6U
+        || pointShadow.depthFarPlane <= 0.0F
+        || !matrixIsFinite(pointShadow.viewProjection)) {
+        return fail("Renderer shadow selection did not create a finite point-light cubemap shadow map");
+    }
+    for (std::uint32_t face = 0; face < pointShadow.viewCount; ++face) {
+        if (!matrixIsFinite(pointShadow.viewProjections[face])) {
+            return fail("Renderer point-light cubemap shadow selection produced an invalid face matrix");
+        }
     }
     if (!shadowSphereIntersects(directionalShadow.viewProjection, {0.0F, 0.0F, 0.0F}, 1.0F)) {
         return fail("Renderer shadow sphere culling rejected the selected visible bounds center");
+    }
+    if (!shadowSphereIntersects(directionalShadow.viewProjections[kMaxShadowCascades - 1U], {0.0F, 0.0F, 0.0F}, 1.0F)) {
+        return fail("Renderer shadow sphere culling rejected the widest directional cascade center");
     }
     if (shadowSphereIntersects(directionalShadow.viewProjection, {5000.0F, 5000.0F, 5000.0F}, 1.0F)) {
         return fail("Renderer shadow sphere culling accepted a distant off-map caster");
@@ -181,6 +209,24 @@ int main()
         || texturedCube.mips.front().rgba8 == warmCube.mips.front().rgba8) {
         return fail("Renderer environment cube generator ignored source texture data");
     }
+    projectunity::assets::TextureAsset hdrEnvironmentTexture;
+    hdrEnvironmentTexture.id = projectunity::assets::AssetId(43);
+    hdrEnvironmentTexture.width = 4;
+    hdrEnvironmentTexture.height = 2;
+    hdrEnvironmentTexture.rgba32f.assign(4U * 2U * 4U, 1.0F);
+    for (std::size_t pixel = 0; pixel < 8U; ++pixel) {
+        hdrEnvironmentTexture.rgba32f[pixel * 4U] = 4.0F;
+        hdrEnvironmentTexture.rgba32f[pixel * 4U + 1U] = 2.0F;
+        hdrEnvironmentTexture.rgba32f[pixel * 4U + 2U] = 1.0F;
+    }
+    RenderEnvironmentSettings hdrTexturedEnvironment;
+    hdrTexturedEnvironment.sourceTexture = &hdrEnvironmentTexture;
+    const auto hdrCube = generateProceduralIrradianceCube(8U, hdrTexturedEnvironment);
+    if (hdrCube.mips.front().rgba32f.size() != 8U * 8U * 6U * 4U
+        || *std::max_element(hdrCube.mips.front().rgba32f.begin(), hdrCube.mips.front().rgba32f.end()) < 3.5F
+        || hdrCube.mips.front().rgba8.empty()) {
+        return fail("Renderer environment cube generator did not preserve HDR source radiance");
+    }
 
     std::string error;
     RendererConfig config;
@@ -207,6 +253,7 @@ int main()
     }
     if (stats.lastFrameLightCount != 0
         || stats.lastFrameShadowCasterCount != 0
+        || stats.lastFrameShadowViewCount != 0
         || stats.lastFrameCandidateMeshDrawCount != 0
         || stats.lastFrameCulledMeshDrawCount != 0
         || stats.lastFrameMeshBatchCount != 0

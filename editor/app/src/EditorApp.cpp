@@ -50,6 +50,25 @@ int runEditor(int argc, char** argv)
         return 0;
     }
 
+    if (QCoreApplication::arguments().contains(QStringLiteral("--phase6-visual-smoke"))) {
+        mainWindow.show();
+        QApplication::processEvents();
+
+        QString errorMessage;
+        const bool passed = mainWindow.runPhase6VisualChecks(&errorMessage);
+        mainWindow.close();
+        QApplication::processEvents();
+
+        if (!passed) {
+            core::logError(core::LogCategory::Editor, errorMessage.toStdString());
+            std::cerr << errorMessage.toStdString() << '\n';
+            return 2;
+        }
+
+        core::logInfo(core::LogCategory::Editor, "Phase 6 visual smoke passed");
+        return 0;
+    }
+
     mainWindow.show();
 
     core::logInfo(core::LogCategory::Editor, "Editor application started");

@@ -717,13 +717,24 @@ ProjectUnity action:
 
 ## ProjectUnity Immediate Follow-Up
 
-Do before heavier Phase 6 visual work:
+Done before heavier Phase 6 visual work:
 
-- Add GPU timestamp queries for shadow, mesh, editor color, and present-related work.
+- Add GPU timestamp queries for the viewport frame, shadow pass, mesh pass, and editor
+  color-aid pass.
+- Preserve HDR environment radiance through import, cubemap generation, and Vulkan float
+  upload when the selected device supports the chosen sampled format.
+- Prefer a compressed GPU payload for KTX2 Basis/UASTC where available, while keeping a
+  fallback payload for devices that cannot sample the compressed candidate.
+- Add point-light visible-bounds 2D shadow-map fallback in the current single-map path.
+
+Still do before heavier Phase 6 visual work:
+
 - Add upload queue/resource streaming metrics.
 - Add descriptor cache/pool metrics.
 - Add pipeline cache persistence and warmup metrics.
 - Keep per-pass culling metrics, including shadows.
+- Add cascaded directional shadows and full point-light cubemap policy before claiming
+  shadow coverage complete.
 
 Do before descriptor indexing:
 
@@ -749,10 +760,11 @@ Do before ray tracing:
 ## Current Phase 6.0.01 Status
 
 - What works: research is recorded with source-aligned anchors; the notes are linked from
-  Phase 6 and renderer status docs.
-- What does not work yet: these notes do not implement GPU timestamps, upload budgeting,
-  descriptor indexing, indirect drawing, pipeline cache persistence, render graph, or ray
-  tracing.
+  Phase 6 and renderer status docs; GPU timestamps are integrated; HDR environment
+  radiance and KTX2 Basis/UASTC compressed-candidate fallback paths are integrated.
+- What does not work yet: these notes do not implement upload budgeting, descriptor
+  indexing, indirect drawing, pipeline cache persistence, render graph, cascaded shadows,
+  full point-light cubemap shadows, or ray tracing.
 - Known implementation status: PARCIAL.
-- Next code step: add GPU timestamp queries and upload/resource queue metrics before adding
-  more expensive visual features.
+- Next code step: add upload/resource queue metrics, descriptor metrics, and cascaded/
+  cubemap shadow architecture before claiming Phase 6 complete.

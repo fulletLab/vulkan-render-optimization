@@ -60,6 +60,7 @@ struct BatchTarget {
         && lhs.gpuFormat == rhs.gpuFormat
         && lhs.sampler == rhs.sampler
         && lhs.rgba8 == rhs.rgba8
+        && lhs.rgba32f == rhs.rgba32f
         && lhs.gpuMipLevels == rhs.gpuMipLevels;
 }
 void remapTexture(std::optional<std::size_t>& index, const std::vector<std::size_t>& remap)

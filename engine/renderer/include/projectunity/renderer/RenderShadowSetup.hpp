@@ -12,7 +12,13 @@ struct RenderShadowMapSelection {
     bool enabled {false};
     std::uint32_t lightIndex {0};
     RenderLightType lightType {RenderLightType::Directional};
+    RenderShadowMode mode {RenderShadowMode::None};
     RenderMatrix4 viewProjection;
+    std::array<RenderMatrix4, kMaxShadowViews> viewProjections {};
+    std::array<float, kMaxShadowCascades> cascadeSplits {};
+    std::uint32_t viewCount {0};
+    std::uint32_t cascadeCount {0};
+    float depthFarPlane {0.0F};
 };
 
 [[nodiscard]] RenderShadowMapSelection chooseShadowMap(

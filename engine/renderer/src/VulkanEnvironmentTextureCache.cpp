@@ -9,6 +9,8 @@ namespace projectunity::renderer {
 namespace {
 constexpr std::uint64_t kIrradianceCubeKeyBase = 0xF100000000000000ULL;
 constexpr std::uint64_t kPrefilteredCubeKeyBase = 0xF200000000000000ULL;
+constexpr std::size_t kRgba8BytesPerTexel = 4U;
+constexpr std::size_t kRgba16fBytesPerTexel = 8U;
 
 struct TextureStagingBuffer {
     VulkanResourceContext context;
@@ -30,6 +32,15 @@ struct TextureStagingBuffer {
     return static_cast<std::uint64_t>(clamped * 4095.0F + 0.5F);
 }
 
+[[nodiscard]] bool textureHasEnvironmentPixels(const assets::TextureAsset& texture)
+{
+    const auto pixelCount = static_cast<std::size_t>(texture.width) * texture.height;
+    return texture.width > 0
+        && texture.height > 0
+        && (texture.rgba8.size() >= pixelCount * 4U
+            || texture.rgba32f.size() >= pixelCount * 4U);
+}
+
 [[nodiscard]] std::uint64_t environmentKey(const RenderEnvironmentSettings& environment)
 {
     std::uint64_t hash = 0xcbf29ce484222325ULL;
@@ -38,11 +49,12 @@ struct TextureStagingBuffer {
         hash *= 0x100000001b3ULL;
     };
     const auto* texture = environment.sourceTexture;
-    if (texture != nullptr && texture->id.isValid() && !texture->rgba8.empty()) {
+    if (texture != nullptr && texture->id.isValid() && textureHasEnvironmentPixels(*texture)) {
         mix(texture->id.value());
         mix(texture->width);
         mix(texture->height);
         mix(static_cast<std::uint64_t>(texture->rgba8.size()));
+        mix(static_cast<std::uint64_t>(texture->rgba32f.size()));
     } else {
         for (const auto value : environment.skyColor) {
             mix(quantized(value));
@@ -76,6 +88,48 @@ struct TextureStagingBuffer {
     barrier.srcAccessMask = sourceAccess;
     barrier.dstAccessMask = destinationAccess;
     return barrier;
+}
+
+[[nodiscard]] bool supportsEnvironmentFormat(VkPhysicalDevice physicalDevice, VkFormat format)
+{
+    VkFormatProperties properties {};
+    vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &properties);
+    constexpr auto required = VK_FORMAT_FEATURE_TRANSFER_DST_BIT
+        | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
+        | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    return (properties.optimalTilingFeatures & required) == required;
+}
+
+[[nodiscard]] bool mipHasRgba32f(const RenderCubeMip& mip)
+{
+    return mip.faceSize > 0
+        && mip.rgba32f.size() >= static_cast<std::size_t>(mip.faceSize) * mip.faceSize * 6U * 4U;
+}
+
+[[nodiscard]] std::uint16_t floatToHalf(float value)
+{
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    const auto sign = static_cast<std::uint16_t>((bits >> 16U) & 0x8000U);
+    auto exponent = static_cast<int>((bits >> 23U) & 0xffU) - 127 + 15;
+    auto mantissa = bits & 0x7fffffU;
+    if (exponent <= 0) {
+        if (exponent < -10) {
+            return sign;
+        }
+        mantissa = (mantissa | 0x800000U) >> static_cast<std::uint32_t>(1 - exponent);
+        return static_cast<std::uint16_t>(sign | ((mantissa + 0x1000U) >> 13U));
+    }
+    if (exponent >= 31) {
+        return static_cast<std::uint16_t>(sign | 0x7c00U);
+    }
+    return static_cast<std::uint16_t>(sign | (static_cast<std::uint16_t>(exponent) << 10U) | ((mantissa + 0x1000U) >> 13U));
+}
+
+[[nodiscard]] std::size_t cubeMipBytes(const RenderCubeMip& mip, bool useFloat)
+{
+    const auto texels = static_cast<std::size_t>(mip.faceSize) * mip.faceSize * 6U;
+    return texels * (useFloat ? kRgba16fBytesPerTexel : kRgba8BytesPerTexel);
 }
 } // namespace
 
@@ -134,9 +188,11 @@ bool VulkanTextureCache::uploadCubeMap(
         }
         return false;
     }
+    const auto useFloat = std::all_of(cube.mips.begin(), cube.mips.end(), mipHasRgba32f)
+        && supportsEnvironmentFormat(context.physicalDevice, VK_FORMAT_R16G16B16A16_SFLOAT);
     std::size_t byteCount = 0;
     for (const auto& mip : cube.mips) {
-        byteCount += mip.rgba8.size();
+        byteCount += cubeMipBytes(mip, useFloat);
     }
 
     TextureStagingBuffer staging;
@@ -157,8 +213,16 @@ bool VulkanTextureCache::uploadCubeMap(
     }
     auto* mapped = static_cast<std::uint8_t*>(staging.info.pMappedData);
     for (const auto& mip : cube.mips) {
-        std::memcpy(mapped, mip.rgba8.data(), mip.rgba8.size());
-        mapped += mip.rgba8.size();
+        if (useFloat) {
+            auto* halfMapped = reinterpret_cast<std::uint16_t*>(mapped);
+            const auto texelChannels = static_cast<std::size_t>(mip.faceSize) * mip.faceSize * 6U * 4U;
+            for (std::size_t channel = 0; channel < texelChannels; ++channel) {
+                halfMapped[channel] = floatToHalf(mip.rgba32f[channel]);
+            }
+        } else {
+            std::memcpy(mapped, mip.rgba8.data(), cubeMipBytes(mip, false));
+        }
+        mapped += cubeMipBytes(mip, useFloat);
     }
     vmaFlushAllocation(context.allocator, staging.allocation, 0, byteCount);
 
@@ -169,7 +233,7 @@ bool VulkanTextureCache::uploadCubeMap(
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.format = useFloat ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
     imageInfo.extent = {cube.mips.front().faceSize, cube.mips.front().faceSize, 1};
     imageInfo.mipLevels = static_cast<std::uint32_t>(cube.mips.size());
     imageInfo.arrayLayers = 6;
@@ -199,7 +263,8 @@ bool VulkanTextureCache::uploadCubeMap(
             VkDeviceSize offset = 0;
             for (std::uint32_t mip = 0; mip < cube.mips.size(); ++mip) {
                 const auto& source = cube.mips[mip];
-                const auto faceBytes = static_cast<VkDeviceSize>(source.faceSize) * source.faceSize * 4U;
+                const auto pixelBytes = useFloat ? kRgba16fBytesPerTexel : kRgba8BytesPerTexel;
+                const auto faceBytes = static_cast<VkDeviceSize>(source.faceSize) * source.faceSize * pixelBytes;
                 for (std::uint32_t face = 0; face < 6U; ++face) {
                     VkBufferImageCopy copy {};
                     copy.bufferOffset = offset + faceBytes * face;
@@ -210,7 +275,7 @@ bool VulkanTextureCache::uploadCubeMap(
                     copy.imageExtent = {source.faceSize, source.faceSize, 1};
                     copies.push_back(copy);
                 }
-                offset += static_cast<VkDeviceSize>(source.rgba8.size());
+                offset += static_cast<VkDeviceSize>(cubeMipBytes(source, useFloat));
             }
             vkCmdCopyBufferToImage(commandBuffer, staging.buffer, destination.handle.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<std::uint32_t>(copies.size()), copies.data());
             auto toShader = imageBarrier(
@@ -231,7 +296,7 @@ bool VulkanTextureCache::uploadCubeMap(
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = destination.handle.image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.format = imageInfo.format;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
     viewInfo.subresourceRange.layerCount = 6;

@@ -4,6 +4,7 @@
 #include "ShadowDepthVertexSpv.hpp"
 #include "VulkanMeshPipeline.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <stdexcept>
@@ -34,6 +35,7 @@ VulkanShadowPipeline::VulkanShadowPipeline(
     : context_(context)
     , depthFormat_(depthFormat)
     , extent_ {mapSize, mapSize}
+    , pointCubeExtent_ {std::min(1024U, mapSize), std::min(1024U, mapSize)}
 {
     try {
         createRenderPass();
@@ -83,6 +85,31 @@ VkSampler VulkanShadowPipeline::sampler() const noexcept
 VkExtent2D VulkanShadowPipeline::extent() const noexcept
 {
     return extent_;
+}
+
+VkImage VulkanShadowPipeline::pointCubeImage() const noexcept
+{
+    return pointCubeImage_;
+}
+
+VkImageView VulkanShadowPipeline::pointCubeImageView() const noexcept
+{
+    return pointCubeImageView_;
+}
+
+VkSampler VulkanShadowPipeline::pointCubeSampler() const noexcept
+{
+    return pointCubeSampler_;
+}
+
+VkFramebuffer VulkanShadowPipeline::pointCubeFramebuffer(std::uint32_t faceIndex) const noexcept
+{
+    return faceIndex < pointCubeFramebuffers_.size() ? pointCubeFramebuffers_[faceIndex] : VK_NULL_HANDLE;
+}
+
+VkExtent2D VulkanShadowPipeline::pointCubeExtent() const noexcept
+{
+    return pointCubeExtent_;
 }
 
 void VulkanShadowPipeline::createRenderPass()
@@ -189,6 +216,68 @@ void VulkanShadowPipeline::createShadowTarget()
     framebufferInfo.layers = 1;
     if (vkCreateFramebuffer(context_.device, &framebufferInfo, nullptr, &framebuffer_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan shadow framebuffer");
+    }
+
+    VkImageCreateInfo cubeInfo {};
+    cubeInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    cubeInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    cubeInfo.imageType = VK_IMAGE_TYPE_2D;
+    cubeInfo.format = depthFormat_;
+    cubeInfo.extent = {pointCubeExtent_.width, pointCubeExtent_.height, 1};
+    cubeInfo.mipLevels = 1;
+    cubeInfo.arrayLayers = static_cast<std::uint32_t>(pointCubeFaceViews_.size());
+    cubeInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    cubeInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    cubeInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    cubeInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vmaCreateImage(context_.allocator, &cubeInfo, &allocationInfo, &pointCubeImage_, &pointCubeAllocation_, nullptr) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Vulkan point shadow cube image");
+    }
+
+    VkImageViewCreateInfo cubeViewInfo {};
+    cubeViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    cubeViewInfo.image = pointCubeImage_;
+    cubeViewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    cubeViewInfo.format = depthFormat_;
+    cubeViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    cubeViewInfo.subresourceRange.levelCount = 1;
+    cubeViewInfo.subresourceRange.layerCount = static_cast<std::uint32_t>(pointCubeFaceViews_.size());
+    if (vkCreateImageView(context_.device, &cubeViewInfo, nullptr, &pointCubeImageView_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Vulkan point shadow cube view");
+    }
+
+    for (std::uint32_t face = 0; face < pointCubeFaceViews_.size(); ++face) {
+        VkImageViewCreateInfo faceViewInfo {};
+        faceViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        faceViewInfo.image = pointCubeImage_;
+        faceViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        faceViewInfo.format = depthFormat_;
+        faceViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        faceViewInfo.subresourceRange.baseArrayLayer = face;
+        faceViewInfo.subresourceRange.levelCount = 1;
+        faceViewInfo.subresourceRange.layerCount = 1;
+        if (vkCreateImageView(context_.device, &faceViewInfo, nullptr, &pointCubeFaceViews_[face]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan point shadow cube face view");
+        }
+    }
+
+    VkSamplerCreateInfo cubeSamplerInfo = samplerInfo;
+    if (vkCreateSampler(context_.device, &cubeSamplerInfo, nullptr, &pointCubeSampler_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create Vulkan point shadow cube sampler");
+    }
+
+    for (std::uint32_t face = 0; face < pointCubeFramebuffers_.size(); ++face) {
+        VkFramebufferCreateInfo cubeFramebufferInfo {};
+        cubeFramebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        cubeFramebufferInfo.renderPass = renderPass_;
+        cubeFramebufferInfo.attachmentCount = 1;
+        cubeFramebufferInfo.pAttachments = &pointCubeFaceViews_[face];
+        cubeFramebufferInfo.width = pointCubeExtent_.width;
+        cubeFramebufferInfo.height = pointCubeExtent_.height;
+        cubeFramebufferInfo.layers = 1;
+        if (vkCreateFramebuffer(context_.device, &cubeFramebufferInfo, nullptr, &pointCubeFramebuffers_[face]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan point shadow cube framebuffer");
+        }
     }
 }
 
@@ -310,18 +399,43 @@ void VulkanShadowPipeline::destroy() noexcept
         vkDestroyFramebuffer(context_.device, framebuffer_, nullptr);
         framebuffer_ = VK_NULL_HANDLE;
     }
+    for (auto& framebuffer : pointCubeFramebuffers_) {
+        if (framebuffer != VK_NULL_HANDLE) {
+            vkDestroyFramebuffer(context_.device, framebuffer, nullptr);
+            framebuffer = VK_NULL_HANDLE;
+        }
+    }
     if (sampler_ != VK_NULL_HANDLE) {
         vkDestroySampler(context_.device, sampler_, nullptr);
         sampler_ = VK_NULL_HANDLE;
+    }
+    if (pointCubeSampler_ != VK_NULL_HANDLE) {
+        vkDestroySampler(context_.device, pointCubeSampler_, nullptr);
+        pointCubeSampler_ = VK_NULL_HANDLE;
     }
     if (imageView_ != VK_NULL_HANDLE) {
         vkDestroyImageView(context_.device, imageView_, nullptr);
         imageView_ = VK_NULL_HANDLE;
     }
+    for (auto& view : pointCubeFaceViews_) {
+        if (view != VK_NULL_HANDLE) {
+            vkDestroyImageView(context_.device, view, nullptr);
+            view = VK_NULL_HANDLE;
+        }
+    }
+    if (pointCubeImageView_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(context_.device, pointCubeImageView_, nullptr);
+        pointCubeImageView_ = VK_NULL_HANDLE;
+    }
     if (image_ != VK_NULL_HANDLE) {
         vmaDestroyImage(context_.allocator, image_, allocation_);
         image_ = VK_NULL_HANDLE;
         allocation_ = VK_NULL_HANDLE;
+    }
+    if (pointCubeImage_ != VK_NULL_HANDLE) {
+        vmaDestroyImage(context_.allocator, pointCubeImage_, pointCubeAllocation_);
+        pointCubeImage_ = VK_NULL_HANDLE;
+        pointCubeAllocation_ = VK_NULL_HANDLE;
     }
     if (renderPass_ != VK_NULL_HANDLE) {
         vkDestroyRenderPass(context_.device, renderPass_, nullptr);

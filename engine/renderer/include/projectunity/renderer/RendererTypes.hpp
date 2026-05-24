@@ -10,6 +10,8 @@
 namespace projectunity::renderer {
 
 constexpr std::size_t kMaxFrameLights = 8;
+constexpr std::size_t kMaxShadowCascades = 4;
+constexpr std::size_t kMaxShadowViews = 6;
 
 enum class RenderBackend : std::uint8_t {
     Vulkan,
@@ -43,6 +45,7 @@ struct RendererStats {
     std::uint64_t lastFrameLodTriangleReductionCount {0};
     std::uint64_t lastFrameLightCount {0};
     std::uint64_t lastFrameShadowCasterCount {0};
+    std::uint64_t lastFrameShadowViewCount {0};
     std::uint64_t lastFrameShadowBatchCount {0};
     std::uint64_t lastFrameShadowCulledBatchCount {0};
     std::uint64_t lastFrameRenderCpuTimeUs {0};
@@ -104,6 +107,14 @@ enum class RenderLightType : std::uint8_t {
     Spot,
 };
 
+enum class RenderShadowMode : std::uint8_t {
+    None,
+    DirectionalCascades,
+    Spot2D,
+    PointCubemap,
+    Point2DFallback,
+};
+
 struct RenderLight {
     RenderLightType type {RenderLightType::Directional};
     std::array<float, 3> position {0.0F, 0.0F, 0.0F};
@@ -149,6 +160,8 @@ struct RenderFrame {
     RenderClearColor clearColor;
     RenderMatrix4 viewProjection;
     RenderMatrix4 shadowViewProjection;
+    std::array<RenderMatrix4, kMaxShadowViews> shadowViewProjections {};
+    std::array<float, kMaxShadowCascades> shadowCascadeSplits {};
     std::array<float, 3> cameraPosition {0.0F, 0.0F, 0.0F};
     std::array<float, 3> visibleBoundsCenter {0.0F, 0.0F, 0.0F};
     float visibleBoundsRadius {0.0F};
@@ -158,6 +171,10 @@ struct RenderFrame {
     std::span<const RenderLight> lights;
     bool shadowsEnabled {false};
     std::uint32_t shadowLightIndex {0};
+    std::uint32_t shadowViewCount {0};
+    std::uint32_t shadowCascadeCount {0};
+    float shadowDepthFarPlane {0.0F};
+    RenderShadowMode shadowMode {RenderShadowMode::None};
     std::uint64_t candidateMeshDrawCount {0};
     std::uint64_t culledMeshDrawCount {0};
     std::uint64_t candidateTriangleCount {0};

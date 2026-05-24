@@ -164,12 +164,18 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
         if (const auto existing = textures_.find(key); existing != textures_.end()) {
             return &existing->second.handle;
         }
-        return uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+        if (const auto uploaded = uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+            uploaded != nullptr || !textureHasRgba8(texture)) {
+            return uploaded;
+        }
+        if (errorMessage != nullptr) {
+            errorMessage->clear();
+        }
     }
     if (!textureHasRgba8(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, texture->sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -195,12 +201,18 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
         if (const auto existing = textures_.find(key); existing != textures_.end()) {
             return &existing->second.handle;
         }
-        return uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+        if (const auto uploaded = uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+            uploaded != nullptr || !textureHasRgba8(texture)) {
+            return uploaded;
+        }
+        if (errorMessage != nullptr) {
+            errorMessage->clear();
+        }
     }
     if (!textureHasRgba8(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb, texture->gpuFormat, texture->sampler};
+    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb, assets::TextureGpuFormat::Rgba8Srgb, texture->sampler};
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }

@@ -1,7 +1,8 @@
 # Phase 6 Visual Verification Assets
 
-Status: PARTIAL. These assets are test inputs for Phase 6 renderer fidelity and
-profiling. They do not complete Phase 6 by themselves.
+Status: ACTIVE. These assets are test inputs for Phase 6 renderer fidelity and
+profiling. The visible `projectunity_editor --phase6-visual-smoke` command imports
+the full list without editing or simplifying the sources.
 
 ## Local Pack
 

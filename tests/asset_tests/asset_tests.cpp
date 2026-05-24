@@ -350,6 +350,18 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
     return writeBinary(path, bytes);
 }
 
+[[nodiscard]] bool writeTinyHdr(const std::filesystem::path& path)
+{
+    std::vector<std::uint8_t> bytes;
+    const std::string header = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 2\n";
+    bytes.insert(bytes.end(), header.begin(), header.end());
+    bytes.insert(bytes.end(), {
+        128U, 64U, 32U, 131U,
+        64U, 128U, 255U, 129U,
+    });
+    return writeBinary(path, bytes);
+}
+
 } // namespace
 
 int main()
@@ -367,6 +379,7 @@ int main()
     const auto glbPath = root / "triangle.glb";
     const auto spatialGlbPath = root / "spatial.glb";
     const auto pngPath = root / "tiny.png";
+    const auto hdrPath = root / "tiny.hdr";
     const auto ktxPath = root / "astc.ktx";
 #if PROJECTUNITY_HAS_LIBKTX
     const auto ktx2BasisPath = root / "cyan_basis.ktx2";
@@ -374,6 +387,7 @@ int main()
     auto wroteFixtures = writeTriangleGlb(glbPath)
         && writeSpatialGlb(spatialGlbPath)
         && writeTinyPng(pngPath)
+        && writeTinyHdr(hdrPath)
         && writeBinary(ktxPath, makeKtx1Astc4x4Texture());
 #if PROJECTUNITY_HAS_LIBKTX
     wroteFixtures = wroteFixtures && writeBinary(ktx2BasisPath, makeKtx2BasisTexture());
@@ -488,6 +502,19 @@ int main()
         return fail("asset cache records were not written");
     }
 
+    const auto hdrResult = manager.importTexture(hdrPath);
+    const auto hdrTexture = manager.texture(hdrResult.record.id);
+    if (!hdrResult.success
+        || hdrTexture == nullptr
+        || hdrTexture->width != 2U
+        || hdrTexture->height != 1U
+        || hdrTexture->rgba32f.size() != 2U * 4U
+        || hdrTexture->rgba8.size() != 2U * 4U
+        || hdrTexture->rgba32f[0] < 3.5F) {
+        std::cerr << hdrResult.error << '\n';
+        return fail("HDR texture import did not preserve floating-point radiance data");
+    }
+
     std::vector<int> progressValues;
     const auto ktxResult = manager.importTexture(ktxPath, [&progressValues](const AssetImportProgress& progress) {
         progressValues.push_back(progress.percent);
@@ -512,15 +539,20 @@ int main()
 #if PROJECTUNITY_HAS_LIBKTX
     const auto ktx2Result = manager.importTexture(ktx2BasisPath);
     const auto ktx2Texture = manager.texture(ktx2Result.record.id);
+    const auto ktx2BasisCompressed = ktx2Texture != nullptr
+        && !ktx2Texture->gpuMipLevels.empty()
+        && (ktx2Texture->gpuFormat == TextureGpuFormat::Bc7Unorm
+            || ktx2Texture->gpuFormat == TextureGpuFormat::Bc7Srgb)
+        && ktx2Texture->gpuMipLevels.front().bytes.size() < 64U * 64U * 4U;
     if (!ktx2Result.success
         || ktx2Texture == nullptr
         || ktx2Texture->width != 64U
         || ktx2Texture->height != 64U
         || ktx2Texture->gpuMipLevels.size() != 1U
-        || ktx2Texture->gpuMipLevels.front().bytes.size() != 64U * 64U * 4U
-        || !ktx2Texture->rgba8.empty()) {
+        || !ktx2BasisCompressed
+        || ktx2Texture->rgba8.size() != 64U * 64U * 4U) {
         std::cerr << ktx2Result.error << '\n';
-        return fail("KTX2 Basis texture import did not transcode to uploadable RGBA mip data");
+        return fail("KTX2 Basis texture import did not preserve BC7 GPU data plus RGBA environment fallback");
     }
 #endif
 

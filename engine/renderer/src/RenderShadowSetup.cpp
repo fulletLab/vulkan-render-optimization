@@ -172,6 +172,119 @@ struct Vec3 {
     return multiply(perspectiveMatrix(fov, 0.05F, farPlane), viewMatrix(position, right, up, forward));
 }
 
+[[nodiscard]] RenderMatrix4 pointShadowMatrix(const RenderLight& light, Vec3 center, float boundsRadius)
+{
+    const auto position = vec3(light.position);
+    const auto toCenter = center - position;
+    const auto distanceToCenter = std::max(length(toCenter), 0.001F);
+    const auto forward = safeNormalized(toCenter, {0.0F, -1.0F, 0.0F});
+    const auto right = stableRight(forward);
+    const auto up = safeNormalized(cross(forward, right), {0.0F, 1.0F, 0.0F});
+    const auto radius = std::max(boundsRadius, 1.0F);
+    const auto fov = std::clamp(std::atan(radius / distanceToCenter) * 2.65F, 0.55F, 2.75F);
+    const auto farPlane = std::max({light.range, distanceToCenter + radius + 1.0F, 2.0F});
+    return multiply(perspectiveMatrix(fov, 0.05F, farPlane), viewMatrix(position, right, up, forward));
+}
+
+[[nodiscard]] float pointShadowFarPlane(const RenderLight& light, Vec3 center, float boundsRadius)
+{
+    const auto position = vec3(light.position);
+    const auto distanceToBounds = length(center - position) + std::max(boundsRadius, 1.0F);
+    return std::max({light.range, distanceToBounds + 1.0F, 2.0F});
+}
+
+[[nodiscard]] RenderMatrix4 pointCubemapFaceMatrix(Vec3 position, Vec3 forward, Vec3 up, float farPlane)
+{
+    const auto right = safeNormalized(cross(up, forward), {1.0F, 0.0F, 0.0F});
+    const auto adjustedUp = safeNormalized(cross(forward, right), up);
+    return multiply(perspectiveMatrix(1.57079632679F, 0.05F, farPlane), viewMatrix(position, right, adjustedUp, forward));
+}
+
+[[nodiscard]] RenderShadowMapSelection pointCubemapShadowSelection(
+    const RenderLight& light,
+    std::uint32_t lightIndex,
+    Vec3 center,
+    float boundsRadius)
+{
+    RenderShadowMapSelection selection;
+    selection.enabled = true;
+    selection.lightIndex = lightIndex;
+    selection.lightType = RenderLightType::Point;
+    selection.mode = RenderShadowMode::PointCubemap;
+    selection.viewCount = 6;
+    selection.cascadeCount = 1;
+    selection.depthFarPlane = pointShadowFarPlane(light, center, boundsRadius);
+    const auto position = vec3(light.position);
+    constexpr std::array<Vec3, 6> directions {{
+        {1.0F, 0.0F, 0.0F},
+        {-1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, -1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, -1.0F},
+    }};
+    constexpr std::array<Vec3, 6> upVectors {{
+        {0.0F, -1.0F, 0.0F},
+        {0.0F, -1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, -1.0F},
+        {0.0F, -1.0F, 0.0F},
+        {0.0F, -1.0F, 0.0F},
+    }};
+    for (std::size_t index = 0; index < directions.size(); ++index) {
+        selection.viewProjections[index] = pointCubemapFaceMatrix(
+            position,
+            directions[index],
+            upVectors[index],
+            selection.depthFarPlane);
+    }
+    selection.viewProjection = selection.viewProjections[0];
+    return selection;
+}
+
+[[nodiscard]] RenderShadowMapSelection directionalShadowSelection(
+    const RenderLight& light,
+    std::uint32_t lightIndex,
+    Vec3 center,
+    float boundsRadius)
+{
+    RenderShadowMapSelection selection;
+    selection.enabled = true;
+    selection.lightIndex = lightIndex;
+    selection.lightType = RenderLightType::Directional;
+    selection.mode = RenderShadowMode::DirectionalCascades;
+    selection.viewCount = static_cast<std::uint32_t>(kMaxShadowCascades);
+    selection.cascadeCount = static_cast<std::uint32_t>(kMaxShadowCascades);
+
+    constexpr std::array<float, kMaxShadowCascades> cascadeRadiusScales {0.32F, 0.50F, 0.72F, 1.05F};
+    constexpr std::array<float, kMaxShadowCascades> cascadeSplitScales {0.28F, 0.48F, 0.72F, 1.10F};
+    for (std::size_t index = 0; index < kMaxShadowCascades; ++index) {
+        selection.viewProjections[index] = directionalShadowMatrix(light, center, boundsRadius * cascadeRadiusScales[index]);
+        selection.cascadeSplits[index] = boundsRadius * cascadeSplitScales[index];
+    }
+    selection.viewProjection = selection.viewProjections[0];
+    return selection;
+}
+
+[[nodiscard]] RenderShadowMapSelection singleViewShadowSelection(
+    std::uint32_t lightIndex,
+    RenderLightType lightType,
+    RenderShadowMode mode,
+    RenderMatrix4 viewProjection)
+{
+    RenderShadowMapSelection selection;
+    selection.enabled = true;
+    selection.lightIndex = lightIndex;
+    selection.lightType = lightType;
+    selection.mode = mode;
+    selection.viewProjection = viewProjection;
+    selection.viewProjections[0] = viewProjection;
+    selection.viewCount = 1;
+    selection.cascadeCount = 1;
+    selection.depthFarPlane = 0.0F;
+    return selection;
+}
+
 struct ClipPlane {
     float x {0.0F};
     float y {0.0F};
@@ -209,14 +322,21 @@ RenderShadowMapSelection chooseShadowMap(
     });
     if (directional != lights.end()) {
         const auto index = static_cast<std::uint32_t>(std::distance(lights.begin(), directional));
-        return {true, index, RenderLightType::Directional, directionalShadowMatrix(*directional, center, radius)};
+        return directionalShadowSelection(*directional, index, center, radius);
     }
     const auto spot = std::find_if(lights.begin(), lights.end(), [](const RenderLight& light) {
         return light.type == RenderLightType::Spot;
     });
     if (spot != lights.end()) {
         const auto index = static_cast<std::uint32_t>(std::distance(lights.begin(), spot));
-        return {true, index, RenderLightType::Spot, spotShadowMatrix(*spot, center, radius)};
+        return singleViewShadowSelection(index, RenderLightType::Spot, RenderShadowMode::Spot2D, spotShadowMatrix(*spot, center, radius));
+    }
+    const auto point = std::find_if(lights.begin(), lights.end(), [](const RenderLight& light) {
+        return light.type == RenderLightType::Point;
+    });
+    if (point != lights.end()) {
+        const auto index = static_cast<std::uint32_t>(std::distance(lights.begin(), point));
+        return pointCubemapShadowSelection(*point, index, center, radius);
     }
     return {};
 }

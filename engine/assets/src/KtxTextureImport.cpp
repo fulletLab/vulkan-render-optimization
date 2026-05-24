@@ -187,6 +187,11 @@ constexpr std::uint32_t kKtx2NoSupercompression = 0U;
     }
 }
 
+[[nodiscard]] bool isPlainRgba8(TextureGpuFormat format)
+{
+    return format == TextureGpuFormat::Rgba8Unorm || format == TextureGpuFormat::Rgba8Srgb;
+}
+
 [[nodiscard]] TextureAsset finalizeTexture(
     std::string name,
     std::uint32_t width,
@@ -200,6 +205,15 @@ constexpr std::uint32_t kKtx2NoSupercompression = 0U;
     texture.height = height;
     texture.gpuFormat = format;
     texture.gpuMipLevels = std::move(levels);
+    if (isPlainRgba8(format)
+        && !texture.gpuMipLevels.empty()
+        && texture.gpuMipLevels.front().width == width
+        && texture.gpuMipLevels.front().height == height
+        && texture.gpuMipLevels.front().bytes.size() >= static_cast<std::size_t>(width) * height * 4U) {
+        texture.rgba8.assign(
+            texture.gpuMipLevels.front().bytes.begin(),
+            texture.gpuMipLevels.front().bytes.begin() + static_cast<std::ptrdiff_t>(static_cast<std::size_t>(width) * height * 4U));
+    }
     texture.id = makeTextureId(texture);
     return texture;
 }

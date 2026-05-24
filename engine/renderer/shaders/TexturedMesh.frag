@@ -9,6 +9,7 @@ layout(set = 0, binding = 6) uniform sampler2DShadow shadowMap;
 layout(set = 0, binding = 7) uniform sampler2D brdfLutTexture;
 layout(set = 0, binding = 8) uniform samplerCube irradianceMap;
 layout(set = 0, binding = 9) uniform samplerCube prefilteredEnvironmentMap;
+layout(set = 0, binding = 10) uniform samplerCubeShadow pointShadowMap;
 
 layout(location = 0) in vec2 inTexCoord;
 layout(location = 1) in vec3 inNormal;
@@ -31,10 +32,13 @@ struct FrameLight {
 layout(set = 0, binding = 0) uniform FrameData {
     mat4 viewProjection;
     mat4 shadowViewProjection;
+    mat4 shadowViewProjections[6];
     vec4 cameraPositionLightCount;
     vec4 ambientSky;
     vec4 ambientGround;
     vec4 shadowSettings;
+    vec4 shadowCascadeSplits;
+    vec4 shadowAtlasSettings;
     FrameLight lights[8];
 } frameData;
 
@@ -92,22 +96,81 @@ float spotAttenuation(FrameLight light, vec3 lightDirection)
     return smoothstep(outerCos, max(innerCos, outerCos + 0.0001), lightForwardDot);
 }
 
-float shadowVisibility(int lightIndex, vec3 normal, vec3 lightDirection)
+vec3 shadowCoordForView(int viewIndex)
+{
+    vec4 shadowClip = frameData.shadowViewProjections[viewIndex] * vec4(inWorldPosition, 1.0);
+    if (shadowClip.w <= 0.0) {
+        return vec3(-1.0);
+    }
+    vec3 shadowCoord = shadowClip.xyz / shadowClip.w;
+    shadowCoord.xy = shadowCoord.xy * 0.5 + 0.5;
+    return shadowCoord;
+}
+
+bool validShadowCoord(vec3 shadowCoord)
+{
+    return all(greaterThanEqual(shadowCoord, vec3(0.0))) && all(lessThanEqual(shadowCoord, vec3(1.0)));
+}
+
+int selectShadowCascade(out vec3 shadowCoord)
+{
+    int cascadeCount = clamp(int(frameData.shadowAtlasSettings.y + 0.5), 1, 4);
+    if (cascadeCount <= 1) {
+        shadowCoord = shadowCoordForView(0);
+        return 0;
+    }
+    for (int index = 0; index < cascadeCount; ++index) {
+        vec3 candidate = shadowCoordForView(index);
+        if (validShadowCoord(candidate)) {
+            shadowCoord = candidate;
+            return index;
+        }
+    }
+    shadowCoord = shadowCoordForView(cascadeCount - 1);
+    return cascadeCount - 1;
+}
+
+float pointShadowVisibility(FrameLight light, vec3 normal, vec3 lightDirection)
+{
+    float farPlane = frameData.shadowAtlasSettings.w;
+    if (farPlane <= 0.0) {
+        return 1.0;
+    }
+    vec3 fromLight = inWorldPosition - light.positionType.xyz;
+    float majorDistance = max(max(abs(fromLight.x), abs(fromLight.y)), abs(fromLight.z));
+    if (majorDistance <= 0.05 || majorDistance >= farPlane) {
+        return 1.0;
+    }
+    float nearPlane = 0.05;
+    float projectedDepth = farPlane / (farPlane - nearPlane)
+        - (nearPlane * farPlane) / ((farPlane - nearPlane) * majorDistance);
+    float slope = clamp(1.0 - dot(normal, lightDirection), 0.0, 1.0);
+    float bias = max(frameData.shadowSettings.z * (1.0 + slope), 0.0006);
+    return texture(pointShadowMap, vec4(fromLight, projectedDepth - bias));
+}
+
+float shadowVisibility(int lightIndex, FrameLight light, vec3 normal, vec3 lightDirection)
 {
     if (frameData.shadowSettings.x < 0.5 || lightIndex != int(frameData.shadowSettings.y + 0.5)) {
         return 1.0;
     }
-    vec4 shadowClip = frameData.shadowViewProjection * vec4(inWorldPosition, 1.0);
-    if (shadowClip.w <= 0.0) {
-        return 1.0;
+    if (int(frameData.shadowSettings.w + 0.5) == 3 && light.positionType.w > 0.5 && light.positionType.w < 1.5) {
+        return pointShadowVisibility(light, normal, lightDirection);
     }
-    vec3 shadowCoord = shadowClip.xyz / shadowClip.w;
-    shadowCoord.xy = shadowCoord.xy * 0.5 + 0.5;
-    if (any(lessThan(shadowCoord, vec3(0.0))) || any(greaterThan(shadowCoord, vec3(1.0)))) {
+    vec3 shadowCoord;
+    int cascadeIndex = selectShadowCascade(shadowCoord);
+    if (!validShadowCoord(shadowCoord)) {
         return 1.0;
     }
     float slope = clamp(1.0 - dot(normal, lightDirection), 0.0, 1.0);
     float bias = max(frameData.shadowSettings.z * (1.0 + slope * 2.0), 0.00035);
+    vec2 atlasScale = vec2(frameData.shadowAtlasSettings.z);
+    if (atlasScale.x < 0.99) {
+        vec2 margin = (1.0 / vec2(textureSize(shadowMap, 0))) / atlasScale * 2.5;
+        shadowCoord.xy = clamp(shadowCoord.xy, margin, vec2(1.0) - margin);
+        vec2 tile = vec2(float(cascadeIndex % 2), float(cascadeIndex / 2));
+        shadowCoord.xy = shadowCoord.xy * atlasScale + tile * atlasScale;
+    }
     vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
     float visibility = 0.0;
     float totalWeight = 0.0;
@@ -176,7 +239,7 @@ void main()
             / max(4.0 * max(dot(normal, viewDirection), 0.0) * nDotL, 0.0001);
         vec3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * sampledBase.rgb / pi;
         vec3 radiance = light.colorIntensity.rgb * light.colorIntensity.w * attenuation;
-        float visibility = shadowVisibility(index, normal, lightDirection);
+        float visibility = shadowVisibility(index, light, normal, lightDirection);
         directRadiance += (diffuse + specular) * radiance * nDotL * visibility;
     }
 

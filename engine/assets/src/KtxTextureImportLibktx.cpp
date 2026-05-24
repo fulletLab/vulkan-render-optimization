@@ -21,6 +21,29 @@ namespace {
 struct KtxTextureHandle {
     ktxTexture* texture {nullptr};
 
+    KtxTextureHandle() = default;
+    explicit KtxTextureHandle(ktxTexture* value)
+        : texture(value)
+    {
+    }
+    KtxTextureHandle(const KtxTextureHandle&) = delete;
+    KtxTextureHandle& operator=(const KtxTextureHandle&) = delete;
+    KtxTextureHandle(KtxTextureHandle&& other) noexcept
+        : texture(other.texture)
+    {
+        other.texture = nullptr;
+    }
+    KtxTextureHandle& operator=(KtxTextureHandle&& other) noexcept
+    {
+        if (this != &other) {
+            if (texture != nullptr) {
+                ktxTexture_Destroy(texture);
+            }
+            texture = other.texture;
+            other.texture = nullptr;
+        }
+        return *this;
+    }
     ~KtxTextureHandle()
     {
         if (texture != nullptr) {
@@ -76,6 +99,18 @@ struct KtxTextureHandle {
         : TextureGpuFormat::Rgba8Unorm;
 }
 
+[[nodiscard]] TextureGpuFormat transcodeBc7Format(ktxTexture2* texture)
+{
+    return ktxTexture2_GetOETF_e(texture) == KHR_DF_TRANSFER_SRGB
+        ? TextureGpuFormat::Bc7Srgb
+        : TextureGpuFormat::Bc7Unorm;
+}
+
+[[nodiscard]] bool isPlainRgba8(TextureGpuFormat format)
+{
+    return format == TextureGpuFormat::Rgba8Unorm || format == TextureGpuFormat::Rgba8Srgb;
+}
+
 [[nodiscard]] bool validate2DTexture(const ktxTexture2& texture, std::string* errorMessage)
 {
     if (texture.baseWidth == 0U
@@ -125,20 +160,24 @@ struct KtxTextureHandle {
             data + static_cast<std::ptrdiff_t>(offset + imageSize));
         output.gpuMipLevels.push_back(std::move(mip));
     }
+    if (isPlainRgba8(format)
+        && !output.gpuMipLevels.empty()
+        && output.gpuMipLevels.front().width == output.width
+        && output.gpuMipLevels.front().height == output.height
+        && output.gpuMipLevels.front().bytes.size() >= static_cast<std::size_t>(output.width) * output.height * 4U) {
+        output.rgba8.assign(
+            output.gpuMipLevels.front().bytes.begin(),
+            output.gpuMipLevels.front().bytes.begin()
+                + static_cast<std::ptrdiff_t>(static_cast<std::size_t>(output.width) * output.height * 4U));
+    }
     output.id = makeTextureId(output);
     return output;
 }
 
-#endif
-
-} // namespace
-
-TextureAsset importKtx2WithLibktx(
-    std::string name,
+[[nodiscard]] KtxTextureHandle loadKtx2Texture(
     std::span<const std::uint8_t> bytes,
     std::string* errorMessage)
 {
-#if PROJECTUNITY_HAS_LIBKTX
     ktxTexture* rawTexture = nullptr;
     constexpr auto flags = KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT;
     const auto createResult = ktxTexture_CreateFromMemory(
@@ -155,18 +194,56 @@ TextureAsset importKtx2WithLibktx(
         setError(errorMessage, "libktx parsed a non-KTX2 texture for the KTX2 path");
         return {};
     }
-    auto* texture = reinterpret_cast<ktxTexture2*>(rawTexture);
+    return handle;
+}
+
+#endif
+
+} // namespace
+
+TextureAsset importKtx2WithLibktx(
+    std::string name,
+    std::span<const std::uint8_t> bytes,
+    std::string* errorMessage)
+{
+#if PROJECTUNITY_HAS_LIBKTX
+    auto handle = loadKtx2Texture(bytes, errorMessage);
+    if (handle.texture == nullptr) {
+        return {};
+    }
+    auto* texture = reinterpret_cast<ktxTexture2*>(handle.texture);
     if (!validate2DTexture(*texture, errorMessage)) {
         return {};
     }
     if (ktxTexture2_NeedsTranscoding(texture)) {
-        const auto format = transcodeRgbaFormat(texture);
+        const auto rgbaFormat = transcodeRgbaFormat(texture);
         const auto transcodeResult = ktxTexture2_TranscodeBasis(texture, KTX_TTF_RGBA32, KTX_TF_HIGH_QUALITY);
         if (transcodeResult != KTX_SUCCESS) {
             setError(errorMessage, std::string("libktx KTX2 Basis/UASTC transcode failed: ") + ktxErrorString(transcodeResult));
             return {};
         }
-        return buildTextureFromKtx(std::move(name), *texture, format, errorMessage);
+        auto fallback = buildTextureFromKtx(name, *texture, rgbaFormat, errorMessage);
+        if (!fallback.id.isValid()) {
+            return {};
+        }
+        std::string compressedError;
+        auto compressedHandle = loadKtx2Texture(bytes, &compressedError);
+        if (compressedHandle.texture != nullptr) {
+            auto* compressedTexture = reinterpret_cast<ktxTexture2*>(compressedHandle.texture);
+            if (validate2DTexture(*compressedTexture, nullptr)) {
+                const auto compressedFormat = transcodeBc7Format(compressedTexture);
+                const auto compressedResult = ktxTexture2_TranscodeBasis(compressedTexture, KTX_TTF_BC7_RGBA, KTX_TF_HIGH_QUALITY);
+                if (compressedResult == KTX_SUCCESS) {
+                    auto compressed = buildTextureFromKtx(std::move(name), *compressedTexture, compressedFormat, nullptr);
+                    if (compressed.id.isValid()) {
+                        compressed.rgba8 = std::move(fallback.rgba8);
+                        compressed.id = makeTextureId(compressed);
+                        return compressed;
+                    }
+                }
+            }
+        }
+        return fallback;
     }
     const auto format = mapKtx2VkFormat(texture->vkFormat);
     if (!format.has_value()) {

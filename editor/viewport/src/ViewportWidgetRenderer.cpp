@@ -665,7 +665,13 @@ bool ViewportWidget::renderRendererFrame()
         frame.visibleBoundsRadius);
     if (shadowSelection.enabled) {
         frame.shadowViewProjection = shadowSelection.viewProjection;
+        frame.shadowViewProjections = shadowSelection.viewProjections;
+        frame.shadowCascadeSplits = shadowSelection.cascadeSplits;
         frame.shadowLightIndex = shadowSelection.lightIndex;
+        frame.shadowViewCount = shadowSelection.viewCount;
+        frame.shadowCascadeCount = shadowSelection.cascadeCount;
+        frame.shadowDepthFarPlane = shadowSelection.depthFarPlane;
+        frame.shadowMode = shadowSelection.mode;
         frame.shadowsEnabled = true;
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);

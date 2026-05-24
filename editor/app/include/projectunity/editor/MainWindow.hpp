@@ -48,6 +48,7 @@ public:
     ~MainWindow() override;
 
     [[nodiscard]] bool runSmokeChecks(QString* errorMessage);
+    [[nodiscard]] bool runPhase6VisualChecks(QString* errorMessage);
 
 private:
     void createMenus();

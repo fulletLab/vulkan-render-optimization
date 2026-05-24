@@ -19,10 +19,13 @@ struct VulkanFrameLight {
 struct VulkanFrameUniforms {
     std::array<float, 16> viewProjection {};
     std::array<float, 16> shadowViewProjection {};
+    std::array<std::array<float, 16>, kMaxShadowViews> shadowViewProjections {};
     std::array<float, 4> cameraPositionLightCount {};
     std::array<float, 4> ambientSky {};
     std::array<float, 4> ambientGround {};
     std::array<float, 4> shadowSettings {};
+    std::array<float, 4> shadowCascadeSplits {};
+    std::array<float, 4> shadowAtlasSettings {};
     std::array<VulkanFrameLight, kMaxFrameLights> lights {};
 };
 

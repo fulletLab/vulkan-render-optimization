@@ -73,6 +73,7 @@ struct VulkanViewportFrameProfile {
     std::uint64_t shadowGpuTimeUs {0};
     std::uint64_t meshGpuTimeUs {0};
     std::uint64_t colorGpuTimeUs {0};
+    std::uint64_t shadowViewCount {0};
     std::uint64_t shadowBatchCount {0};
     std::uint64_t shadowCulledBatchCount {0};
 };
@@ -165,6 +166,7 @@ private:
     std::uint64_t descriptorIrradianceKey_ {0};
     std::uint64_t descriptorPrefilteredEnvironmentKey_ {0};
     bool descriptorEnvironmentKeyValid_ {false};
+    bool pointShadowCubeReadable_ {false};
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
     VulkanGpuFrameProfiler gpuProfiler_;

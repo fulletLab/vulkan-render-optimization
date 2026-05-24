@@ -166,6 +166,7 @@ struct TextureAsset {
     TextureGpuFormat gpuFormat {TextureGpuFormat::Rgba8Unorm};
     TextureSamplerAsset sampler;
     std::vector<std::uint8_t> rgba8;
+    std::vector<float> rgba32f;
     std::vector<TextureMipLevel> gpuMipLevels;
 };
 

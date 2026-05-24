@@ -1,10 +1,8 @@
 #include "VulkanViewportTarget.hpp"
 #include "VulkanDebugLabels.hpp"
-#include "VulkanMaterialTextureSet.hpp"
 #include "VulkanSupport.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
-#include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -205,6 +203,7 @@ void VulkanViewportTarget::destroy() noexcept
     descriptorIrradianceKey_ = 0;
     descriptorPrefilteredEnvironmentKey_ = 0;
     descriptorEnvironmentKeyValid_ = false;
+    pointShadowCubeReadable_ = false;
     if (descriptorPool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(context_.device, descriptorPool_, nullptr);
         descriptorPool_ = VK_NULL_HANDLE;
@@ -484,142 +483,6 @@ bool VulkanViewportTarget::buildMeshBatches(
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         instanceBytes(meshInstances_),
         errorMessage);
-}
-bool VulkanViewportTarget::recordShadowPass(
-    const RenderFrame& frame,
-    VulkanUploadContext& uploads,
-    VulkanTextureCache& textureCache,
-    std::string* errorMessage)
-{
-    const auto passStart = std::chrono::steady_clock::now();
-    VkClearValue clear {};
-    clear.depthStencil = {1.0F, 0};
-    VkRenderPassBeginInfo renderPass {};
-    renderPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPass.renderPass = shadowPipeline_->renderPass();
-    renderPass.framebuffer = shadowPipeline_->framebuffer();
-    renderPass.renderArea.extent = shadowPipeline_->extent();
-    renderPass.clearValueCount = 1;
-    renderPass.pClearValues = &clear;
-    gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
-    vkCmdBeginRenderPass(commandBuffer_, &renderPass, VK_SUBPASS_CONTENTS_INLINE);
-    VulkanScopedLabel shadowLabel(
-        beginDebugLabel_,
-        endDebugLabel_,
-        commandBuffer_,
-        "ProjectUnity Shadow Pass",
-        {0.22F, 0.26F, 0.92F, 1.0F});
-    VkViewport viewport {};
-    viewport.width = static_cast<float>(shadowPipeline_->extent().width);
-    viewport.height = static_cast<float>(shadowPipeline_->extent().height);
-    viewport.maxDepth = 1.0F;
-    VkRect2D scissor {};
-    scissor.extent = shadowPipeline_->extent();
-    vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
-    vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
-    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
-    if (!frame.shadowsEnabled) {
-        vkCmdEndRenderPass(commandBuffer_);
-        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-        lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
-        return true;
-    }
-    VkDescriptorSet opaqueShadowDescriptor = VK_NULL_HANDLE;
-    const auto getOpaqueShadowDescriptor = [&]() -> VkDescriptorSet {
-        if (opaqueShadowDescriptor != VK_NULL_HANDLE) {
-            return opaqueShadowDescriptor;
-        }
-        const RenderMeshDraw defaultDraw {};
-        const auto textures = uploadMaterialTextureSet(
-            context_.resources(),
-            uploads,
-            textureCache,
-            defaultDraw,
-            frame.environment,
-            errorMessage);
-        if (!textures.complete()) {
-            return VK_NULL_HANDLE;
-        }
-        opaqueShadowDescriptor = textureDescriptor(
-            *textures.baseColor,
-            *textures.normal,
-            *textures.metallicRoughness,
-            *textures.occlusion,
-            *textures.emissive,
-            *textures.brdfLut,
-            *textures.irradianceCube,
-            *textures.prefilteredEnvironment,
-            errorMessage);
-        return opaqueShadowDescriptor;
-    };
-    for (const auto& batch : meshBatches_) {
-        const auto& draw = *batch.draw;
-        if (isTransparentMeshDraw(draw)) {
-            continue;
-        }
-        if (!shadowSphereIntersects(frame.shadowViewProjection, draw.worldBoundsCenter, draw.worldBoundsRadius)) {
-            ++lastFrameProfile_.shadowCulledBatchCount;
-            continue;
-        }
-        ++lastFrameProfile_.shadowBatchCount;
-        const auto* mesh = batch.mesh;
-        if (mesh == nullptr) {
-            vkCmdEndRenderPass(commandBuffer_);
-            return false;
-        }
-        VkDescriptorSet descriptor = VK_NULL_HANDLE;
-        const auto needsAlphaTexture = draw.material != nullptr
-            && draw.material->alphaMode == assets::MaterialAlphaMode::Mask;
-        descriptor = needsAlphaTexture ? batch.materialDescriptor : getOpaqueShadowDescriptor();
-        if (descriptor == VK_NULL_HANDLE) {
-            vkCmdEndRenderPass(commandBuffer_);
-            return false;
-        }
-        VulkanDrawPushConstants push;
-        push.modelMatrix = draw.modelMatrix.values;
-        if (draw.material != nullptr) {
-            push.baseColor = draw.material->baseColor;
-            push.pbrFactors = {
-                draw.material->metallicFactor,
-                draw.material->roughnessFactor,
-                draw.material->normalScale,
-                static_cast<float>(draw.material->alphaMode),
-            };
-            push.emissiveColor = {
-                draw.material->emissiveColor[0],
-                draw.material->emissiveColor[1],
-                draw.material->emissiveColor[2],
-                draw.material->alphaCutoff,
-            };
-        }
-        const VkDeviceSize vertexOffset = 0;
-        const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
-        const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
-        const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
-        vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
-        vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
-        vkCmdBindDescriptorSets(
-            commandBuffer_,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            shadowPipeline_->layout(),
-            0,
-            1,
-            &descriptor,
-            0,
-            nullptr);
-        vkCmdPushConstants(
-            commandBuffer_,
-            shadowPipeline_->layout(),
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            0,
-            sizeof(VulkanDrawPushConstants),
-            &push);
-        vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
-    }
-    vkCmdEndRenderPass(commandBuffer_);
-    gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-    lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
-    return true;
 }
 bool VulkanViewportTarget::recordFrameCommand(
     std::uint32_t imageIndex,

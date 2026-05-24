@@ -3,6 +3,7 @@
 #include "VulkanMeshCache.hpp"
 #include "VulkanResourceContext.hpp"
 
+#include <array>
 #include <cstdint>
 
 namespace projectunity::renderer {
@@ -26,6 +27,11 @@ public:
     [[nodiscard]] VkImageView imageView() const noexcept;
     [[nodiscard]] VkSampler sampler() const noexcept;
     [[nodiscard]] VkExtent2D extent() const noexcept;
+    [[nodiscard]] VkImage pointCubeImage() const noexcept;
+    [[nodiscard]] VkImageView pointCubeImageView() const noexcept;
+    [[nodiscard]] VkSampler pointCubeSampler() const noexcept;
+    [[nodiscard]] VkFramebuffer pointCubeFramebuffer(std::uint32_t faceIndex) const noexcept;
+    [[nodiscard]] VkExtent2D pointCubeExtent() const noexcept;
 
 private:
     void createRenderPass();
@@ -42,6 +48,13 @@ private:
     VkImageView imageView_ {VK_NULL_HANDLE};
     VkSampler sampler_ {VK_NULL_HANDLE};
     VkFramebuffer framebuffer_ {VK_NULL_HANDLE};
+    VkExtent2D pointCubeExtent_ {};
+    VkImage pointCubeImage_ {VK_NULL_HANDLE};
+    VmaAllocation pointCubeAllocation_ {VK_NULL_HANDLE};
+    VkImageView pointCubeImageView_ {VK_NULL_HANDLE};
+    std::array<VkImageView, 6> pointCubeFaceViews_ {};
+    VkSampler pointCubeSampler_ {VK_NULL_HANDLE};
+    std::array<VkFramebuffer, 6> pointCubeFramebuffers_ {};
     VkPipelineLayout layout_ {VK_NULL_HANDLE};
     VkPipeline pipeline_ {VK_NULL_HANDLE};
 };

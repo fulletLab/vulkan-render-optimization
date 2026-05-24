@@ -21,11 +21,42 @@ static_assert(sizeof(VulkanFrameLight) == sizeof(float) * 16U);
     return 0.0F;
 }
 
+[[nodiscard]] float shadowModeValue(RenderShadowMode mode)
+{
+    switch (mode) {
+    case RenderShadowMode::None:
+        return 0.0F;
+    case RenderShadowMode::DirectionalCascades:
+        return 1.0F;
+    case RenderShadowMode::Spot2D:
+        return 2.0F;
+    case RenderShadowMode::PointCubemap:
+        return 3.0F;
+    case RenderShadowMode::Point2DFallback:
+        return 4.0F;
+    }
+    return 0.0F;
+}
+
 [[nodiscard]] VulkanFrameUniforms makeUniforms(const RenderFrame& frame)
 {
     VulkanFrameUniforms uniforms;
     uniforms.viewProjection = frame.viewProjection.values;
     uniforms.shadowViewProjection = frame.shadowViewProjection.values;
+    const auto shadowViewCount = frame.shadowsEnabled
+        ? std::clamp<std::uint32_t>(frame.shadowViewCount == 0U ? 1U : frame.shadowViewCount, 1U, static_cast<std::uint32_t>(kMaxShadowViews))
+        : 0U;
+    const auto shadowCascadeCount = frame.shadowsEnabled && frame.shadowMode == RenderShadowMode::DirectionalCascades
+        ? std::clamp<std::uint32_t>(frame.shadowCascadeCount == 0U ? 1U : frame.shadowCascadeCount, 1U, static_cast<std::uint32_t>(kMaxShadowCascades))
+        : 0U;
+    uniforms.shadowViewProjections[0] = frame.shadowViewCount == 0U
+        ? frame.shadowViewProjection.values
+        : frame.shadowViewProjections[0].values;
+    for (std::size_t index = 1; index < kMaxShadowViews; ++index) {
+        uniforms.shadowViewProjections[index] = index < shadowViewCount
+            ? frame.shadowViewProjections[index].values
+            : uniforms.shadowViewProjections[0];
+    }
     uniforms.cameraPositionLightCount = {
         frame.cameraPosition[0],
         frame.cameraPosition[1],
@@ -43,7 +74,19 @@ static_assert(sizeof(VulkanFrameLight) == sizeof(float) * 16U);
         frame.shadowsEnabled ? 1.0F : 0.0F,
         static_cast<float>(std::min<std::size_t>(frame.shadowLightIndex, kMaxFrameLights - 1U)),
         0.0018F,
-        0.0F,
+        shadowModeValue(frame.shadowMode),
+    };
+    uniforms.shadowCascadeSplits = {
+        frame.shadowCascadeSplits[0],
+        frame.shadowCascadeSplits[1],
+        frame.shadowCascadeSplits[2],
+        frame.shadowCascadeSplits[3],
+    };
+    uniforms.shadowAtlasSettings = {
+        static_cast<float>(shadowViewCount),
+        static_cast<float>(shadowCascadeCount),
+        shadowCascadeCount > 1U ? 0.5F : 1.0F,
+        frame.shadowDepthFarPlane,
     };
     for (std::size_t index = 0; index < std::min(frame.lights.size(), kMaxFrameLights); ++index) {
         const auto& source = frame.lights[index];

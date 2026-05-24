@@ -251,36 +251,37 @@ void MainWindow::updateProfilerPanel()
             .arg(static_cast<qulonglong>(stats.residentTextureCount)));
     setTableValue(profilerTable_, 28, QString::number(static_cast<qulonglong>(stats.lastFrameLightCount)));
     setTableValue(profilerTable_, 29, QString::number(static_cast<qulonglong>(stats.shadowFramesPresented)));
-    setTableValue(profilerTable_, 30, QString::number(static_cast<qulonglong>(stats.lastFrameShadowBatchCount)));
-    setTableValue(profilerTable_, 31, QString::number(static_cast<qulonglong>(stats.lastFrameShadowCulledBatchCount)));
+    setTableValue(profilerTable_, 30, QString::number(static_cast<qulonglong>(stats.lastFrameShadowViewCount)));
+    setTableValue(profilerTable_, 31, QString::number(static_cast<qulonglong>(stats.lastFrameShadowBatchCount)));
+    setTableValue(profilerTable_, 32, QString::number(static_cast<qulonglong>(stats.lastFrameShadowCulledBatchCount)));
     setTableValue(
         profilerTable_,
-        32,
+        33,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameShadowCasterCount))
             .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented)));
-    setTableValue(profilerTable_, 33, stats.gpuTimestampsSupported ? QStringLiteral("yes") : QStringLiteral("no"));
+    setTableValue(profilerTable_, 34, stats.gpuTimestampsSupported ? QStringLiteral("yes") : QStringLiteral("no"));
     setTableValue(
         profilerTable_,
-        34,
+        35,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(
         profilerTable_,
-        35,
+        36,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameShadowGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(
         profilerTable_,
-        36,
+        37,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameMeshGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(
         profilerTable_,
-        37,
+        38,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameColorGpuTimeUs))
             : QStringLiteral("-"));
