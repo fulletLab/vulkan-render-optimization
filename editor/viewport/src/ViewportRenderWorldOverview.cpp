@@ -14,6 +14,8 @@
 namespace projectunity::editor {
 namespace {
 
+constexpr bool kSampledOverviewHlodEnabled = false;
+
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
     return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
@@ -146,6 +148,9 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
         record.sourceTriangleCount += instance.model->primitives[instance.primitiveIndex].indices.size() / 3U;
     }
     record.overviewDraws.clear();
+    if (!kSampledOverviewHlodEnabled) {
+        return;
+    }
     if (record.sourceTriangleCount < kOverviewMinSourceTriangles) {
         return;
     }
@@ -262,6 +267,10 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
 void ViewportRenderWorld::rebuildOverviewRecords()
 {
     overviewRecords_.clear();
+    if (!kSampledOverviewHlodEnabled) {
+        return;
+    }
+
     struct OverviewGroup {
         std::shared_ptr<EntityRecord> record;
     };
@@ -329,6 +338,10 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     ViewportFrameBounds& visibleBounds,
     std::uint64_t& visibleSourceTriangleCount) const
 {
+    if (!kSampledOverviewHlodEnabled) {
+        return false;
+    }
+
     std::uint64_t visibleChunkCount = 0;
     std::uint64_t visibleChunkInstanceReferences = 0;
     for (const auto& chunk : record.chunks) {

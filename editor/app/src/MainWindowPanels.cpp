@@ -247,7 +247,12 @@ QWidget* MainWindow::createSceneViewPanel()
             return;
         }
         updateInspector();
-        refreshViewports();
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->update();
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->update();
+        }
     });
     layout->addWidget(sceneViewport_);
     return frame;
