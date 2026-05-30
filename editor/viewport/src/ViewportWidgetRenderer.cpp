@@ -352,6 +352,9 @@ bool ViewportWidget::renderRendererFrame()
         frame.culledTriangleCount = renderWorldFrame.stats.culledTriangleCount;
         frame.lodMeshDrawCount = renderWorldFrame.stats.lodMeshDrawCount;
         frame.lodTriangleReductionCount = renderWorldFrame.stats.lodTriangleReductionCount;
+        frame.hlodMeshDrawCount = renderWorldFrame.stats.hlodMeshDrawCount;
+        frame.hlodCandidateDrawCount = renderWorldFrame.stats.hlodCandidateDrawCount;
+        frame.hlodTriangleReductionCount = renderWorldFrame.stats.hlodTriangleReductionCount;
         if (renderWorldFrame.visibleBoundsValid) {
             visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }

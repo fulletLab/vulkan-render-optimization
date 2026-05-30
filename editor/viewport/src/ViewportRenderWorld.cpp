@@ -2,6 +2,7 @@
 
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldRecord.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
 #include "ViewportRendererCulling.hpp"
 
@@ -17,42 +18,6 @@
 
 namespace projectunity::editor {
 namespace {
-
-struct FrameBounds {
-    bool valid {false};
-    math::Vec3 minimum;
-    math::Vec3 maximum;
-
-    void includeSphere(math::Vec3 center, float radius)
-    {
-        if (!std::isfinite(radius) || radius < 0.0F) {
-            return;
-        }
-        const math::Vec3 extent {radius, radius, radius};
-        if (!valid) {
-            minimum = center - extent;
-            maximum = center + extent;
-            valid = true;
-            return;
-        }
-        minimum.x = std::min(minimum.x, center.x - radius);
-        minimum.y = std::min(minimum.y, center.y - radius);
-        minimum.z = std::min(minimum.z, center.z - radius);
-        maximum.x = std::max(maximum.x, center.x + radius);
-        maximum.y = std::max(maximum.y, center.y + radius);
-        maximum.z = std::max(maximum.z, center.z + radius);
-    }
-
-    [[nodiscard]] math::Vec3 center() const
-    {
-        return (minimum + maximum) * 0.5F;
-    }
-
-    [[nodiscard]] float radius() const
-    {
-        return (maximum - center()).length();
-    }
-};
 
 struct PrimitiveProxyKey {
     std::uint64_t modelAssetId {0};
@@ -246,34 +211,6 @@ struct PrimitiveProxyKey {
 
 } // namespace
 
-struct ViewportRenderWorld::EntityRecord {
-    struct Instance {
-        std::uint64_t renderInstanceId {0};
-        scene::EntityId sceneNodeId;
-        assets::AssetId modelAssetId;
-        std::shared_ptr<const assets::ModelAsset> model;
-        std::uint32_t primitiveIndex {0};
-        std::uint32_t primitiveInstanceIndex {UINT32_MAX};
-        renderer::RenderMatrix4 modelMatrix;
-        ViewportWorldBounds worldBounds;
-        bool flipsWinding {false};
-    };
-
-    struct Chunk {
-        std::uint64_t renderChunkId {0};
-        scene::EntityId sceneNodeId;
-        ViewportWorldBounds worldBounds;
-        std::vector<std::size_t> instanceIndices;
-        std::uint64_t triangleCount {0};
-    };
-
-    scene::EntityId entityId;
-    std::uint64_t signature {0};
-    bool hasMeshSceneContent {false};
-    std::vector<Instance> instances;
-    std::vector<Chunk> chunks;
-};
-
 ViewportRenderWorld::~ViewportRenderWorld() = default;
 
 void ViewportRenderWorld::markDirty() noexcept
@@ -360,6 +297,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
         if (const auto instanceIndex = appendInstance(entity.id, source.primitiveIndex, index, matrix, source.flipsWinding)) {
             appendChunk(entity.id, mixHash(entity.id.value(), index), record->instances[*instanceIndex].worldBounds, std::span<const std::size_t>(&*instanceIndex, 1U));
         }
+        finalizeEntityRecord(*record);
         return record;
     }
 
@@ -431,6 +369,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
                 record->instances[recordIndex].worldBounds,
                 std::span<const std::size_t>(&recordIndex, 1U));
         }
+        finalizeEntityRecord(*record);
         return record;
     }
 
@@ -443,6 +382,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
                 std::span<const std::size_t>(&*instanceIndex, 1U));
         }
     }
+    finalizeEntityRecord(*record);
     return record;
 }
 
@@ -462,17 +402,21 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     if (scene == nullptr || assetManager == nullptr) {
         records_.clear();
         orderedRecords_.clear();
+        overviewRecords_.clear();
         scene_ = scene;
         assetManager_ = assetManager;
         return result;
     }
     result.stats.sceneNodeCount = scene->entityCount();
+    bool recordsChanged = false;
     if (scene_ != scene || assetManager_ != assetManager || dirty_) {
         records_.clear();
         orderedRecords_.clear();
+        overviewRecords_.clear();
         scene_ = scene;
         assetManager_ = assetManager;
         dirty_ = false;
+        recordsChanged = true;
     }
 
     std::unordered_map<std::uint64_t, const scene::Entity*> primitiveProxyEntities;
@@ -544,6 +488,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 auto [insertIt, inserted] = records_.insert_or_assign(recordKey, std::move(record));
                 orderedRecords_.push_back(insertIt->second.get());
                 ++result.stats.rebuiltRecordCount;
+                recordsChanged = true;
             }
         } else {
             orderedRecords_.push_back(recordIt->second.get());
@@ -553,12 +498,16 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     for (auto it = records_.begin(); it != records_.end();) {
         if (visited.find(it->first) == visited.end()) {
             it = records_.erase(it);
+            recordsChanged = true;
         } else {
             ++it;
         }
     }
+    if (recordsChanged) {
+        rebuildOverviewRecords();
+    }
 
-    FrameBounds visibleBounds;
+    ViewportFrameBounds visibleBounds;
     const auto selectedPrimitiveEntity = selectedEntityId.isValid() ? scene->findEntity(selectedEntityId) : nullptr;
     const auto selectedPrimitiveModel = selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()
             && selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex.has_value()
@@ -569,7 +518,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         ? *selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex
         : UINT32_MAX;
 
-    FrameBounds allChunkBounds;
+    ViewportFrameBounds allChunkBounds;
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {
             continue;
@@ -577,6 +526,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         result.hasMeshSceneContent = result.hasMeshSceneContent || record->hasMeshSceneContent;
         result.stats.renderInstanceCount += record->instances.size();
         result.stats.renderChunkCount += record->chunks.size();
+        result.stats.hlodCandidateDrawCount += record->overviewDraws.size();
         for (const auto& instance : record->instances) {
             if (instance.primitiveIndex >= instance.model->primitives.size()) {
                 continue;
@@ -594,6 +544,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             result.stats.largestRenderChunkInstanceCount = std::max<std::uint64_t>(
                 result.stats.largestRenderChunkInstanceCount,
                 chunk.instanceIndices.size());
+        }
+    }
+    for (const auto& overviewRecord : overviewRecords_) {
+        if (overviewRecord != nullptr) {
+            result.stats.hlodCandidateDrawCount += overviewRecord->overviewDraws.size();
         }
     }
 
@@ -616,10 +571,38 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     }
 
     std::uint64_t visibleSourceTriangleCount = 0;
+    std::vector<const EntityRecord::Chunk*> visibleChunks;
+    std::unordered_set<std::uint64_t> overviewCoveredModels;
+
+    for (const auto& overviewRecord : overviewRecords_) {
+        if (overviewRecord == nullptr) {
+            continue;
+        }
+        if (tryEmitOverviewRecord(
+                *overviewRecord,
+                selectedPrimitiveModel,
+                selectedPrimitiveIndex,
+                camera,
+                viewProjection,
+                true,
+                meshDraws,
+                result.stats,
+                visibleBounds,
+                visibleSourceTriangleCount)) {
+            overviewCoveredModels.insert(overviewRecord->coveredModelAssetId.value());
+        }
+    }
+
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {
             continue;
         }
+        if (!record->instances.empty()
+            && overviewCoveredModels.find(record->instances.front().modelAssetId.value()) != overviewCoveredModels.end()) {
+            continue;
+        }
+        visibleChunks.clear();
+        visibleChunks.reserve(record->chunks.size());
         for (const auto& chunk : record->chunks) {
             const auto chunkExtent = renderWorldChunkMaxExtent(chunk.worldBounds.corners);
             const auto largeChunk = chunkExtent >= largeChunkExtent
@@ -660,6 +643,29 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 continue;
             }
             ++result.stats.visibleRenderChunkCount;
+            visibleChunks.push_back(&chunk);
+        }
+
+        if (visibleChunks.empty()) {
+            continue;
+        }
+
+        if (tryEmitOverviewRecord(
+                *record,
+                selectedPrimitiveModel,
+                selectedPrimitiveIndex,
+                camera,
+                viewProjection,
+                false,
+                meshDraws,
+                result.stats,
+                visibleBounds,
+                visibleSourceTriangleCount)) {
+            continue;
+        }
+
+        for (const auto* visibleChunk : visibleChunks) {
+            const auto& chunk = *visibleChunk;
             for (const auto instanceIndex : chunk.instanceIndices) {
                 if (instanceIndex >= record->instances.size()) {
                     continue;

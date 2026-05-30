@@ -447,7 +447,6 @@ void VulkanViewportTarget::createSync()
 }
 bool VulkanViewportTarget::buildMeshBatches(
     std::span<const RenderMeshDraw> draws,
-    VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
     orderMeshDraws(draws, orderedMeshDraws_);
@@ -477,9 +476,8 @@ bool VulkanViewportTarget::buildMeshBatches(
         meshInstanceBuffer_.destroy();
         return true;
     }
-    return meshInstanceBuffer_.upload(
+    return meshInstanceBuffer_.writeMapped(
         context_.resources(),
-        uploads,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         instanceBytes(meshInstances_),
         errorMessage);
@@ -511,16 +509,8 @@ bool VulkanViewportTarget::recordFrameCommand(
             return false;
         }
     }
-    textureDescriptors_.clear();
-    descriptorEnvironmentKeyValid_ = false;
-    if (vkResetDescriptorPool(context_.device, descriptorPool_, 0) != VK_SUCCESS) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "Failed to reset Vulkan texture descriptor pool";
-        }
-        return false;
-    }
     const auto prepareStart = std::chrono::steady_clock::now();
-    if (!buildMeshBatches(frame.meshDraws, uploads, errorMessage)) {
+    if (!buildMeshBatches(frame.meshDraws, errorMessage)) {
         return false;
     }
     if (!prepareMeshBatchResources(frame, uploads, meshCache, textureCache, errorMessage)) {

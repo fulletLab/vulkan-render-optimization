@@ -25,6 +25,11 @@ public:
         VkBufferUsageFlags usage,
         std::span<const std::byte> bytes,
         std::string* errorMessage);
+    [[nodiscard]] bool writeMapped(
+        VulkanResourceContext context,
+        VkBufferUsageFlags usage,
+        std::span<const std::byte> bytes,
+        std::string* errorMessage);
     void destroy() noexcept;
 
     [[nodiscard]] VkBuffer buffer() const noexcept;
@@ -34,6 +39,7 @@ private:
     VulkanResourceContext context_;
     VkBuffer buffer_ {VK_NULL_HANDLE};
     VmaAllocation allocation_ {VK_NULL_HANDLE};
+    void* mappedData_ {nullptr};
     VkDeviceSize size_ {0};
 };
 

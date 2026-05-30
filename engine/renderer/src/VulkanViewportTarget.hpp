@@ -130,7 +130,6 @@ private:
         std::string* errorMessage);
     [[nodiscard]] bool buildMeshBatches(
         std::span<const RenderMeshDraw> draws,
-        VulkanUploadContext& uploads,
         std::string* errorMessage);
     [[nodiscard]] bool prepareMeshBatchResources(
         const RenderFrame& frame,

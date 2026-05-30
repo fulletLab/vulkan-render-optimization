@@ -14,6 +14,8 @@
 
 namespace projectunity::editor {
 
+struct ViewportFrameBounds;
+
 struct ViewportRenderWorldCamera {
     math::Vec3 eye;
     math::Vec3 right;
@@ -39,6 +41,9 @@ struct ViewportRenderWorldStats {
     std::uint64_t culledTriangleCount {0};
     std::uint64_t lodMeshDrawCount {0};
     std::uint64_t lodTriangleReductionCount {0};
+    std::uint64_t hlodMeshDrawCount {0};
+    std::uint64_t hlodCandidateDrawCount {0};
+    std::uint64_t hlodTriangleReductionCount {0};
     std::uint64_t largeRenderChunkCount {0};
     std::uint64_t largestRenderChunkTriangleCount {0};
     std::uint64_t largestRenderChunkInstanceCount {0};
@@ -90,12 +95,27 @@ private:
         const std::unordered_map<std::uint64_t, const scene::Entity*>& primitiveProxyEntities,
         std::uint64_t signature) const;
 
+    void finalizeEntityRecord(EntityRecord& record) const;
+    void rebuildOverviewRecords();
+    [[nodiscard]] bool tryEmitOverviewRecord(
+        const EntityRecord& record,
+        assets::AssetId selectedPrimitiveModel,
+        std::uint32_t selectedPrimitiveIndex,
+        const ViewportRenderWorldCamera& camera,
+        const renderer::RenderMatrix4& viewProjection,
+        bool countVisibleChunks,
+        std::vector<renderer::RenderMeshDraw>& meshDraws,
+        ViewportRenderWorldStats& stats,
+        ViewportFrameBounds& visibleBounds,
+        std::uint64_t& visibleSourceTriangleCount) const;
+
     const scene::Scene* scene_ {nullptr};
     const assets::IAssetManager* assetManager_ {nullptr};
     bool dirty_ {true};
     std::uint64_t lastDebugSignature_ {0};
     std::unordered_map<std::uint64_t, std::shared_ptr<EntityRecord>> records_;
     std::vector<const EntityRecord*> orderedRecords_;
+    std::vector<std::shared_ptr<EntityRecord>> overviewRecords_;
 };
 
 } // namespace projectunity::editor

@@ -43,6 +43,9 @@ struct RendererStats {
     std::uint64_t lastFrameVisibleTriangleCount {0};
     std::uint64_t lastFrameLodMeshDrawCount {0};
     std::uint64_t lastFrameLodTriangleReductionCount {0};
+    std::uint64_t lastFrameHlodMeshDrawCount {0};
+    std::uint64_t lastFrameHlodCandidateDrawCount {0};
+    std::uint64_t lastFrameHlodTriangleReductionCount {0};
     std::uint64_t lastFrameSceneNodeCount {0};
     std::uint64_t lastFrameRenderChunkCount {0};
     std::uint64_t lastFrameVisibleRenderChunkCount {0};
@@ -194,6 +197,9 @@ struct RenderFrame {
     std::uint64_t culledTriangleCount {0};
     std::uint64_t lodMeshDrawCount {0};
     std::uint64_t lodTriangleReductionCount {0};
+    std::uint64_t hlodMeshDrawCount {0};
+    std::uint64_t hlodCandidateDrawCount {0};
+    std::uint64_t hlodTriangleReductionCount {0};
     std::uint64_t sceneNodeCount {0};
     std::uint64_t renderChunkCount {0};
     std::uint64_t visibleRenderChunkCount {0};

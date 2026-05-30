@@ -48,6 +48,7 @@ VulkanGpuBuffer::VulkanGpuBuffer(VulkanGpuBuffer&& other) noexcept
     : context_(other.context_)
     , buffer_(std::exchange(other.buffer_, VK_NULL_HANDLE))
     , allocation_(std::exchange(other.allocation_, VK_NULL_HANDLE))
+    , mappedData_(std::exchange(other.mappedData_, nullptr))
     , size_(std::exchange(other.size_, 0))
 {
 }
@@ -61,6 +62,7 @@ VulkanGpuBuffer& VulkanGpuBuffer::operator=(VulkanGpuBuffer&& other) noexcept
     context_ = other.context_;
     buffer_ = std::exchange(other.buffer_, VK_NULL_HANDLE);
     allocation_ = std::exchange(other.allocation_, VK_NULL_HANDLE);
+    mappedData_ = std::exchange(other.mappedData_, nullptr);
     size_ = std::exchange(other.size_, 0);
     return *this;
 }
@@ -134,7 +136,51 @@ bool VulkanGpuBuffer::upload(
     context_ = context;
     buffer_ = nextBuffer;
     allocation_ = nextAllocation;
+    mappedData_ = nullptr;
     size_ = static_cast<VkDeviceSize>(bytes.size());
+    return true;
+}
+
+bool VulkanGpuBuffer::writeMapped(
+    VulkanResourceContext context,
+    VkBufferUsageFlags usage,
+    std::span<const std::byte> bytes,
+    std::string* errorMessage)
+{
+    if (bytes.empty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Vulkan mapped buffer write has no bytes";
+        }
+        return false;
+    }
+
+    if (buffer_ == VK_NULL_HANDLE || mappedData_ == nullptr || size_ < bytes.size()) {
+        destroy();
+        VkDeviceSize capacity = 1;
+        while (capacity < static_cast<VkDeviceSize>(bytes.size())) {
+            capacity *= 2;
+        }
+        VmaAllocationCreateInfo allocationInfo {};
+        allocationInfo.usage = VMA_MEMORY_USAGE_AUTO;
+        allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+            | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VmaAllocationInfo info {};
+        if (!createBuffer(context, capacity, usage, allocationInfo, &buffer_, &allocation_, &info)
+            || info.pMappedData == nullptr) {
+            buffer_ = VK_NULL_HANDLE;
+            allocation_ = VK_NULL_HANDLE;
+            if (errorMessage != nullptr) {
+                *errorMessage = "Failed to create Vulkan mapped buffer";
+            }
+            return false;
+        }
+        context_ = context;
+        mappedData_ = info.pMappedData;
+        size_ = capacity;
+    }
+
+    std::memcpy(mappedData_, bytes.data(), bytes.size());
+    vmaFlushAllocation(context_.allocator, allocation_, 0, bytes.size());
     return true;
 }
 
@@ -144,6 +190,7 @@ void VulkanGpuBuffer::destroy() noexcept
         vmaDestroyBuffer(context_.allocator, buffer_, allocation_);
         buffer_ = VK_NULL_HANDLE;
         allocation_ = VK_NULL_HANDLE;
+        mappedData_ = nullptr;
         size_ = 0;
     }
 }

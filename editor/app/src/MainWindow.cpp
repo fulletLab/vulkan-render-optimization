@@ -233,64 +233,71 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 24, QString::number(static_cast<qulonglong>(stats.lastFrameCulledTriangleCount)));
     setTableValue(profilerTable_, 25, QString::number(static_cast<qulonglong>(stats.lastFrameLodMeshDrawCount)));
     setTableValue(profilerTable_, 26, QString::number(static_cast<qulonglong>(stats.lastFrameLodTriangleReductionCount)));
-    setTableValue(profilerTable_, 27, QString::number(static_cast<qulonglong>(stats.meshDrawsPresented)));
-    setTableValue(profilerTable_, 28, QString::number(static_cast<qulonglong>(stats.texturedMeshDrawsPresented)));
-    setTableValue(profilerTable_, 29, QString::number(static_cast<qulonglong>(stats.lastFrameColorMeshDrawCount)));
-    setTableValue(profilerTable_, 30, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameColorUploadBytes)));
-    setTableValue(profilerTable_, 31, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalColorUploadBytes)));
     setTableValue(
         profilerTable_,
-        32,
+        27,
+        QStringLiteral("%1 / %2")
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodMeshDrawCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodCandidateDrawCount)));
+    setTableValue(profilerTable_, 28, QString::number(static_cast<qulonglong>(stats.lastFrameHlodTriangleReductionCount)));
+    setTableValue(profilerTable_, 29, QString::number(static_cast<qulonglong>(stats.meshDrawsPresented)));
+    setTableValue(profilerTable_, 30, QString::number(static_cast<qulonglong>(stats.texturedMeshDrawsPresented)));
+    setTableValue(profilerTable_, 31, QString::number(static_cast<qulonglong>(stats.lastFrameColorMeshDrawCount)));
+    setTableValue(profilerTable_, 32, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameColorUploadBytes)));
+    setTableValue(profilerTable_, 33, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalColorUploadBytes)));
+    setTableValue(
+        profilerTable_,
+        34,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameMeshUploadCount))
             .arg(static_cast<qulonglong>(stats.totalMeshUploadCount)));
     setTableValue(
         profilerTable_,
-        33,
+        35,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.lastFrameTextureUploadCount))
             .arg(static_cast<qulonglong>(stats.totalTextureUploadCount)));
-    setTableValue(profilerTable_, 34, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameStaticUploadBytes)));
-    setTableValue(profilerTable_, 35, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalStaticUploadBytes)));
+    setTableValue(profilerTable_, 36, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.lastFrameStaticUploadBytes)));
+    setTableValue(profilerTable_, 37, QStringLiteral("%1 bytes").arg(static_cast<qulonglong>(stats.totalStaticUploadBytes)));
     setTableValue(
         profilerTable_,
-        36,
+        38,
         QStringLiteral("%1 / %2")
             .arg(static_cast<qulonglong>(stats.residentMeshCount))
             .arg(static_cast<qulonglong>(stats.residentTextureCount)));
-    setTableValue(profilerTable_, 37, QString::number(static_cast<qulonglong>(stats.lastFrameLightCount)));
-    setTableValue(profilerTable_, 38, QString::number(static_cast<qulonglong>(stats.shadowFramesPresented)));
-    setTableValue(profilerTable_, 39, QString::number(static_cast<qulonglong>(stats.lastFrameShadowViewCount)));
-    setTableValue(profilerTable_, 40, QString::number(static_cast<qulonglong>(stats.lastFrameShadowBatchCount)));
-    setTableValue(profilerTable_, 41, QString::number(static_cast<qulonglong>(stats.lastFrameShadowCulledBatchCount)));
-    setTableValue(
-        profilerTable_,
-        42,
-        QStringLiteral("%1 / %2")
-            .arg(static_cast<qulonglong>(stats.lastFrameShadowCasterCount))
-            .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented)));
-    setTableValue(profilerTable_, 43, stats.gpuTimestampsSupported ? QStringLiteral("yes") : QStringLiteral("no"));
+    setTableValue(profilerTable_, 39, QString::number(static_cast<qulonglong>(stats.lastFrameLightCount)));
+    setTableValue(profilerTable_, 40, QString::number(static_cast<qulonglong>(stats.shadowFramesPresented)));
+    setTableValue(profilerTable_, 41, QString::number(static_cast<qulonglong>(stats.lastFrameShadowViewCount)));
+    setTableValue(profilerTable_, 42, QString::number(static_cast<qulonglong>(stats.lastFrameShadowBatchCount)));
+    setTableValue(profilerTable_, 43, QString::number(static_cast<qulonglong>(stats.lastFrameShadowCulledBatchCount)));
     setTableValue(
         profilerTable_,
         44,
+        QStringLiteral("%1 / %2")
+            .arg(static_cast<qulonglong>(stats.lastFrameShadowCasterCount))
+            .arg(static_cast<qulonglong>(stats.shadowCasterDrawsPresented)));
+    setTableValue(profilerTable_, 45, stats.gpuTimestampsSupported ? QStringLiteral("yes") : QStringLiteral("no"));
+    setTableValue(
+        profilerTable_,
+        46,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(
         profilerTable_,
-        45,
+        47,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameShadowGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(
         profilerTable_,
-        46,
+        48,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameMeshGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(
         profilerTable_,
-        47,
+        49,
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameColorGpuTimeUs))
             : QStringLiteral("-"));

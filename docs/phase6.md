@@ -63,6 +63,23 @@ runtime cache replacement, or a full editor rewrite.
 - Diagnostic note: the second 6.0.02 pass adds RenderChunk bounds drawing, chunk extent/
   large-chunk counters, and console top-10 chunk diagnostics so the 400 MB terrain case can
   show whether its chunks are real spatial cells or oversized logical groups.
+- Large-scene shadow note: when a viewport submits more than 1024 visible mesh draws, the
+  editor now applies a non-destructive dynamic-shadow budget before Vulkan records the
+  shadow pass. This preserves the scene graph and visible mesh draws while preventing tiny
+  distant pieces from acting like thousands of full dynamic shadow casters.
+- Dynamic instance-buffer note: Vulkan viewport instance matrices now use a reusable
+  host-visible mapped buffer instead of a blocking staging upload/fence wait every frame,
+  reducing CPU/GPU synchronization stalls that can show up as low CPU/GPU utilization with
+  bad frame pacing.
+- Descriptor-cache note: material texture descriptor sets are no longer reset and rebuilt
+  every viewport frame. The Vulkan target keeps descriptor sets cached across frames and
+  only clears them when the generated environment maps change or the surface is destroyed.
+- HLOD overview note: very large editable models now get a renderer-only coarse overview
+  mesh per material from existing import LODs. When the Scene View camera sees most chunks
+  or instances for the model, RenderWorld submits that cheap overview instead of thousands
+  of detailed chunk draws; selecting an individual imported part keeps the real editable
+  chunk path active. The Profiler exposes active/available HLOD draws and skipped source
+  triangles.
 
 ## Blocking Renderer Status
 
