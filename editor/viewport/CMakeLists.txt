@@ -28,6 +28,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportRenderWorldDiagnostics.hpp
     src/ViewportRenderWorldOverview.cpp
     src/ViewportRenderWorldRecord.hpp
+    src/ViewportRenderWorldSelection.cpp
+    src/ViewportRenderWorldSelection.hpp
     src/ViewportRenderWorldShadowPolicy.cpp
     src/ViewportRenderWorldShadowPolicy.hpp
     src/ViewportRendererCulling.cpp

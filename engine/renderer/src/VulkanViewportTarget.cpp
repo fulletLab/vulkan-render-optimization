@@ -29,6 +29,7 @@ namespace {
         && lhs.occlusionTexture == rhs.occlusionTexture
         && lhs.emissiveTexture == rhs.emissiveTexture
         && lhs.flipsWinding == rhs.flipsWinding
+        && lhs.castsShadow == rhs.castsShadow
         && isTransparentMeshDraw(lhs) == isTransparentMeshDraw(rhs);
 }
 [[nodiscard]] std::uint64_t elapsedUs(std::chrono::steady_clock::time_point start) noexcept

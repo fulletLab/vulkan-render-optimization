@@ -32,6 +32,7 @@ namespace {
         pointerKey(draw.occlusionTexture),
         pointerKey(draw.emissiveTexture),
         draw.flipsWinding,
+        draw.castsShadow,
     };
 }
 

@@ -3,6 +3,7 @@
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportMeshLod.hpp"
 #include "ViewportRenderWorldRecord.hpp"
+#include "ViewportRenderWorldSelection.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
 #include "ViewportRendererCulling.hpp"
 
@@ -424,7 +425,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     for (const auto& entity : scene->entities()) {
         if (entity.meshRenderer.has_value()
             && !entity.meshRenderer->renderable
-            && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+            && entity.meshRenderer->primitiveInstanceIndex.has_value()
+            && entity.id != selectedEntityId) {
             primitiveProxyEntities.insert_or_assign(
                 primitiveProxyKey({
                     entity.meshRenderer->modelAssetId.value(),
@@ -508,6 +510,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     }
 
     ViewportFrameBounds visibleBounds;
+    std::uint64_t visibleSourceTriangleCount = 0;
     const auto selectedPrimitiveEntity = selectedEntityId.isValid() ? scene->findEntity(selectedEntityId) : nullptr;
     const auto selectedPrimitiveModel = selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()
             && selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex.has_value()
@@ -517,7 +520,6 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             && selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex.has_value()
         ? *selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex
         : UINT32_MAX;
-
     ViewportFrameBounds allChunkBounds;
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {
@@ -570,7 +572,6 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         chunkDebugRows.reserve(static_cast<std::size_t>(result.stats.renderChunkCount));
     }
 
-    std::uint64_t visibleSourceTriangleCount = 0;
     std::vector<const EntityRecord::Chunk*> visibleChunks;
     std::unordered_set<std::uint64_t> overviewCoveredModels;
 
@@ -671,6 +672,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     continue;
                 }
                 const auto& instance = record->instances[instanceIndex];
+                if (selectedPrimitiveModel.isValid()
+                    && instance.modelAssetId == selectedPrimitiveModel
+                    && instance.primitiveInstanceIndex == selectedPrimitiveIndex) {
+                    continue;
+                }
                 if (instance.primitiveIndex >= instance.model->primitives.size()) {
                     continue;
                 }
@@ -737,6 +743,16 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             }
         }
     }
+    appendSelectedPrimitiveOverrideDraw(
+        *scene,
+        *assetManager,
+        selectedEntityId,
+        camera,
+        viewProjection,
+        meshDraws,
+        result.stats,
+        visibleBounds,
+        visibleSourceTriangleCount);
 
     logRenderWorldChunkDiagnostics(result.stats, chunkDebugRows, lastDebugSignature_);
 

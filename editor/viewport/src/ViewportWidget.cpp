@@ -101,8 +101,9 @@ void ViewportWidget::setEnvironmentSettings(renderer::RenderEnvironmentSettings 
 
 void ViewportWidget::setScene(scene::Scene* scene)
 {
+    const auto sceneChanged = scene_ != scene;
     scene_ = scene;
-    if (renderWorld_ != nullptr) {
+    if (sceneChanged && renderWorld_ != nullptr) {
         renderWorld_->markDirty();
     }
     update();

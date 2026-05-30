@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr bool kSampledOverviewHlodEnabled = false;
+constexpr bool kSampledOverviewHlodEnabled = true;
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
@@ -328,8 +328,8 @@ void ViewportRenderWorld::rebuildOverviewRecords()
 
 bool ViewportRenderWorld::tryEmitOverviewRecord(
     const EntityRecord& record,
-    assets::AssetId selectedPrimitiveModel,
-    std::uint32_t selectedPrimitiveIndex,
+    assets::AssetId /*selectedPrimitiveModel*/,
+    std::uint32_t /*selectedPrimitiveIndex*/,
     const ViewportRenderWorldCamera& camera,
     const renderer::RenderMatrix4& viewProjection,
     bool countVisibleChunks,
@@ -373,20 +373,19 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         ? 0.0F
         : static_cast<float>(std::min<std::uint64_t>(visibleChunkInstanceReferences, record.instances.size()))
             / static_cast<float>(record.instances.size());
-    const auto selectedPrimitiveInRecord = selectedPrimitiveModel.isValid()
-        && std::any_of(record.instances.begin(), record.instances.end(), [&](const EntityRecord::Instance& instance) {
-            return instance.modelAssetId == selectedPrimitiveModel
-                && instance.primitiveInstanceIndex == selectedPrimitiveIndex;
-        });
-    const auto selectedPrimitiveBlocksOverview = selectedPrimitiveInRecord && !record.overviewOnly;
     const auto overviewCoverageEnough = record.overviewOnly
         ? visibleChunkCount > 0U
         : ((visibleChunkRatio >= 0.60F || visibleInstanceRatio >= 0.60F)
             && visibleChunkInstanceReferences >= 1024U);
-    const auto wantsOverview = !selectedPrimitiveBlocksOverview
-        && !record.overviewDraws.empty()
+    const auto wantsOverview = !record.overviewDraws.empty()
         && overviewCoverageEnough;
     if (!wantsOverview) {
+        return false;
+    }
+    const auto looksLikeBrokenTerrainProxy = record.sourceTriangleCount >= 10'000'000ULL
+        && record.overviewDraws.size() < 32U
+        && record.chunks.size() >= 64U;
+    if (looksLikeBrokenTerrainProxy) {
         return false;
     }
 

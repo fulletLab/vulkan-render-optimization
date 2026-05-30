@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <optional>
+#include <vector>
 
 namespace projectunity::editor {
 namespace {
@@ -158,6 +160,14 @@ struct PickCandidate {
     float distance {0.0F};
 };
 
+struct DeferredMeshPick {
+    scene::EntityId id;
+    const assets::ModelAsset* model {nullptr};
+    std::uint32_t primitiveInstanceIndex {0};
+    renderer::RenderMatrix4 matrix;
+    float distance {0.0F};
+};
+
 [[nodiscard]] bool betterPick(const PickCandidate& candidate, const PickCandidate& current) noexcept
 {
     if (candidate.priority != current.priority) {
@@ -189,7 +199,7 @@ struct PickCandidate {
     });
 }
 
-[[nodiscard]] bool rayIntersectsSphere(
+[[nodiscard]] std::optional<float> raySphereDistance(
     const ViewportRay& ray,
     math::Vec3 center,
     float radius) noexcept
@@ -197,7 +207,18 @@ struct PickCandidate {
     const auto oc = ray.origin - center;
     const auto b = math::dot(oc, ray.direction);
     const auto c = math::dot(oc, oc) - radius * radius;
-    return b * b - c >= 0.0F;
+    const auto discriminant = b * b - c;
+    if (discriminant < 0.0F || !std::isfinite(discriminant)) {
+        return std::nullopt;
+    }
+    const auto root = std::sqrt(discriminant);
+    const auto nearDistance = -b - root;
+    const auto farDistance = -b + root;
+    const auto distance = nearDistance >= 0.0F ? nearDistance : farDistance;
+    if (distance < 0.0F || !std::isfinite(distance)) {
+        return std::nullopt;
+    }
+    return distance;
 }
 
 [[nodiscard]] std::optional<float> rayTriangleDistance(
@@ -232,14 +253,22 @@ struct PickCandidate {
     return distance;
 }
 
-[[nodiscard]] std::optional<float> rayPrimitiveDistance(
+[[nodiscard]] std::optional<float> rayPrimitiveBoundsDistance(
     const ViewportRay& worldRay,
     const assets::MeshPrimitive& primitive,
     const renderer::RenderMatrix4& matrix)
 {
     const auto boundsCenter = transformPoint(matrix, primitive.bounds.center);
     const auto boundsRadius = primitive.bounds.radius * maxScale(matrix);
-    if (!rayIntersectsSphere(worldRay, boundsCenter, boundsRadius)) {
+    return raySphereDistance(worldRay, boundsCenter, boundsRadius);
+}
+
+[[nodiscard]] std::optional<float> rayPrimitiveDistance(
+    const ViewportRay& worldRay,
+    const assets::MeshPrimitive& primitive,
+    const renderer::RenderMatrix4& matrix)
+{
+    if (!rayPrimitiveBoundsDistance(worldRay, primitive, matrix).has_value()) {
         return std::nullopt;
     }
     const auto localRay = inverseTransformRay(matrix, worldRay);
@@ -279,6 +308,18 @@ struct PickCandidate {
     return rayPrimitiveDistance(ray, model.primitives[instance.primitiveIndex], matrix);
 }
 
+[[nodiscard]] std::optional<float> rayInstanceBoundsDistance(
+    const ViewportRay& ray,
+    const assets::ModelAsset& model,
+    const assets::MeshPrimitiveInstance& instance,
+    const renderer::RenderMatrix4& matrix)
+{
+    if (instance.primitiveIndex >= model.primitives.size()) {
+        return std::nullopt;
+    }
+    return rayPrimitiveBoundsDistance(ray, model.primitives[instance.primitiveIndex], matrix);
+}
+
 } // namespace
 
 std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
@@ -289,6 +330,31 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
 
     const auto ray = screenPointToRay(point);
     std::optional<PickCandidate> meshPick;
+    std::vector<DeferredMeshPick> deferredMeshPicks;
+    const auto tryCandidate = [&](scene::EntityId id, std::optional<float> distance) {
+        if (!distance.has_value()) {
+            return;
+        }
+        const PickCandidate candidate {id, 0.0F, *distance};
+        if (!meshPick.has_value() || betterPick(candidate, *meshPick)) {
+            meshPick = candidate;
+        }
+    };
+    const auto deferInstanceCandidate = [&](
+        scene::EntityId id,
+        const assets::ModelAsset& model,
+        std::uint32_t instanceIndex,
+        const renderer::RenderMatrix4& matrix) {
+        if (instanceIndex >= model.primitiveInstances.size()) {
+            return;
+        }
+        const auto distance = rayInstanceBoundsDistance(ray, model, model.primitiveInstances[instanceIndex], matrix);
+        if (!distance.has_value()) {
+            return;
+        }
+        deferredMeshPicks.push_back({id, &model, instanceIndex, matrix, *distance});
+    };
+
     if (assetManager_ != nullptr) {
         for (const auto& entity : scene_->entities()) {
             if (!entity.meshRenderer.has_value()) {
@@ -301,16 +367,6 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             }
 
             const auto entityMatrix = modelMatrix(entity, *worldPosition);
-            const auto tryCandidate = [&](scene::EntityId id, std::optional<float> distance) {
-                if (!distance.has_value()) {
-                    return;
-                }
-                const PickCandidate candidate {id, 0.0F, *distance};
-                if (!meshPick.has_value() || betterPick(candidate, *meshPick)) {
-                    meshPick = candidate;
-                }
-            };
-
             if (entity.meshRenderer->primitiveInstanceIndex.has_value()) {
                 const auto index = *entity.meshRenderer->primitiveInstanceIndex;
                 if (index < model->primitiveInstances.size()) {
@@ -318,7 +374,7 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
                     const auto instanceMatrix = multiply(
                         multiply(entityMatrix, translationMatrix(instance.bounds.center * -1.0F)),
                         renderMatrix(instance.transform));
-                    tryCandidate(entity.id, rayInstanceDistance(ray, *model, instance, instanceMatrix));
+                    deferInstanceCandidate(entity.id, *model, index, instanceMatrix);
                 }
                 continue;
             }
@@ -326,16 +382,31 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
                 continue;
             }
             if (!model->primitiveInstances.empty()) {
-                for (const auto& instance : model->primitiveInstances) {
-                    tryCandidate(
-                        entity.id,
-                        rayInstanceDistance(ray, *model, instance, multiply(entityMatrix, renderMatrix(instance.transform))));
+                for (std::uint32_t index = 0; index < model->primitiveInstances.size(); ++index) {
+                    const auto& instance = model->primitiveInstances[index];
+                    deferInstanceCandidate(entity.id, *model, index, multiply(entityMatrix, renderMatrix(instance.transform)));
                 }
             } else {
                 for (const auto& primitive : model->primitives) {
                     tryCandidate(entity.id, rayPrimitiveDistance(ray, primitive, entityMatrix));
                 }
             }
+        }
+    }
+    if (!deferredMeshPicks.empty()) {
+        constexpr std::size_t kMaxExactPrimitivePickTests = 48U;
+        std::sort(deferredMeshPicks.begin(), deferredMeshPicks.end(), [](const DeferredMeshPick& lhs, const DeferredMeshPick& rhs) {
+            return lhs.distance < rhs.distance;
+        });
+        const auto exactCount = std::min(kMaxExactPrimitivePickTests, deferredMeshPicks.size());
+        for (std::size_t index = 0; index < exactCount; ++index) {
+            const auto& pick = deferredMeshPicks[index];
+            if (pick.model == nullptr || pick.primitiveInstanceIndex >= pick.model->primitiveInstances.size()) {
+                continue;
+            }
+            tryCandidate(
+                pick.id,
+                rayInstanceDistance(ray, *pick.model, pick.model->primitiveInstances[pick.primitiveInstanceIndex], pick.matrix));
         }
     }
     if (meshPick.has_value()) {
