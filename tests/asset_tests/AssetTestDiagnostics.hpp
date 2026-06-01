@@ -37,6 +37,7 @@ inline void printNodePerformanceMetrics(
     std::cout << "NodePerformanceTest imported:"
               << " primitives=" << model.primitives.size()
               << " instances=" << model.primitiveInstances.size()
+              << " editorInstances=" << model.editorInstances.size()
               << " clusters=" << model.primitiveClusters.size()
               << " materials=" << model.materials.size()
               << " textures=" << model.textures.size()
@@ -57,6 +58,8 @@ inline void printNodePerformanceMetrics(
         || model == nullptr
         || model->primitives.empty()
         || model->primitiveInstances.empty()
+        || model->editorInstances.empty()
+        || model->editorInstances.size() <= model->primitiveInstances.size()
         || model->primitiveInstances.size() <= materialBatchFloor
         || model->primitiveClusters.empty()
         || model->primitiveClusters.size() >= model->primitiveInstances.size()
@@ -65,6 +68,7 @@ inline void printNodePerformanceMetrics(
         if (model != nullptr) {
             std::cerr << "primitives=" << model->primitives.size()
                       << " instances=" << model->primitiveInstances.size()
+                      << " editorInstances=" << model->editorInstances.size()
                       << " clusters=" << model->primitiveClusters.size()
                       << " materials=" << model->materials.size()
                       << " textures=" << model->textures.size()

@@ -188,7 +188,8 @@ struct DeferredMeshPick {
 {
     return entity.meshRenderer.has_value()
         && !entity.meshRenderer->renderable
-        && entity.meshRenderer->primitiveInstanceIndex.has_value();
+        && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+            || entity.meshRenderer->editorInstanceIndex.has_value());
 }
 
 [[nodiscard]] bool hasPrimitiveProxyChildren(const scene::Scene& scene, const scene::Entity& entity)
@@ -320,6 +321,16 @@ struct DeferredMeshPick {
     return rayPrimitiveBoundsDistance(ray, model.primitives[instance.primitiveIndex], matrix);
 }
 
+[[nodiscard]] std::optional<float> rayEditorInstanceBoundsDistance(
+    const ViewportRay& ray,
+    const assets::MeshEditorInstance& instance,
+    const renderer::RenderMatrix4& matrix)
+{
+    const auto boundsCenter = transformPoint(matrix, {0.0F, 0.0F, 0.0F});
+    const auto boundsRadius = std::clamp(instance.bounds.radius * maxScale(matrix), 0.35F, 1000.0F);
+    return raySphereDistance(ray, boundsCenter, boundsRadius);
+}
+
 } // namespace
 
 std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
@@ -367,6 +378,15 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             }
 
             const auto entityMatrix = modelMatrix(entity, *worldPosition);
+            if (entity.meshRenderer->editorInstanceIndex.has_value()) {
+                const auto index = *entity.meshRenderer->editorInstanceIndex;
+                if (index < model->editorInstances.size()) {
+                    tryCandidate(
+                        entity.id,
+                        rayEditorInstanceBoundsDistance(ray, model->editorInstances[index], entityMatrix));
+                }
+                continue;
+            }
             if (entity.meshRenderer->primitiveInstanceIndex.has_value()) {
                 const auto index = *entity.meshRenderer->primitiveInstanceIndex;
                 if (index < model->primitiveInstances.size()) {
@@ -503,11 +523,20 @@ float ViewportWidget::entityPickRadius(const scene::Entity& entity) const
     });
     if (assetManager_ != nullptr
         && entity.meshRenderer.has_value()
-        && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+        && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+            || entity.meshRenderer->editorInstanceIndex.has_value())) {
         const auto model = assetManager_->model(entity.meshRenderer->modelAssetId);
-        const auto index = *entity.meshRenderer->primitiveInstanceIndex;
-        if (model != nullptr && index < model->primitiveInstances.size()) {
-            return std::clamp(model->primitiveInstances[index].bounds.radius * maxScale, 0.35F, 80.0F);
+        if (model != nullptr && entity.meshRenderer->editorInstanceIndex.has_value()) {
+            const auto index = *entity.meshRenderer->editorInstanceIndex;
+            if (index < model->editorInstances.size()) {
+                return std::clamp(model->editorInstances[index].bounds.radius * maxScale, 0.35F, 80.0F);
+            }
+        }
+        if (model != nullptr && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+            const auto index = *entity.meshRenderer->primitiveInstanceIndex;
+            if (index < model->primitiveInstances.size()) {
+                return std::clamp(model->primitiveInstances[index].bounds.radius * maxScale, 0.35F, 80.0F);
+            }
         }
     }
     if (assetManager_ != nullptr

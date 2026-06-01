@@ -190,7 +190,8 @@ void appendHierarchyLinks(
         if (skipPrimitivePartLinks
             && entity.id != selectedEntityId
             && entity.meshRenderer.has_value()
-            && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+            && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                || entity.meshRenderer->editorInstanceIndex.has_value())) {
             continue;
         }
         const auto childPosition = worldPositionFor(entity.id);

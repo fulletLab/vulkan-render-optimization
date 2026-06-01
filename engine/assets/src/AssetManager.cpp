@@ -1,6 +1,7 @@
 #include <projectunity/assets/AssetManager.hpp>
 #include "AssetImportUtils.hpp"
 #include "GltfAttributeReader.hpp"
+#include "GltfEditorInstances.hpp"
 #include "GltfImageLoader.hpp"
 #include "GltfNodeTransforms.hpp"
 #include "GltfSceneObjects.hpp"
@@ -244,6 +245,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     detail::updateMeshBounds(primitive);
     return primitive.bounds;
 }
+
 [[nodiscard]] TextureWrapMode textureWrapMode(int value)
 {
     if (value == TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT) {
@@ -498,6 +500,10 @@ void optimizePrimitive(MeshPrimitive& primitive)
             instance.bounds = transformBounds(model.primitives[outputIndex].bounds, instanceTransform);
             instance.flipsWinding = detail::determinantGltfLinear(instanceTransform) < 0.0;
             model.primitiveInstances.push_back(instance);
+            detail::appendMeshEditorInstance(
+                model,
+                instance,
+                detail::gltfEditorInstanceName(node.name, mesh.name, primitiveIndex, mesh.primitives.size()));
         }
     }
     for (const auto child : node.children) {
@@ -677,6 +683,10 @@ void optimizePrimitive(MeshPrimitive& primitive)
                 instance.primitiveIndex = outputIndex;
                 instance.bounds = model->primitives[outputIndex].bounds;
                 model->primitiveInstances.push_back(instance);
+                detail::appendMeshEditorInstance(
+                    *model,
+                    instance,
+                    detail::gltfEditorInstanceName({}, mesh.name, primitiveIndex, mesh.primitives.size()));
             }
         }
     }

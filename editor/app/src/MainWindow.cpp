@@ -663,8 +663,17 @@ void MainWindow::applyInspectorToSelection()
         return;
     }
 
+    bool hierarchyChanged = false;
     if (entityNameEdit_ != nullptr) {
-        (void)scene_.setName(selectedEntityId_, entityNameEdit_->text().toStdString());
+        const auto nextName = entityNameEdit_->text().toStdString();
+        if (nextName != entity->name && scene_.setName(selectedEntityId_, nextName)) {
+            hierarchyChanged = true;
+            entity = scene_.findEntity(selectedEntityId_);
+            if (entity == nullptr) {
+                rebuildHierarchy();
+                return;
+            }
+        }
     }
 
     scene::TransformComponent transform;
@@ -683,9 +692,15 @@ void MainWindow::applyInspectorToSelection()
         static_cast<float>(scaleY_->value()),
         static_cast<float>(scaleZ_->value()),
     };
-    (void)scene_.setTransform(selectedEntityId_, transform);
-    rebuildHierarchy();
-    selectEntity(selectedEntityId_);
+    if (!math::nearlyEqual(entity->transform.position, transform.position)
+        || !math::nearlyEqual(entity->transform.rotationEuler, transform.rotationEuler)
+        || !math::nearlyEqual(entity->transform.scale, transform.scale)) {
+        (void)scene_.setTransform(selectedEntityId_, transform);
+    }
+    if (hierarchyChanged) {
+        rebuildHierarchy();
+    }
+    refreshViewports();
 }
 
 void MainWindow::applyLightingSettings()

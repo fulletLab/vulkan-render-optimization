@@ -415,7 +415,8 @@ bool ViewportWidget::renderRendererFrame()
         if (scene_ != nullptr) {
             const auto primitiveProxyCount = std::count_if(scene_->entities().begin(), scene_->entities().end(), [](const scene::Entity& entity) {
                 return entity.meshRenderer.has_value()
-                    && entity.meshRenderer->primitiveInstanceIndex.has_value()
+                    && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                        || entity.meshRenderer->editorInstanceIndex.has_value())
                     && !entity.meshRenderer->renderable;
             });
             const auto denseImportedHierarchy = primitiveProxyCount > 24U || scene_->entityCount() > 96U;
@@ -444,17 +445,25 @@ bool ViewportWidget::renderRendererFrame()
                 if (labelsSubmitted >= 128U) {
                     break;
                 }
-                const auto position = entityWorldPosition(entity.id);
-                if (!position.has_value()) {
-                    continue;
-                }
                 const auto isPrimitiveProxy = entity.meshRenderer.has_value()
-                    && entity.meshRenderer->primitiveInstanceIndex.has_value()
+                    && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                        || entity.meshRenderer->editorInstanceIndex.has_value())
                     && !entity.meshRenderer->renderable;
                 const auto selected = entity.id == selectedEntityId_;
                 const auto showMarker = !entity.meshRenderer.has_value()
                     || selected
                     || (isPrimitiveProxy && !denseImportedHierarchy);
+                const auto showLabel = selected
+                    || entity.camera.has_value()
+                    || entity.light.has_value()
+                    || (!denseImportedHierarchy && !isPrimitiveProxy);
+                if (!showMarker && !showLabel) {
+                    continue;
+                }
+                const auto position = entityWorldPosition(entity.id);
+                if (!position.has_value()) {
+                    continue;
+                }
                 if (showMarker) {
                     detail::appendEntityMarker(
                         rendererGizmoVertices_,
@@ -467,10 +476,6 @@ bool ViewportWidget::renderRendererFrame()
                         up,
                         camera_.distance);
                 }
-                const auto showLabel = selected
-                    || entity.camera.has_value()
-                    || entity.light.has_value()
-                    || (!denseImportedHierarchy && !isPrimitiveProxy);
                 if (!showLabel) {
                     continue;
                 }

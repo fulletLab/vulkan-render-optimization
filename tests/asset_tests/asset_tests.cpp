@@ -509,6 +509,7 @@ int main()
     if (model == nullptr
         || model->primitives.size() != 1
         || model->primitiveInstances.size() != 1
+        || model->editorInstances.size() != 1
         || model->primitives.front().vertices.size() != 3) {
         return fail("imported GLB model data is incomplete");
     }
@@ -664,7 +665,8 @@ int main()
     if (!spatialResult.success
         || spatial == nullptr
         || spatial->primitives.size() != 1
-        || spatial->primitiveInstances.size() != 7) {
+        || spatial->primitiveInstances.size() != 7
+        || spatial->editorInstances.size() != 7) {
         return fail("spatial glTF fixture import failed");
     }
     const auto& left = spatial->primitiveInstances[0].bounds.center;
@@ -716,6 +718,7 @@ int main()
     }
     if (!largeGridResult.success
         || largeGrid == nullptr
+        || largeGrid->editorInstances.size() != 1
         || largeGrid->primitives.size() <= 1U
         || largeGrid->primitiveInstances.size() <= 1U
         || largeGridIndexCount != largeGridExpectedIndexCount

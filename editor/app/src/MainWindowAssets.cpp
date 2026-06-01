@@ -228,16 +228,20 @@ void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
         if (scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
             attachedMeshRenderer = true;
         }
-        if (model->primitiveInstances.size() > 1U) {
-            for (std::size_t index = 0; index < model->primitiveInstances.size(); ++index) {
-                const auto& instance = model->primitiveInstances[index];
+        if (model->editorInstances.size() > 1U) {
+            for (std::size_t index = 0; index < model->editorInstances.size(); ++index) {
+                const auto& instance = model->editorInstances[index];
+                const auto partName = instance.name.empty()
+                    ? record.displayName + " Part " + std::to_string(index + 1U)
+                    : instance.name;
                 auto& part = scene_.createEntity(
-                    record.displayName + " Part " + std::to_string(index + 1U),
+                    partName,
                     importedId);
                 scene::TransformComponent transform;
                 transform.position = instance.bounds.center;
                 (void)scene_.setTransform(part.id, transform);
-                scene::MeshRendererComponent partRenderer {record.id, static_cast<std::uint32_t>(index)};
+                scene::MeshRendererComponent partRenderer {record.id};
+                partRenderer.editorInstanceIndex = static_cast<std::uint32_t>(index);
                 partRenderer.renderable = false;
                 if (!scene_.setMeshRenderer(part.id, partRenderer)) {
                     core::logError(core::LogCategory::Assets, "Editor failed to attach imported model part to a scene entity");

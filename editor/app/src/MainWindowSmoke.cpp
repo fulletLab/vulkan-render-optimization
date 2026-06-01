@@ -245,7 +245,8 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
                 const auto* child = scene_.findEntity(childId);
                 return child != nullptr
                     && child->meshRenderer.has_value()
-                    && child->meshRenderer->primitiveInstanceIndex.has_value()
+                    && (child->meshRenderer->primitiveInstanceIndex.has_value()
+                        || child->meshRenderer->editorInstanceIndex.has_value())
                     && !child->meshRenderer->renderable;
             });
         if (!splitImport.success

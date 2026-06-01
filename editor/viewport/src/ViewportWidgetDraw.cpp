@@ -298,7 +298,8 @@ void ViewportWidget::drawEntities(QPainter& painter) const
     const auto skipDenseMeshOverlay = scene_->entityCount() > kDenseSceneEntityOverlayThreshold;
     for (const auto& entity : scene_->entities()) {
         const auto isPrimitiveProxy = entity.meshRenderer.has_value()
-            && entity.meshRenderer->primitiveInstanceIndex.has_value()
+            && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                || entity.meshRenderer->editorInstanceIndex.has_value())
             && !entity.meshRenderer->renderable;
         if ((skipDenseMeshOverlay || isPrimitiveProxy) && entity.id != selectedEntityId_ && entity.meshRenderer.has_value()) {
             continue;
@@ -325,7 +326,8 @@ void ViewportWidget::drawEntity(QPainter& painter, const scene::Entity& entity) 
         const auto center = projectPoint(*position);
         if (center.visible) {
             const auto isPrimitiveProxy = entity.meshRenderer.has_value()
-                && entity.meshRenderer->primitiveInstanceIndex.has_value()
+                && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                    || entity.meshRenderer->editorInstanceIndex.has_value())
                 && !entity.meshRenderer->renderable;
             const auto showLabel = entity.id == selectedEntityId_ || !isPrimitiveProxy || entity.camera.has_value() || entity.light.has_value();
             painter.setBrush(entity.id == selectedEntityId_ ? QColor(255, 213, 95) : QColor(190, 205, 230));
@@ -369,7 +371,8 @@ void ViewportWidget::drawEntity(QPainter& painter, const scene::Entity& entity) 
     const auto center = projectPoint(*position);
     if (center.visible) {
         const auto isPrimitiveProxy = entity.meshRenderer.has_value()
-            && entity.meshRenderer->primitiveInstanceIndex.has_value()
+            && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                || entity.meshRenderer->editorInstanceIndex.has_value())
             && !entity.meshRenderer->renderable;
         const auto showLabel = isSelected || !isPrimitiveProxy || entity.camera.has_value() || entity.light.has_value();
         painter.setBrush(isSelected ? QColor(255, 213, 95) : QColor(190, 205, 230));

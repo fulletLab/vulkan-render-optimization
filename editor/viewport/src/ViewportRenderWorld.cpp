@@ -199,6 +199,7 @@ struct PrimitiveProxyKey {
     if (entity.meshRenderer.has_value()) {
         hash = mixHash(hash, entity.meshRenderer->modelAssetId.value());
         hash = mixHash(hash, entity.meshRenderer->primitiveInstanceIndex.value_or(UINT32_MAX));
+        hash = mixHash(hash, entity.meshRenderer->editorInstanceIndex.value_or(UINT32_MAX));
         hash = mixHash(hash, entity.meshRenderer->renderable ? 1U : 0U);
     }
     hash = mixHash(hash, reinterpret_cast<std::uintptr_t>(model));
@@ -440,8 +441,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     visited.reserve(scene->entityCount());
     orderedRecords_.clear();
     for (const auto& entity : scene->entities()) {
-        const auto worldPosition = entityWorldPosition(*scene, entity.id);
-        if (entity.light.has_value() && worldPosition.has_value()) {
+        if (entity.light.has_value()) {
+            const auto worldPosition = entityWorldPosition(*scene, entity.id);
+            if (!worldPosition.has_value()) {
+                continue;
+            }
             const auto& source = *entity.light;
             const auto direction = safeNormalized(
                 rotateEuler(source.direction, entity.transform.rotationEuler),
@@ -459,7 +463,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 lights.push_back(light);
             }
         }
-        if (!entity.meshRenderer.has_value() || !entity.meshRenderer->renderable || !worldPosition.has_value()) {
+        if (!entity.meshRenderer.has_value() || !entity.meshRenderer->renderable) {
+            continue;
+        }
+        const auto worldPosition = entityWorldPosition(*scene, entity.id);
+        if (!worldPosition.has_value()) {
             continue;
         }
         const auto model = assetManager->model(entity.meshRenderer->modelAssetId);

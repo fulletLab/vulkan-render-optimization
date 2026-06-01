@@ -33,6 +33,7 @@ int main()
         return fail("failed to set transform");
     }
     MeshRendererComponent renderer {projectunity::core::StableId(77), 3U};
+    renderer.editorInstanceIndex = 4U;
     renderer.renderable = false;
     if (!scene.setMeshRenderer(childId, renderer)) {
         return fail("failed to set mesh renderer");
@@ -100,6 +101,7 @@ int main()
     if (!loadedChild->meshRenderer.has_value()
         || loadedChild->meshRenderer->modelAssetId.value() != 77
         || loadedChild->meshRenderer->primitiveInstanceIndex.value_or(0U) != 3U
+        || loadedChild->meshRenderer->editorInstanceIndex.value_or(0U) != 4U
         || loadedChild->meshRenderer->renderable) {
         return fail("loaded mesh renderer mismatch");
     }

@@ -159,6 +159,19 @@ struct MeshPrimitiveInstance {
     bool flipsWinding {false};
 };
 
+struct MeshEditorInstance {
+    std::string name {"Part"};
+    std::uint32_t sourcePrimitiveIndex {0};
+    std::array<float, 16> transform {
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F,
+    };
+    MeshBounds bounds;
+    bool flipsWinding {false};
+};
+
 struct MeshPrimitiveCluster {
     std::vector<std::uint32_t> primitiveInstanceIndices;
     MeshBounds bounds;
@@ -226,6 +239,7 @@ struct ModelAsset {
     std::string name;
     std::vector<MeshPrimitive> primitives;
     std::vector<MeshPrimitiveInstance> primitiveInstances;
+    std::vector<MeshEditorInstance> editorInstances;
     std::vector<MeshPrimitiveCluster> primitiveClusters;
     std::vector<MaterialAsset> materials;
     std::vector<TextureAsset> textures;

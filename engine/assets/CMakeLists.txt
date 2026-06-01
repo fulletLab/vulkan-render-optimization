@@ -24,6 +24,8 @@ add_library(projectunity_assets STATIC
     src/AssetManager.cpp
     src/GltfAttributeReader.cpp
     src/GltfAttributeReader.hpp
+    src/GltfEditorInstances.cpp
+    src/GltfEditorInstances.hpp
     src/GltfImageLoader.cpp
     src/GltfImageLoader.hpp
     src/GltfNodeTransforms.cpp

@@ -157,6 +157,9 @@ std::string Scene::serialize(std::string* errorMessage) const
                 if (entity.meshRenderer->primitiveInstanceIndex.has_value()) {
                     item["meshRenderer"]["primitiveInstanceIndex"] = *entity.meshRenderer->primitiveInstanceIndex;
                 }
+                if (entity.meshRenderer->editorInstanceIndex.has_value()) {
+                    item["meshRenderer"]["editorInstanceIndex"] = *entity.meshRenderer->editorInstanceIndex;
+                }
             }
             if (entity.light.has_value()) {
                 item["light"] = {
@@ -271,6 +274,9 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                 }
                 if (meshRendererJson.contains("primitiveInstanceIndex")) {
                     meshRenderer.primitiveInstanceIndex = meshRendererJson.at("primitiveInstanceIndex").get<std::uint32_t>();
+                }
+                if (meshRendererJson.contains("editorInstanceIndex")) {
+                    meshRenderer.editorInstanceIndex = meshRendererJson.at("editorInstanceIndex").get<std::uint32_t>();
                 }
                 meshRenderer.renderable = meshRendererJson.value("renderable", true);
                 entity.meshRenderer = meshRenderer;

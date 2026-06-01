@@ -24,6 +24,7 @@ struct TransformComponent {
 struct MeshRendererComponent {
     core::StableId modelAssetId;
     std::optional<std::uint32_t> primitiveInstanceIndex;
+    std::optional<std::uint32_t> editorInstanceIndex;
     bool renderable {true};
 };
 
