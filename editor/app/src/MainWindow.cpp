@@ -121,6 +121,9 @@ void setTableValue(QTableWidget* table, int row, const QString& value)
         item = new QTableWidgetItem;
         table->setItem(row, 1, item);
     }
+    if (item->text() == value) {
+        return;
+    }
     item->setText(value);
 }
 
@@ -173,9 +176,11 @@ MainWindow::MainWindow(QWidget* parent)
     logFlushTimer_ = new QTimer(this);
     connect(logFlushTimer_, &QTimer::timeout, this, [this]() {
         appendPendingLogs();
-        updateProfilerPanel();
+        if (profilerTable_ != nullptr && profilerTable_->isVisible()) {
+            updateProfilerPanel();
+        }
     });
-    logFlushTimer_->start(100);
+    logFlushTimer_->start(250);
 
     statusBar()->showMessage(QStringLiteral("Ready"));
     core::logInfo(core::LogCategory::Editor, "Main editor window initialized");
@@ -301,6 +306,7 @@ void MainWindow::updateProfilerPanel()
         stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameColorGpuTimeUs))
             : QStringLiteral("-"));
+    setTableValue(profilerTable_, 50, QString::number(static_cast<qulonglong>(stats.viewportSurfacePrepareCount)));
 }
 
 MainWindow::~MainWindow()

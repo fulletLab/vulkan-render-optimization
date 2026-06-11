@@ -33,6 +33,7 @@ struct RendererStats {
     bool debugMarkersAvailable {false};
     bool vmaAllocatorReady {false};
     std::uint64_t viewportFramesPresented {0};
+    std::uint64_t viewportSurfacePrepareCount {0};
     std::uint64_t lastFrameCandidateMeshDrawCount {0};
     std::uint64_t lastFrameCulledMeshDrawCount {0};
     std::uint64_t lastFrameMeshDrawCount {0};

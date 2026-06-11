@@ -165,6 +165,9 @@ struct ViewportCameraFrame {
 } // namespace
 bool ViewportWidget::ensureRendererSurface()
 {
+    if (rendererSurfaceResizePending_) {
+        return false;
+    }
     if (renderer_ == nullptr || !renderer_->isReady() || width() <= 0 || height() <= 0) {
         return false;
     }

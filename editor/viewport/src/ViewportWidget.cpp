@@ -5,10 +5,12 @@
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 
+#include <QApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -61,6 +63,20 @@ ViewportWidget::ViewportWidget(ViewportMode mode, QWidget* parent)
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAttribute(Qt::WA_NoSystemBackground, true);
     setMinimumSize(320, 220);
+
+    rendererSurfaceResizeTimer_ = new QTimer(this);
+    rendererSurfaceResizeTimer_->setSingleShot(true);
+    rendererSurfaceResizeTimer_->setInterval(300);
+    connect(rendererSurfaceResizeTimer_, &QTimer::timeout, this, [this]() {
+        if (QApplication::mouseButtons().testFlag(Qt::LeftButton)) {
+            rendererSurfaceResizeTimer_->start();
+            return;
+        }
+        rendererSurfaceResizePending_ = false;
+        rendererSurfaceAttempted_ = false;
+        rendererSurfaceReady_ = false;
+        update();
+    });
 }
 
 ViewportWidget::~ViewportWidget()
@@ -90,6 +106,10 @@ void ViewportWidget::setRenderer(renderer::IRenderer* renderer)
     rendererSurfaceHeight_ = 0;
     rendererSurfaceAttempted_ = false;
     rendererSurfaceReady_ = false;
+    rendererSurfaceResizePending_ = false;
+    if (rendererSurfaceResizeTimer_ != nullptr) {
+        rendererSurfaceResizeTimer_->stop();
+    }
     update();
 }
 
@@ -217,6 +237,12 @@ void ViewportWidget::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
 
+    if (rendererSurfaceResizePending_) {
+        QPainter painter(this);
+        drawBackground(painter);
+        return;
+    }
+
     const bool rendererFrameRendered = renderRendererFrame();
     if (rendererFrameRendered) {
         return;
@@ -225,6 +251,10 @@ void ViewportWidget::paintEvent(QPaintEvent* event)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, false);
     drawBackground(painter);
+    // Transient Vulkan failures must not send imported meshes through the CPU fallback.
+    if (renderer_ != nullptr && renderer_->isReady()) {
+        return;
+    }
     drawDebugGeometry(painter);
     drawAxes(painter);
     drawHierarchyLinks(painter);
@@ -359,8 +389,18 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent* event)
 
 void ViewportWidget::resizeEvent(QResizeEvent* event)
 {
-    rendererSurfaceAttempted_ = false;
-    rendererSurfaceReady_ = false;
+    const bool hasExistingSurface = rendererSurfaceHandle_ != nullptr && rendererSurfaceAttempted_;
+    if (hasExistingSurface) {
+        rendererSurfaceResizePending_ = true;
+        rendererSurfaceReady_ = false;
+        if (rendererSurfaceResizeTimer_ != nullptr) {
+            rendererSurfaceResizeTimer_->start();
+        }
+    } else {
+        rendererSurfaceResizePending_ = false;
+        rendererSurfaceAttempted_ = false;
+        rendererSurfaceReady_ = false;
+    }
     QWidget::resizeEvent(event);
 }
 
@@ -700,9 +740,6 @@ bool ViewportWidget::applySelectedGizmoTransform(const EditorGizmoTransform& tra
         return false;
     }
 
-    if (renderWorld_ != nullptr) {
-        renderWorld_->markDirty();
-    }
     if (transformEditedCallback_) {
         transformEditedCallback_(selectedEntityId_);
     }

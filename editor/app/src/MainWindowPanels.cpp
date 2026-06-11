@@ -468,7 +468,7 @@ QWidget* MainWindow::createProfilerPanel()
     header->setObjectName(QStringLiteral("PanelHeader"));
     layout->addWidget(header);
 
-    profilerTable_ = new QTableWidget(50, 2);
+    profilerTable_ = new QTableWidget(51, 2);
     profilerTable_->setHorizontalHeaderLabels({QStringLiteral("Metric"), QStringLiteral("Value")});
     profilerTable_->horizontalHeader()->setStretchLastSection(true);
     profilerTable_->verticalHeader()->setVisible(false);
@@ -525,6 +525,7 @@ QWidget* MainWindow::createProfilerPanel()
         QStringLiteral("GPU shadow time"),
         QStringLiteral("GPU mesh time"),
         QStringLiteral("GPU color time"),
+        QStringLiteral("Viewport surface prepares"),
     };
     for (int row = 0; row < rows.size(); ++row) {
         profilerTable_->setItem(row, 0, new QTableWidgetItem(rows.at(row)));

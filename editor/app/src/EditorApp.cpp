@@ -3,24 +3,60 @@
 #include <projectunity/core/Log.hpp>
 #include <projectunity/editor/MainWindow.hpp>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
+
 #include <QApplication>
 #include <QColor>
 #include <QFile>
 #include <QPalette>
 #include <QString>
 #include <QStringList>
-#include <QStyleFactory>
 
 #include <iostream>
 
 namespace projectunity::editor {
+namespace {
+
+void applyDarkWindowFrame(MainWindow& window)
+{
+#ifdef _WIN32
+    using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    constexpr DWORD useImmersiveDarkMode = 20;
+    constexpr DWORD useImmersiveDarkModeBefore20H1 = 19;
+
+    const auto module = LoadLibraryW(L"dwmapi.dll");
+    if (module == nullptr) {
+        return;
+    }
+
+    const auto setWindowAttribute = reinterpret_cast<DwmSetWindowAttributeFn>(
+        GetProcAddress(module, "DwmSetWindowAttribute"));
+    if (setWindowAttribute != nullptr) {
+        const BOOL enabled = TRUE;
+        auto* handle = reinterpret_cast<HWND>(window.winId());
+        if (setWindowAttribute(handle, useImmersiveDarkMode, &enabled, sizeof(enabled)) != S_OK) {
+            (void)setWindowAttribute(handle, useImmersiveDarkModeBefore20H1, &enabled, sizeof(enabled));
+        }
+    }
+
+    FreeLibrary(module);
+#else
+    (void)window;
+#endif
+}
+
+} // namespace
 
 int runEditor(int argc, char** argv)
 {
     QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 
     QApplication app(argc, argv);
-    app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     QApplication::setApplicationName("ProjectUnity Editor");
     QApplication::setOrganizationName("ProjectUnity");
     QApplication::setOrganizationDomain("projectunity.local");
@@ -57,6 +93,7 @@ int runEditor(int argc, char** argv)
 
     if (QCoreApplication::arguments().contains(QStringLiteral("--smoke-test"))) {
         mainWindow.show();
+        applyDarkWindowFrame(mainWindow);
         QApplication::processEvents();
 
         QString errorMessage;
@@ -76,6 +113,7 @@ int runEditor(int argc, char** argv)
 
     if (QCoreApplication::arguments().contains(QStringLiteral("--phase6-visual-smoke"))) {
         mainWindow.show();
+        applyDarkWindowFrame(mainWindow);
         QApplication::processEvents();
 
         QString errorMessage;
@@ -94,6 +132,7 @@ int runEditor(int argc, char** argv)
     }
 
     mainWindow.show();
+    applyDarkWindowFrame(mainWindow);
 
     core::logInfo(core::LogCategory::Editor, "Editor application started");
     return QApplication::exec();

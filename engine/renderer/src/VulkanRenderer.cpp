@@ -192,6 +192,7 @@ struct VulkanRenderer::Impl {
                 surfaces.erase(existing);
             }
             surfaces.emplace(surfaceDesc.nativeWindowHandle, std::make_unique<VulkanViewportTarget>(viewportContext(), surfaceDesc));
+            ++stats.viewportSurfacePrepareCount;
             core::logInfo(core::LogCategory::Renderer, "Prepared Vulkan viewport surface and swapchain");
             return true;
         } catch (const std::exception& error) {

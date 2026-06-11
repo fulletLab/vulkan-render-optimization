@@ -21,6 +21,7 @@ class QKeyEvent;
 class QMouseEvent;
 class QPainter;
 class QResizeEvent;
+class QTimer;
 class QWheelEvent;
 
 namespace projectunity::renderer {
@@ -167,6 +168,8 @@ private:
     int rendererSurfaceHeight_ {0};
     bool rendererSurfaceAttempted_ {false};
     bool rendererSurfaceReady_ {false};
+    bool rendererSurfaceResizePending_ {false};
+    QTimer* rendererSurfaceResizeTimer_ {nullptr};
     bool gpuMeshFrameRendered_ {false};
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
     std::vector<renderer::RenderLight> rendererLights_;
