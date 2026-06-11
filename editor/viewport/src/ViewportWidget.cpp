@@ -107,6 +107,7 @@ void ViewportWidget::setRenderer(renderer::IRenderer* renderer)
     rendererSurfaceAttempted_ = false;
     rendererSurfaceReady_ = false;
     rendererSurfaceResizePending_ = false;
+    lastRendererStats_.reset();
     if (rendererSurfaceResizeTimer_ != nullptr) {
         rendererSurfaceResizeTimer_->stop();
     }
@@ -143,6 +144,11 @@ void ViewportWidget::setSelectedEntity(scene::EntityId id)
 void ViewportWidget::setSelectionCallback(std::function<void(scene::EntityId)> callback)
 {
     selectionCallback_ = std::move(callback);
+}
+
+const renderer::RendererStats* ViewportWidget::lastRendererStats() const noexcept
+{
+    return lastRendererStats_.has_value() ? &*lastRendererStats_ : nullptr;
 }
 
 void ViewportWidget::setTransformEditedCallback(std::function<void(scene::EntityId)> callback)

@@ -401,9 +401,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     generateTangents(output);
     optimizePrimitive(output);
     detail::updateMeshBounds(output);
-    output.materialIndex = source.material >= 0 && static_cast<std::size_t>(source.material) < materialCount
-        ? static_cast<std::size_t>(source.material)
-        : 0U;
+    output.materialIndex = source.material >= 0 && static_cast<std::size_t>(source.material) < materialCount ? static_cast<std::size_t>(source.material) : 0U;
     return true;
 }
 [[nodiscard]] bool ensureImportedPrimitive(
@@ -697,6 +695,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     reportProgress(progress, 82, "Batching and optimizing meshes");
     detail::batchModelPrimitives(*model);
     detail::splitLargePrimitivesIntoSpatialChunks(*model);
+    detail::rebuildMissingSimplificationLods(*model);
     detail::buildPrimitiveClusters(*model);
     AssetRecord record;
     record.id = model->id;

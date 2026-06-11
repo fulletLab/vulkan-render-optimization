@@ -75,6 +75,7 @@ public:
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
     [[nodiscard]] std::optional<scene::EntityId> pickEntityAt(QPointF point) const;
     [[nodiscard]] bool runSelfTest(QString* errorMessage);
+    [[nodiscard]] const renderer::RendererStats* lastRendererStats() const noexcept;
     void setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians);
 
 protected:
@@ -171,6 +172,7 @@ private:
     bool rendererSurfaceResizePending_ {false};
     QTimer* rendererSurfaceResizeTimer_ {nullptr};
     bool gpuMeshFrameRendered_ {false};
+    std::optional<renderer::RendererStats> lastRendererStats_;
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
     std::vector<renderer::RenderLight> rendererLights_;
     std::vector<renderer::RenderColorVertex> rendererGizmoVertices_;

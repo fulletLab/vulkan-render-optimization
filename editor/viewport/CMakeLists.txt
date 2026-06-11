@@ -24,6 +24,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportMeshLod.hpp
     src/ViewportRenderWorld.cpp
     src/ViewportRenderWorld.hpp
+    src/ViewportRenderWorldBudget.cpp
+    src/ViewportRenderWorldBudget.hpp
     src/ViewportRenderWorldDiagnostics.cpp
     src/ViewportRenderWorldDiagnostics.hpp
     src/ViewportRenderWorldOverview.cpp

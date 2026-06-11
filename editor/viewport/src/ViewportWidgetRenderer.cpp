@@ -550,6 +550,7 @@ bool ViewportWidget::renderRendererFrame()
     }
     std::string error;
     if (renderer_->renderSurfaceFrame(desc, frame, &error)) {
+        lastRendererStats_ = renderer_->stats();
         gpuMeshFrameRendered_ = !rendererMeshDraws_.empty();
         return true;
     }

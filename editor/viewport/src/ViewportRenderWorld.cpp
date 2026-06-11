@@ -2,6 +2,7 @@
 
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldBudget.hpp"
 #include "ViewportRenderWorldProxy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 #include "ViewportRenderWorldSelection.hpp"
@@ -772,6 +773,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         result.stats,
         visibleBounds,
         visibleSourceTriangleCount);
+
+    applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, result.stats);
 
     logRenderWorldChunkDiagnostics(result.stats, chunkDebugRows, lastDebugSignature_);
 

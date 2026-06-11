@@ -127,6 +127,20 @@ void setTableValue(QTableWidget* table, int row, const QString& value)
     item->setText(value);
 }
 
+[[nodiscard]] QString formatSkippedValue(std::uint64_t skipped, std::uint64_t candidates)
+{
+    const auto percent = candidates == 0U ? 0.0 : (static_cast<double>(skipped) * 100.0) / static_cast<double>(candidates);
+    return QStringLiteral("%1 / %2 (%3%)")
+        .arg(static_cast<qulonglong>(skipped))
+        .arg(static_cast<qulonglong>(candidates))
+        .arg(percent, 0, 'f', 1);
+}
+
+void setRatioValue(QTableWidget* table, int row, std::uint64_t visible, std::uint64_t total)
+{
+    setTableValue(table, row, QStringLiteral("%1 / %2").arg(static_cast<qulonglong>(visible)).arg(static_cast<qulonglong>(total)));
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -199,8 +213,18 @@ void MainWindow::updateProfilerPanel()
         return;
     }
 
-    const auto& stats = renderer_->stats();
-    setTableValue(profilerTable_, 0, QString::fromStdString(stats.gpuName));
+    auto* statsSource = sceneViewport_ != nullptr ? sceneViewport_->lastRendererStats() : nullptr;
+    const auto sceneStatsAvailable = statsSource != nullptr;
+    if (statsSource == nullptr) {
+        statsSource = &renderer_->stats();
+    }
+    const auto& stats = *statsSource;
+    setTableValue(
+        profilerTable_,
+        0,
+        QStringLiteral("%1 (%2)")
+            .arg(QString::fromStdString(stats.gpuName))
+            .arg(sceneStatsAvailable ? QStringLiteral("Scene View") : QStringLiteral("Renderer")));
     setTableValue(
         profilerTable_,
         1,
@@ -218,32 +242,28 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 9, QString::number(static_cast<qulonglong>(stats.viewportFramesPresented)));
     setTableValue(profilerTable_, 10, QString::number(static_cast<qulonglong>(stats.lastFrameSceneNodeCount)));
     setTableValue(profilerTable_, 11, QString::number(static_cast<qulonglong>(stats.lastFrameRenderChunkCount)));
-    setTableValue(profilerTable_, 12, QString::number(static_cast<qulonglong>(stats.lastFrameVisibleRenderChunkCount)));
+    setRatioValue(profilerTable_, 12, stats.lastFrameVisibleRenderChunkCount, stats.lastFrameRenderChunkCount);
     setTableValue(profilerTable_, 13, QString::number(static_cast<qulonglong>(stats.lastFrameRenderInstanceCount)));
-    setTableValue(profilerTable_, 14, QString::number(static_cast<qulonglong>(stats.lastFrameVisibleRenderInstanceCount)));
+    setRatioValue(profilerTable_, 14, stats.lastFrameVisibleRenderInstanceCount, stats.lastFrameRenderInstanceCount);
     setTableValue(profilerTable_, 15, QString::number(static_cast<qulonglong>(stats.lastFrameLargeRenderChunkCount)));
     setTableValue(profilerTable_, 16, QStringLiteral("%1").arg(stats.lastFrameMaxRenderChunkExtent, 0, 'f', 2));
     setTableValue(profilerTable_, 17, QString::number(static_cast<qulonglong>(stats.lastFrameLargestRenderChunkTriangleCount)));
     setTableValue(profilerTable_, 18, QString::number(static_cast<qulonglong>(stats.lastFrameLargestRenderChunkInstanceCount)));
     setTableValue(profilerTable_, 19, QString::number(static_cast<qulonglong>(stats.lastFrameCandidateMeshDrawCount)));
-    setTableValue(profilerTable_, 20, QString::number(static_cast<qulonglong>(stats.lastFrameCulledMeshDrawCount)));
+    setTableValue(
+        profilerTable_,
+        20,
+        formatSkippedValue(stats.lastFrameCulledMeshDrawCount, stats.lastFrameCandidateMeshDrawCount));
     setTableValue(profilerTable_, 21, QString::number(static_cast<qulonglong>(stats.lastFrameMeshDrawCount)));
     setTableValue(profilerTable_, 22, QString::number(static_cast<qulonglong>(stats.lastFrameMeshBatchCount)));
+    setRatioValue(profilerTable_, 23, stats.lastFrameVisibleTriangleCount, stats.lastFrameCandidateTriangleCount);
     setTableValue(
         profilerTable_,
-        23,
-        QStringLiteral("%1 / %2")
-            .arg(static_cast<qulonglong>(stats.lastFrameCandidateTriangleCount))
-            .arg(static_cast<qulonglong>(stats.lastFrameVisibleTriangleCount)));
-    setTableValue(profilerTable_, 24, QString::number(static_cast<qulonglong>(stats.lastFrameCulledTriangleCount)));
+        24,
+        formatSkippedValue(stats.lastFrameCulledTriangleCount, stats.lastFrameCandidateTriangleCount));
     setTableValue(profilerTable_, 25, QString::number(static_cast<qulonglong>(stats.lastFrameLodMeshDrawCount)));
     setTableValue(profilerTable_, 26, QString::number(static_cast<qulonglong>(stats.lastFrameLodTriangleReductionCount)));
-    setTableValue(
-        profilerTable_,
-        27,
-        QStringLiteral("%1 / %2")
-            .arg(static_cast<qulonglong>(stats.lastFrameHlodMeshDrawCount))
-            .arg(static_cast<qulonglong>(stats.lastFrameHlodCandidateDrawCount)));
+    setRatioValue(profilerTable_, 27, stats.lastFrameHlodMeshDrawCount, stats.lastFrameHlodCandidateDrawCount);
     setTableValue(profilerTable_, 28, QString::number(static_cast<qulonglong>(stats.lastFrameHlodTriangleReductionCount)));
     setTableValue(profilerTable_, 29, QString::number(static_cast<qulonglong>(stats.meshDrawsPresented)));
     setTableValue(profilerTable_, 30, QString::number(static_cast<qulonglong>(stats.texturedMeshDrawsPresented)));
