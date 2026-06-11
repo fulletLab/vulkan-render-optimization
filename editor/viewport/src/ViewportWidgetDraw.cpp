@@ -44,20 +44,6 @@ struct DrawTriangle {
     return QString::fromStdString(entity.name);
 }
 
-[[nodiscard]] QString compactOverlayCounter(std::uint64_t value)
-{
-    if (value >= 1'000'000'000ULL) {
-        return QStringLiteral("%1B").arg(static_cast<double>(value) / 1'000'000'000.0, 0, 'f', 1);
-    }
-    if (value >= 1'000'000ULL) {
-        return QStringLiteral("%1M").arg(static_cast<double>(value) / 1'000'000.0, 0, 'f', 1);
-    }
-    if (value >= 1'000ULL) {
-        return QStringLiteral("%1K").arg(static_cast<double>(value) / 1'000.0, 0, 'f', 1);
-    }
-    return QString::number(static_cast<qulonglong>(value));
-}
-
 [[nodiscard]] QColor colorFromGizmo(const std::array<float, 4>& value)
 {
     return QColor::fromRgbF(
@@ -624,30 +610,15 @@ void ViewportWidget::drawOverlay(QPainter& painter) const
     const auto spaceText = transformSpace_ == TransformSpace::Local ? QStringLiteral("Local") : QStringLiteral("Global");
     const auto line1 = mode_ == ViewportMode::Scene ? QStringLiteral("%1 | %2 | %3").arg(title, toolModeName(), spaceText) : title;
     const auto line2 = QStringLiteral("Entities: %1 | %2").arg(entityCount).arg(selectedText);
-    const auto line3 = lastRendererStats_.has_value()
-        ? QStringLiteral("FPS %1 | D %2 | B %3 | T %4")
-            .arg(lastRendererStats_->FPS, 0, 'f', 1)
-            .arg(compactOverlayCounter(lastRendererStats_->lastFrameMeshDrawCount))
-            .arg(compactOverlayCounter(lastRendererStats_->lastFrameMeshBatchCount))
-            .arg(compactOverlayCounter(lastRendererStats_->lastFrameVisibleTriangleCount))
-        : QString {};
     const QFontMetrics metrics(painter.font());
-    auto widthValue = std::max(metrics.horizontalAdvance(line1), metrics.horizontalAdvance(line2));
-    if (!line3.isEmpty()) {
-        widthValue = std::max(widthValue, metrics.horizontalAdvance(line3));
-    }
-    widthValue += 20;
-    const QRectF box(10.0, 10.0, static_cast<qreal>(widthValue), line3.isEmpty() ? 52.0 : 74.0);
+    const auto widthValue = std::max(metrics.horizontalAdvance(line1), metrics.horizontalAdvance(line2)) + 20;
+    const QRectF box(10.0, 10.0, static_cast<qreal>(widthValue), 52.0);
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(box, 4.0, 4.0);
     painter.setPen(QColor(220, 225, 235));
     painter.drawText(QPointF(20.0, 31.0), line1);
     painter.setPen(QColor(170, 180, 195));
     painter.drawText(QPointF(20.0, 53.0), line2);
-    if (!line3.isEmpty()) {
-        painter.setPen(QColor(126, 222, 157));
-        painter.drawText(QPointF(20.0, 75.0), line3);
-    }
     if (mode_ == ViewportMode::Game) {
         painter.setPen(QColor(120, 130, 145));
         painter.drawRect(rect().adjusted(18, 18, -18, -18));

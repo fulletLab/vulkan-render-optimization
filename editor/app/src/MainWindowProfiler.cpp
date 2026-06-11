@@ -3,6 +3,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 
+#include <QLabel>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QString>
@@ -43,6 +44,20 @@ void setTableValue(QTableWidget* table, int row, const QString& value)
 void setRatioValue(QTableWidget* table, int row, std::uint64_t visible, std::uint64_t total)
 {
     setTableValue(table, row, QStringLiteral("%1 / %2").arg(static_cast<qulonglong>(visible)).arg(static_cast<qulonglong>(total)));
+}
+
+[[nodiscard]] QString compactCounter(std::uint64_t value)
+{
+    if (value >= 1'000'000'000ULL) {
+        return QStringLiteral("%1B").arg(static_cast<double>(value) / 1'000'000'000.0, 0, 'f', 1);
+    }
+    if (value >= 1'000'000ULL) {
+        return QStringLiteral("%1M").arg(static_cast<double>(value) / 1'000'000.0, 0, 'f', 1);
+    }
+    if (value >= 1'000ULL) {
+        return QStringLiteral("%1K").arg(static_cast<double>(value) / 1'000.0, 0, 'f', 1);
+    }
+    return QString::number(static_cast<qulonglong>(value));
 }
 
 void ensureProfilerRows(QTableWidget* table)
@@ -89,10 +104,16 @@ void ensureProfilerRows(QTableWidget* table)
 void MainWindow::updateProfilerPanel()
 {
     if (profilerTable_ == nullptr) {
+        if (performanceStatus_ != nullptr) {
+            performanceStatus_->setText(QStringLiteral("FPS -"));
+        }
         return;
     }
     ensureProfilerRows(profilerTable_);
     if (renderer_ == nullptr || !renderer_->isReady()) {
+        if (performanceStatus_ != nullptr) {
+            performanceStatus_->setText(QStringLiteral("FPS -"));
+        }
         setTableValue(profilerTable_, 0, QStringLiteral("Unavailable"));
         for (int row = 1; row < profilerTable_->rowCount(); ++row) {
             setTableValue(profilerTable_, row, QStringLiteral("-"));
@@ -106,6 +127,20 @@ void MainWindow::updateProfilerPanel()
         statsSource = &renderer_->stats();
     }
     const auto& stats = *statsSource;
+    if (performanceStatus_ != nullptr) {
+        const auto gpuText = stats.lastFrameGpuTimestampsValid
+            ? QStringLiteral("GPU %1ms").arg(static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0, 0, 'f', 1)
+            : QStringLiteral("GPU -");
+        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3 | B %4 | T %5 | CPU %6ms | %7 | RES %8")
+            .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
+            .arg(stats.FPS, 0, 'f', 1)
+            .arg(compactCounter(stats.lastFrameMeshDrawCount))
+            .arg(compactCounter(stats.lastFrameMeshBatchCount))
+            .arg(compactCounter(stats.lastFrameVisibleTriangleCount))
+            .arg(static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(gpuText)
+            .arg(compactCounter(stats.resourcePrepared)));
+    }
     setTableValue(
         profilerTable_,
         0,

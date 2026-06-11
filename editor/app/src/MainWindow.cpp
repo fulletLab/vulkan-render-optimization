@@ -160,12 +160,17 @@ MainWindow::MainWindow(QWidget* parent)
     logFlushTimer_ = new QTimer(this);
     connect(logFlushTimer_, &QTimer::timeout, this, [this]() {
         appendPendingLogs();
-        if (profilerTable_ != nullptr && profilerTable_->isVisible()) {
+        if (profilerTable_ != nullptr) {
             updateProfilerPanel();
         }
     });
     logFlushTimer_->start(250);
 
+    performanceStatus_ = new QLabel(QStringLiteral("FPS -"));
+    performanceStatus_->setObjectName(QStringLiteral("PerformanceStatus"));
+    performanceStatus_->setMinimumWidth(520);
+    performanceStatus_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    statusBar()->addPermanentWidget(performanceStatus_, 1);
     statusBar()->showMessage(QStringLiteral("Ready"));
     core::logInfo(core::LogCategory::Editor, "Main editor window initialized");
 }

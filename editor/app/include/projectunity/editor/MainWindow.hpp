@@ -127,6 +127,7 @@ private:
     QPlainTextEdit* consoleView_ {nullptr};
     QTableWidget* assetTable_ {nullptr};
     QLabel* assetImportStatus_ {nullptr};
+    QLabel* performanceStatus_ {nullptr};
     QProgressBar* assetImportProgress_ {nullptr};
     QTableWidget* profilerTable_ {nullptr};
     QDoubleSpinBox* skyColorR_ {nullptr};
