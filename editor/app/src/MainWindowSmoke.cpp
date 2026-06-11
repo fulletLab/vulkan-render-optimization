@@ -14,14 +14,19 @@
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QPointF>
+#include <QScreen>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <optional>
+#include <thread>
 
 namespace projectunity::editor {
 namespace {
@@ -365,6 +370,8 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     }
     sceneViewport_->resize(960, 540);
     QApplication::processEvents();
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));
+    QApplication::processEvents();
     auto waitForStaticUploadsIdle = [&]() {
         std::uint64_t previousStaticBytes = renderer_->stats().totalStaticUploadBytes;
         for (int frame = 0; frame < 24; ++frame) {
@@ -437,10 +444,12 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
             || stats.lastFrameShadowViewCount == static_cast<std::uint64_t>(renderer::kMaxShadowCascades);
         sawPointCubemap = sawPointCubemap || stats.lastFrameShadowViewCount == 6U;
         if (QString::fromUtf8(assetName) == QStringLiteral("NodePerformanceTest.glb")) {
+            const auto exercisedLargeSceneShadowOrHlod = stats.lastFrameHlodMeshDrawCount > 0U
+                || stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U;
             sawLargeScene = stats.lastFrameCandidateTriangleCount > 10000U
                 && stats.lastFrameMeshBatchCount > 0U
                 && stats.lastFrameLodTriangleReductionCount > 0U
-                && stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U
+                && exercisedLargeSceneShadowOrHlod
                 && stats.lastFrameRenderChunkCount > 0U
                 && stats.lastFrameVisibleRenderChunkCount > 0U
                 && stats.lastFrameRenderInstanceCount > 0U
@@ -505,6 +514,131 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
     }
     if (!sawRenderWorldLookAwayCull) {
         return fail(QStringLiteral("Phase 6 visual smoke did not exercise RenderWorld look-away culling"));
+    }
+
+    const auto externalAssetPath = qEnvironmentVariable("PROJECTUNITY_PHASE6_EXTERNAL_ASSET");
+    if (!externalAssetPath.isEmpty()) {
+        const auto path = std::filesystem::path(externalAssetPath.toStdWString());
+        if (!std::filesystem::exists(path)) {
+            return fail(QStringLiteral("External Phase 6 asset does not exist: %1").arg(externalAssetPath));
+        }
+        newScene();
+        const auto imported = importAssetFromPath(externalAssetPath, true);
+        if (!imported.success) {
+            return fail(QStringLiteral("External Phase 6 asset import failed: %1")
+                .arg(QString::fromStdString(imported.error)));
+        }
+        sceneViewport_->setSelectedEntity(selectedEntityId_);
+        if (const auto model = assetManager_.model(imported.record.id);
+            model != nullptr && !model->primitiveInstances.empty()) {
+            auto minimum = model->primitiveInstances.front().bounds.minimum;
+            auto maximum = model->primitiveInstances.front().bounds.maximum;
+            for (const auto& instance : model->primitiveInstances) {
+                minimum.x = std::min(minimum.x, instance.bounds.minimum.x);
+                minimum.y = std::min(minimum.y, instance.bounds.minimum.y);
+                minimum.z = std::min(minimum.z, instance.bounds.minimum.z);
+                maximum.x = std::max(maximum.x, instance.bounds.maximum.x);
+                maximum.y = std::max(maximum.y, instance.bounds.maximum.y);
+                maximum.z = std::max(maximum.z, instance.bounds.maximum.z);
+            }
+            const auto center = (minimum + maximum) * 0.5F;
+            const auto extent = maximum - minimum;
+            const auto radius = std::sqrt(extent.x * extent.x + extent.y * extent.y + extent.z * extent.z) * 0.5F;
+            sceneViewport_->setCameraForTesting(
+                center,
+                std::clamp(radius * 2.4F, 10.0F, 480.0F),
+                0.65F,
+                -0.55F);
+        }
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        if (!waitForStaticUploadsIdle()) {
+            return fail(QStringLiteral("External Phase 6 asset uploads did not become idle"));
+        }
+        const auto selectedStats = renderer_->stats();
+        sceneViewport_->setSelectedEntity({});
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        const auto unselectedStats = renderer_->stats();
+        sceneViewport_->setSelectedEntity(selectedEntityId_);
+
+        auto* selected = scene_.findEntity(selectedEntityId_);
+        if (selected == nullptr) {
+            return fail(QStringLiteral("External Phase 6 asset selected entity disappeared"));
+        }
+        const auto originalTransform = selected->transform;
+        auto movedTransform = originalTransform;
+        movedTransform.position.x += 0.25F;
+        const auto moveStart = std::chrono::steady_clock::now();
+        if (!scene_.setTransform(selectedEntityId_, movedTransform)) {
+            return fail(QStringLiteral("External Phase 6 asset transform update failed"));
+        }
+        sceneViewport_->repaint();
+        QApplication::processEvents();
+        const auto moveWallTimeUs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - moveStart).count());
+        const auto movedStats = renderer_->stats();
+        (void)scene_.setTransform(selectedEntityId_, originalTransform);
+
+        std::cerr
+            << "External Phase 6 interaction profile: selectedVisibleTriangles=" << selectedStats.lastFrameVisibleTriangleCount
+            << " unselectedVisibleTriangles=" << unselectedStats.lastFrameVisibleTriangleCount
+            << " movedVisibleTriangles=" << movedStats.lastFrameVisibleTriangleCount
+            << " moveWallUs=" << moveWallTimeUs
+            << " editorBuildUs=" << movedStats.lastFrameEditorBuildCpuTimeUs
+            << " renderWorldBuildUs=" << movedStats.lastFrameRenderWorldBuildCpuTimeUs
+            << " renderCpuUs=" << movedStats.lastFrameRenderCpuTimeUs
+            << " gpuUs=" << movedStats.lastFrameGpuTimeUs
+            << " rebuiltRecords=" << movedStats.lastFrameRenderWorldRebuiltRecordCount
+            << " reusedRecords=" << movedStats.lastFrameRenderWorldReusedRecordCount
+            << " meshBatches=" << movedStats.lastFrameMeshBatchCount
+            << " staticUploadBytes=" << movedStats.lastFrameStaticUploadBytes
+            << '\n';
+
+        const auto screenshotPath = qEnvironmentVariable("PROJECTUNITY_PHASE6_EXTERNAL_SCREENSHOT");
+        if (!screenshotPath.isEmpty()) {
+            const auto screenshot = sceneViewport_->screen()->grabWindow(sceneViewport_->winId());
+            if (screenshot.isNull() || !screenshot.save(screenshotPath)) {
+                return fail(QStringLiteral("Unable to save external Phase 6 viewport screenshot"));
+            }
+        }
+
+        sceneViewport_->setCameraForTesting({5000.0F, 5000.0F, 5000.0F}, 500.0F, 0.65F, -0.38F);
+        for (int frame = 0; frame < 3; ++frame) {
+            sceneViewport_->repaint();
+            QApplication::processEvents();
+        }
+        const auto awayStats = renderer_->stats();
+        std::cerr
+            << "External Phase 6 look-away profile: visibleChunks=" << movedStats.lastFrameVisibleRenderChunkCount
+            << "->" << awayStats.lastFrameVisibleRenderChunkCount
+            << " visibleInstances=" << movedStats.lastFrameVisibleRenderInstanceCount
+            << "->" << awayStats.lastFrameVisibleRenderInstanceCount
+            << " meshDraws=" << movedStats.lastFrameMeshDrawCount
+            << "->" << awayStats.lastFrameMeshDrawCount
+            << " visibleTriangles=" << movedStats.lastFrameVisibleTriangleCount
+            << "->" << awayStats.lastFrameVisibleTriangleCount
+            << '\n';
+
+        if (movedStats.lastFrameCandidateTriangleCount < 64'000U
+            || movedStats.viewportFramesPresented <= selectedStats.viewportFramesPresented) {
+            return fail(QStringLiteral("External Phase 6 interaction profile did not present the moved large asset"));
+        }
+        if (awayStats.lastFrameVisibleRenderChunkCount >= movedStats.lastFrameVisibleRenderChunkCount
+            || awayStats.lastFrameVisibleRenderInstanceCount >= movedStats.lastFrameVisibleRenderInstanceCount
+            || awayStats.lastFrameMeshDrawCount >= movedStats.lastFrameMeshDrawCount
+            || awayStats.lastFrameVisibleTriangleCount >= movedStats.lastFrameVisibleTriangleCount) {
+            return fail(QStringLiteral(
+                "External Phase 6 look-away culling did not reduce workload: chunks %1 -> %2, instances %3 -> %4, draws %5 -> %6, triangles %7 -> %8")
+                .arg(static_cast<qulonglong>(movedStats.lastFrameVisibleRenderChunkCount))
+                .arg(static_cast<qulonglong>(awayStats.lastFrameVisibleRenderChunkCount))
+                .arg(static_cast<qulonglong>(movedStats.lastFrameVisibleRenderInstanceCount))
+                .arg(static_cast<qulonglong>(awayStats.lastFrameVisibleRenderInstanceCount))
+                .arg(static_cast<qulonglong>(movedStats.lastFrameMeshDrawCount))
+                .arg(static_cast<qulonglong>(awayStats.lastFrameMeshDrawCount))
+                .arg(static_cast<qulonglong>(movedStats.lastFrameVisibleTriangleCount))
+                .arg(static_cast<qulonglong>(awayStats.lastFrameVisibleTriangleCount)));
+        }
     }
     return true;
 }

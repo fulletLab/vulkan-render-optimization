@@ -259,6 +259,10 @@ struct VulkanRenderer::Impl {
             stats.lastFrameLightCount = static_cast<std::uint64_t>(frame.lights.size());
             stats.lastFrameShadowCasterCount = 0;
             stats.lastFrameRenderCpuTimeUs = static_cast<std::uint64_t>(std::max<std::int64_t>(frameElapsedUs, 0));
+            stats.lastFrameEditorBuildCpuTimeUs = frame.editorBuildCpuTimeUs;
+            stats.lastFrameRenderWorldBuildCpuTimeUs = frame.renderWorldBuildCpuTimeUs;
+            stats.lastFrameRenderWorldRebuiltRecordCount = frame.renderWorldRebuiltRecordCount;
+            stats.lastFrameRenderWorldReusedRecordCount = frame.renderWorldReusedRecordCount;
             const auto& profile = existing->second->lastFrameProfile();
             stats.lastFrameShadowViewCount = profile.shadowViewCount;
             stats.lastFrameShadowBatchCount = profile.shadowBatchCount;

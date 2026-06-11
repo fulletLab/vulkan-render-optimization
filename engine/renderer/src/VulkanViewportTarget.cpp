@@ -137,6 +137,13 @@ bool VulkanViewportTarget::renderFrame(
     if (!recordFrameCommand(imageIndex, frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
+    if (imageIndex >= renderFinished_.size()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "Vulkan viewport acquired an image without a presentation semaphore";
+        }
+        return false;
+    }
+    const auto renderFinished = renderFinished_[imageIndex];
     (void)vkResetFences(context_.device, 1, &inFlight_);
     const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit {};
@@ -147,7 +154,7 @@ bool VulkanViewportTarget::renderFrame(
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &commandBuffer_;
     submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &renderFinished_;
+    submit.pSignalSemaphores = &renderFinished;
     if (vkQueueSubmit(context_.graphicsQueue, 1, &submit, inFlight_) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to submit Vulkan viewport command buffer";
@@ -158,7 +165,7 @@ bool VulkanViewportTarget::renderFrame(
     VkPresentInfoKHR present {};
     present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores = &renderFinished_;
+    present.pWaitSemaphores = &renderFinished;
     present.swapchainCount = 1;
     present.pSwapchains = &swapchain_;
     present.pImageIndices = &imageIndex;
@@ -186,10 +193,12 @@ void VulkanViewportTarget::destroy() noexcept
         vkDestroyFence(context_.device, inFlight_, nullptr);
         inFlight_ = VK_NULL_HANDLE;
     }
-    if (renderFinished_ != VK_NULL_HANDLE) {
-        vkDestroySemaphore(context_.device, renderFinished_, nullptr);
-        renderFinished_ = VK_NULL_HANDLE;
+    for (const auto semaphore : renderFinished_) {
+        if (semaphore != VK_NULL_HANDLE) {
+            vkDestroySemaphore(context_.device, semaphore, nullptr);
+        }
     }
+    renderFinished_.clear();
     if (imageAvailable_ != VK_NULL_HANDLE) {
         vkDestroySemaphore(context_.device, imageAvailable_, nullptr);
         imageAvailable_ = VK_NULL_HANDLE;
@@ -435,9 +444,14 @@ void VulkanViewportTarget::createSync()
 {
     VkSemaphoreCreateInfo semaphoreInfo {};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    if (vkCreateSemaphore(context_.device, &semaphoreInfo, nullptr, &imageAvailable_) != VK_SUCCESS
-        || vkCreateSemaphore(context_.device, &semaphoreInfo, nullptr, &renderFinished_) != VK_SUCCESS) {
+    if (vkCreateSemaphore(context_.device, &semaphoreInfo, nullptr, &imageAvailable_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan viewport semaphores");
+    }
+    renderFinished_.resize(images_.size(), VK_NULL_HANDLE);
+    for (auto& semaphore : renderFinished_) {
+        if (vkCreateSemaphore(context_.device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan viewport presentation semaphores");
+        }
     }
     VkFenceCreateInfo fenceInfo {};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -538,16 +552,17 @@ bool VulkanViewportTarget::recordFrameCommand(
         }
         return false;
     }
-    gpuProfiler_.beginFrame(commandBuffer_);
-    VulkanScopedLabel frameLabel(
-        beginDebugLabel_,
-        endDebugLabel_,
-        commandBuffer_,
-        "ProjectUnity Viewport Frame",
-        {0.10F, 0.62F, 0.90F, 1.0F});
-    if (!recordShadowPass(frame, uploads, textureCache, errorMessage)) {
-        return false;
-    }
+    {
+        gpuProfiler_.beginFrame(commandBuffer_);
+        VulkanScopedLabel frameLabel(
+            beginDebugLabel_,
+            endDebugLabel_,
+            commandBuffer_,
+            "ProjectUnity Viewport Frame",
+            {0.10F, 0.62F, 0.90F, 1.0F});
+        if (!recordShadowPass(frame, uploads, textureCache, errorMessage)) {
+            return false;
+        }
     std::array<VkClearValue, 2> clears {};
     clears[0].color.float32[0] = frame.clearColor.red;
     clears[0].color.float32[1] = frame.clearColor.green;
@@ -631,8 +646,9 @@ bool VulkanViewportTarget::recordFrameCommand(
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ColorEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.colorRecordCpuTimeUs = elapsedUs(passStart);
     }
-    vkCmdEndRenderPass(commandBuffer_);
-    gpuProfiler_.endFrame(commandBuffer_);
+        vkCmdEndRenderPass(commandBuffer_);
+        gpuProfiler_.endFrame(commandBuffer_);
+    }
     if (vkEndCommandBuffer(commandBuffer_) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to end Vulkan viewport command buffer";

@@ -307,6 +307,10 @@ void MainWindow::updateProfilerPanel()
             ? QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameColorGpuTimeUs))
             : QStringLiteral("-"));
     setTableValue(profilerTable_, 50, QString::number(static_cast<qulonglong>(stats.viewportSurfacePrepareCount)));
+    setTableValue(profilerTable_, 51, QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameEditorBuildCpuTimeUs)));
+    setTableValue(profilerTable_, 52, QStringLiteral("%1 us").arg(static_cast<qulonglong>(stats.lastFrameRenderWorldBuildCpuTimeUs)));
+    setTableValue(profilerTable_, 53, QString::number(static_cast<qulonglong>(stats.lastFrameRenderWorldRebuiltRecordCount)));
+    setTableValue(profilerTable_, 54, QString::number(static_cast<qulonglong>(stats.lastFrameRenderWorldReusedRecordCount)));
 }
 
 MainWindow::~MainWindow()

@@ -45,6 +45,13 @@ void applyViewportShadowPolicy(
         bool pinned {false};
     };
 
+    const auto selectedDrawCount = selectedEntityId.isValid()
+        ? static_cast<std::size_t>(std::count_if(meshDraws.begin(), meshDraws.end(), [selectedEntityId](const auto& draw) {
+            return draw.sceneNodeId == selectedEntityId.value();
+        }))
+        : 0U;
+    const auto pinSelectedDraws = selectedDrawCount > 0U && selectedDrawCount <= 16U;
+
     std::vector<Candidate> candidates;
     candidates.reserve(meshDraws.size());
     for (std::size_t index = 0; index < meshDraws.size(); ++index) {
@@ -54,7 +61,7 @@ void applyViewportShadowPolicy(
             draw.castsShadow = false;
             continue;
         }
-        const auto pinned = selectedEntityId.isValid() && draw.sceneNodeId == selectedEntityId.value();
+        const auto pinned = pinSelectedDraws && draw.sceneNodeId == selectedEntityId.value();
         const auto projectedRadius = projectedRadiusPixels(
             draw.worldBoundsRadius,
             draw.sortDepth,

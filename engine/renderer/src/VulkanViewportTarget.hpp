@@ -172,7 +172,7 @@ private:
     PFN_vkCmdBeginDebugUtilsLabelEXT beginDebugLabel_ {nullptr};
     PFN_vkCmdEndDebugUtilsLabelEXT endDebugLabel_ {nullptr};
     VkSemaphore imageAvailable_ {VK_NULL_HANDLE};
-    VkSemaphore renderFinished_ {VK_NULL_HANDLE};
+    std::vector<VkSemaphore> renderFinished_;
     VkFence inFlight_ {VK_NULL_HANDLE};
 };
 

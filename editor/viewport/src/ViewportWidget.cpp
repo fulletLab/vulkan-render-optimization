@@ -754,7 +754,7 @@ bool ViewportWidget::applySelectedGizmoTransform(const EditorGizmoTransform& tra
     return true;
 }
 
-bool ViewportWidget::updateGizmoFrame()
+bool ViewportWidget::updateGizmoFrame(bool applyTransform)
 {
     if (mode_ != ViewportMode::Scene || scene_ == nullptr || !selectedEntityId_.isValid() || tool_ == ViewportTool::Hand) {
         gizmoBackend_->clear();
@@ -774,7 +774,9 @@ bool ViewportWidget::updateGizmoFrame()
     pendingGizmoModePulse_ = false;
     pendingGizmoSpacePulse_ = false;
 
-    (void)applySelectedGizmoTransform(transform);
+    if (applyTransform) {
+        (void)applySelectedGizmoTransform(transform);
+    }
 
     return activated;
 }

@@ -63,6 +63,10 @@ struct RendererStats {
     std::uint64_t lastFrameShadowCulledBatchCount {0};
     std::uint64_t lastFrameRenderCpuTimeUs {0};
     std::uint64_t averageRenderCpuTimeUs {0};
+    std::uint64_t lastFrameEditorBuildCpuTimeUs {0};
+    std::uint64_t lastFrameRenderWorldBuildCpuTimeUs {0};
+    std::uint64_t lastFrameRenderWorldRebuiltRecordCount {0};
+    std::uint64_t lastFrameRenderWorldReusedRecordCount {0};
     std::uint64_t lastFrameResourcePrepareCpuTimeUs {0};
     std::uint64_t lastFrameCommandRecordCpuTimeUs {0};
     std::uint64_t lastFrameShadowRecordCpuTimeUs {0};
@@ -210,6 +214,10 @@ struct RenderFrame {
     std::uint64_t largestRenderChunkTriangleCount {0};
     std::uint64_t largestRenderChunkInstanceCount {0};
     float maxRenderChunkExtent {0.0F};
+    std::uint64_t editorBuildCpuTimeUs {0};
+    std::uint64_t renderWorldBuildCpuTimeUs {0};
+    std::uint64_t renderWorldRebuiltRecordCount {0};
+    std::uint64_t renderWorldReusedRecordCount {0};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

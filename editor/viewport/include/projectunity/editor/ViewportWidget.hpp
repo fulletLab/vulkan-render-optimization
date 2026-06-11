@@ -123,7 +123,7 @@ private:
     [[nodiscard]] EditorGizmoFrame createGizmoFrame() const;
     [[nodiscard]] EditorGizmoTransform createSelectedGizmoTransform() const;
     [[nodiscard]] bool applySelectedGizmoTransform(const EditorGizmoTransform& transform);
-    [[nodiscard]] bool updateGizmoFrame();
+    [[nodiscard]] bool updateGizmoFrame(bool applyTransform = true);
     [[nodiscard]] bool runGizmoDragSelfTest(ViewportTool tool, QString* errorMessage);
     [[nodiscard]] bool ensureRendererSurface();
     [[nodiscard]] bool renderRendererFrame();

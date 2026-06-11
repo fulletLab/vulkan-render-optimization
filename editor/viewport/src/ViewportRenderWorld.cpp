@@ -721,10 +721,10 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 const auto sortDepth = math::dot(instance.worldBounds.center - camera.eye, camera.forward);
                 const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 visibleSourceTriangleCount += sourceTriangleCount;
-                const auto forceFullResolution = instance.sceneNodeId == selectedEntityId
-                    || (selectedPrimitiveModel.isValid()
-                        && selectedPrimitiveModel == instance.modelAssetId
-                        && selectedPrimitiveIndex == instance.primitiveInstanceIndex);
+                const auto forceFullResolution = selectedPrimitiveModel.isValid()
+                    ? (selectedPrimitiveModel == instance.modelAssetId
+                        && selectedPrimitiveIndex == instance.primitiveInstanceIndex)
+                    : (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U);
                 const auto lodIndex = selectViewportMeshLod(
                     primitive,
                     instance.worldBounds.radius,

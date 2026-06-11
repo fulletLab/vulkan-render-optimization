@@ -8,6 +8,7 @@
 #include <QString>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -31,6 +32,12 @@ namespace {
     const auto* value = std::getenv("PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS");
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 #endif
+}
+
+[[nodiscard]] std::uint64_t elapsedUs(std::chrono::steady_clock::time_point start) noexcept
+{
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - start).count());
 }
 
 [[nodiscard]] float& at(renderer::RenderMatrix4& matrix, int row, int column)
@@ -215,6 +222,7 @@ bool ViewportWidget::renderRendererFrame()
     desc.height = static_cast<std::uint32_t>(rendererSurfaceHeight_);
     desc.vsync = true;
     renderer::RenderFrame frame;
+    const auto editorBuildStart = std::chrono::steady_clock::now();
     frame.clearColor.red = mode_ == ViewportMode::Scene ? 0.12F : 0.02F;
     frame.clearColor.green = mode_ == ViewportMode::Scene ? 0.13F : 0.02F;
     frame.clearColor.blue = mode_ == ViewportMode::Scene ? 0.15F : 0.025F;
@@ -320,6 +328,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.cameraPosition = {eye.x, eye.y, eye.z};
     std::vector<ViewportRenderWorldChunkDebug> renderWorldDebugChunks;
     if (renderWorld_ != nullptr) {
+        const auto renderWorldStart = std::chrono::steady_clock::now();
         const ViewportRenderWorldCamera renderWorldCamera {
             eye,
             right,
@@ -339,6 +348,9 @@ bool ViewportWidget::renderRendererFrame()
             height(),
             rendererMeshDraws_,
             rendererLights_);
+        frame.renderWorldBuildCpuTimeUs = elapsedUs(renderWorldStart);
+        frame.renderWorldRebuiltRecordCount = renderWorldFrame.stats.rebuiltRecordCount;
+        frame.renderWorldReusedRecordCount = renderWorldFrame.stats.reusedRecordCount;
         hasMeshSceneContent = renderWorldFrame.hasMeshSceneContent;
         frame.sceneNodeCount = renderWorldFrame.stats.sceneNodeCount;
         frame.renderChunkCount = renderWorldFrame.stats.renderChunkCount;
@@ -495,7 +507,7 @@ bool ViewportWidget::renderRendererFrame()
         const auto vertexCountBeforeGizmo = rendererGizmoVertices_.size();
         const auto indexCountBeforeGizmo = rendererGizmoIndices_.size();
         const auto gizmoVertexOffset = static_cast<std::uint32_t>(rendererGizmoVertices_.size());
-        (void)updateGizmoFrame();
+        (void)updateGizmoFrame(false);
         const auto& gizmo = gizmoBackend_->mesh();
         rendererGizmoVertices_.reserve(rendererGizmoVertices_.size() + gizmo.vertices.size());
         rendererGizmoIndices_.reserve(rendererGizmoIndices_.size() + gizmo.triangles.size() * 3U);
@@ -532,6 +544,7 @@ bool ViewportWidget::renderRendererFrame()
         }
     }
     frame.colorMeshDraws = std::span<const renderer::RenderColorMeshDraw>(rendererColorMeshDraws_);
+    frame.editorBuildCpuTimeUs = elapsedUs(editorBuildStart);
     if (rendererMeshDraws_.empty() && rendererColorMeshDraws_.empty() && !hasMeshSceneContent) {
         return false;
     }
