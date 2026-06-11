@@ -31,10 +31,27 @@ void applyViewportShadowPolicy(
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     scene::EntityId selectedEntityId,
     const ViewportRenderWorldCamera& camera,
-    int viewportHeight)
+    int viewportHeight,
+    ViewportRenderWorldStats& stats)
 {
     constexpr std::size_t kLargeSceneDrawThreshold = 1024;
     constexpr std::size_t kLargeSceneShadowBudget = 512;
+    stats.shadowCandidateInstances = static_cast<std::uint64_t>(std::count_if(
+        meshDraws.begin(),
+        meshDraws.end(),
+        [](const auto& draw) {
+            return draw.material == nullptr || draw.material->alphaMode != assets::MaterialAlphaMode::Blend;
+        }));
+    stats.shadowPolicyRejectedInstances = 0;
+    const auto updateRejectedCount = [&]() {
+        stats.shadowPolicyRejectedInstances = static_cast<std::uint64_t>(std::count_if(
+            meshDraws.begin(),
+            meshDraws.end(),
+            [](const auto& draw) {
+                return !draw.castsShadow
+                    && (draw.material == nullptr || draw.material->alphaMode != assets::MaterialAlphaMode::Blend);
+            }));
+    };
     if (meshDraws.size() <= kLargeSceneDrawThreshold) {
         return;
     }
@@ -67,6 +84,13 @@ void applyViewportShadowPolicy(
             draw.sortDepth,
             camera.verticalFovRadians,
             viewportHeight);
+        if (!pinned
+            && (projectedRadius < 8.0F
+                || (draw.lodIndex >= 4U && projectedRadius < 96.0F)
+                || (draw.sortDepth > draw.worldBoundsRadius * 12.0F && projectedRadius < 80.0F))) {
+            draw.castsShadow = false;
+            continue;
+        }
         const auto lodBonus = draw.lodIndex == 0U ? 64.0F : 0.0F;
         const auto score = pinned
             ? std::numeric_limits<float>::max()
@@ -74,6 +98,7 @@ void applyViewportShadowPolicy(
         candidates.push_back({index, score, pinned});
     }
     if (candidates.size() <= kLargeSceneShadowBudget) {
+        updateRejectedCount();
         return;
     }
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& lhs, const Candidate& rhs) {
@@ -94,6 +119,7 @@ void applyViewportShadowPolicy(
             }
         }
     }
+    updateRejectedCount();
 }
 
 } // namespace projectunity::editor

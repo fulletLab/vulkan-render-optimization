@@ -10,6 +10,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QFrame>
@@ -576,6 +577,11 @@ QWidget* MainWindow::createLightingPanel()
     environmentIntensity_ = makeLightingSpinBox(16.0);
     environmentIntensity_->setValue(environmentSettings_.intensity);
     form->addRow(QStringLiteral("IBL Intensity"), environmentIntensity_);
+    shadowModeCombo_ = new QComboBox;
+    shadowModeCombo_->addItem(QStringLiteral("Live"), static_cast<int>(renderer::RenderShadowUpdateMode::Live));
+    shadowModeCombo_->addItem(QStringLiteral("Frozen"), static_cast<int>(renderer::RenderShadowUpdateMode::Frozen));
+    shadowModeCombo_->addItem(QStringLiteral("Off"), static_cast<int>(renderer::RenderShadowUpdateMode::Off));
+    form->addRow(QStringLiteral("Shadows"), shadowModeCombo_);
     environmentTextureEdit_ = new QLineEdit;
     environmentTextureEdit_->setReadOnly(true);
     form->addRow(QStringLiteral("Environment"), environmentTextureEdit_);
@@ -602,6 +608,12 @@ QWidget* MainWindow::createLightingPanel()
             scheduleLightingSettingsApply();
         });
     }
+    connect(shadowModeCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        const auto value = shadowModeCombo_->itemData(index).toInt();
+        shadowUpdateMode_ = static_cast<renderer::RenderShadowUpdateMode>(value);
+        pushLightingSettingsToViewports();
+        saveLightingSettings();
+    });
     connect(useEnvironmentTextureButton_, &QPushButton::clicked, this, [this] {
         useSelectedTextureAsEnvironment();
     });
@@ -631,6 +643,13 @@ void MainWindow::restoreLightingSettings()
     environmentSettings_.intensity = settings.value(
         QStringLiteral("editor/lighting/intensity"),
         environmentSettings_.intensity).toFloat();
+    const auto shadowModeValue = settings.value(
+        QStringLiteral("editor/lighting/shadowUpdateMode"),
+        static_cast<int>(renderer::RenderShadowUpdateMode::Live)).toInt();
+    shadowUpdateMode_ = shadowModeValue >= static_cast<int>(renderer::RenderShadowUpdateMode::Live)
+            && shadowModeValue <= static_cast<int>(renderer::RenderShadowUpdateMode::Off)
+        ? static_cast<renderer::RenderShadowUpdateMode>(shadowModeValue)
+        : renderer::RenderShadowUpdateMode::Live;
     environmentTextureId_ = assets::AssetId(settings.value(QStringLiteral("editor/lighting/environmentTexture"), 0).toULongLong());
     environmentTexture_ = environmentTextureId_.isValid() ? assetManager_.texture(environmentTextureId_) : nullptr;
     updateLightingPanelControls();
@@ -647,6 +666,7 @@ void MainWindow::saveLightingSettings()
     settings.setValue(QStringLiteral("editor/lighting/groundG"), environmentSettings_.groundColor[1]);
     settings.setValue(QStringLiteral("editor/lighting/groundB"), environmentSettings_.groundColor[2]);
     settings.setValue(QStringLiteral("editor/lighting/intensity"), environmentSettings_.intensity);
+    settings.setValue(QStringLiteral("editor/lighting/shadowUpdateMode"), static_cast<int>(shadowUpdateMode_));
     settings.setValue(QStringLiteral("editor/lighting/environmentTexture"), static_cast<qulonglong>(environmentTextureId_.value()));
 }
 
@@ -666,6 +686,10 @@ void MainWindow::updateLightingPanelControls()
     setValue(groundColorG_, environmentSettings_.groundColor[1]);
     setValue(groundColorB_, environmentSettings_.groundColor[2]);
     setValue(environmentIntensity_, environmentSettings_.intensity);
+    if (shadowModeCombo_ != nullptr) {
+        const QSignalBlocker blocker(shadowModeCombo_);
+        shadowModeCombo_->setCurrentIndex(shadowModeCombo_->findData(static_cast<int>(shadowUpdateMode_)));
+    }
     refreshEnvironmentTextureLabel();
 }
 
@@ -711,6 +735,7 @@ void MainWindow::clearEnvironmentTexture()
 void MainWindow::resetLightingDefaults()
 {
     environmentSettings_ = renderer::RenderEnvironmentSettings {};
+    shadowUpdateMode_ = renderer::RenderShadowUpdateMode::Live;
     environmentTextureId_ = {};
     environmentTexture_.reset();
     updateLightingPanelControls();

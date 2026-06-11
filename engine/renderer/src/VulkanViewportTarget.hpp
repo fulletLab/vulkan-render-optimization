@@ -76,8 +76,15 @@ struct VulkanViewportFrameProfile {
     std::uint64_t shadowViewCount {0};
     std::uint64_t shadowBatchCount {0};
     std::uint64_t shadowCulledBatchCount {0};
+    RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Live};
+    bool shadowMapUpdated {false};
     std::uint64_t resourcePrepared {0};
     std::uint64_t shadowCastersSubmitted {0};
+    std::uint64_t shadowCandidateInstances {0};
+    std::uint64_t shadowPolicyRejectedInstances {0};
+    std::uint64_t shadowBatchesSubmitted {0};
+    std::uint64_t shadowInstancesSubmitted {0};
+    std::uint64_t shadowTrianglesSubmitted {0};
     std::uint64_t vkBindVertex {0};
     std::uint64_t vkBindIndex {0};
     std::uint64_t vkBindDescriptors {0};
@@ -173,6 +180,7 @@ private:
     std::uint64_t descriptorPrefilteredEnvironmentKey_ {0};
     bool descriptorEnvironmentKeyValid_ {false};
     bool pointShadowCubeReadable_ {false};
+    bool shadowMapValid_ {false};
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
     VulkanGpuFrameProfiler gpuProfiler_;

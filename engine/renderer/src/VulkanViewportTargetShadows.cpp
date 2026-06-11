@@ -107,6 +107,9 @@ bool VulkanViewportTarget::recordShadowPass(
     const auto passStart = std::chrono::steady_clock::now();
     const auto shadowViewCount = renderableShadowViewCount(frame);
     lastFrameProfile_.shadowViewCount = shadowViewCount;
+    lastFrameProfile_.shadowUpdateMode = frame.shadowUpdateMode;
+    lastFrameProfile_.shadowCandidateInstances = frame.shadowCandidateInstances;
+    lastFrameProfile_.shadowPolicyRejectedInstances = frame.shadowPolicyRejectedInstances;
     const auto hasShadowCaster = std::any_of(meshBatches_.begin(), meshBatches_.end(), [](const VulkanMeshDrawBatch& batch) {
         return batch.draw != nullptr
             && batch.draw->castsShadow
@@ -114,6 +117,11 @@ bool VulkanViewportTarget::recordShadowPass(
     });
     gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
     if (shadowViewCount == 0U || !hasShadowCaster) {
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
+        return true;
+    }
+    if (frame.shadowUpdateMode == RenderShadowUpdateMode::Frozen && shadowMapValid_) {
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;
@@ -244,7 +252,11 @@ bool VulkanViewportTarget::recordShadowPass(
             ++lastFrameProfile_.vkDrawIndexed;
             ++lastFrameProfile_.shadowBatchCount;
             ++lastFrameProfile_.shadowCastersSubmitted;
-            lastFrameProfile_.trianglesSubmitted += static_cast<std::uint64_t>(mesh->indexCount / 3U) * batch.instanceCount;
+            ++lastFrameProfile_.shadowBatchesSubmitted;
+            lastFrameProfile_.shadowInstancesSubmitted += batch.instanceCount;
+            const auto submittedTriangles = static_cast<std::uint64_t>(mesh->indexCount / 3U) * batch.instanceCount;
+            lastFrameProfile_.shadowTrianglesSubmitted += submittedTriangles;
+            lastFrameProfile_.trianglesSubmitted += submittedTriangles;
         }
         return true;
     };
@@ -277,6 +289,8 @@ bool VulkanViewportTarget::recordShadowPass(
             pointShadowCubeReadable_ = true;
         }
     }
+    shadowMapValid_ = true;
+    lastFrameProfile_.shadowMapUpdated = true;
     gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
     lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
     return true;

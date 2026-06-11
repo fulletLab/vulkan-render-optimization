@@ -14,7 +14,20 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 68;
+constexpr int kProfilerRowCount = 75;
+
+[[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
+{
+    switch (mode) {
+    case renderer::RenderShadowUpdateMode::Live:
+        return QStringLiteral("Live");
+    case renderer::RenderShadowUpdateMode::Frozen:
+        return QStringLiteral("Frozen");
+    case renderer::RenderShadowUpdateMode::Off:
+        return QStringLiteral("Off");
+    }
+    return QStringLiteral("Unknown");
+}
 
 void setTableValue(QTableWidget* table, int row, const QString& value)
 {
@@ -82,6 +95,13 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("commandRecordingMs"),
         QStringLiteral("resourcePrepareMs"),
         QStringLiteral("FPS"),
+        QStringLiteral("shadowUpdateMode"),
+        QStringLiteral("shadowMapUpdated"),
+        QStringLiteral("shadowCandidateInstances"),
+        QStringLiteral("shadowPolicyRejectedInstances"),
+        QStringLiteral("shadowBatchesSubmitted"),
+        QStringLiteral("shadowInstancesSubmitted"),
+        QStringLiteral("shadowTrianglesSubmitted"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -131,14 +151,15 @@ void MainWindow::updateProfilerPanel()
         const auto gpuText = stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("GPU %1ms").arg(static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0, 0, 'f', 1)
             : QStringLiteral("GPU -");
-        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3 | B %4 | T %5 | S %6/%7 | CPU %8ms | %9 | RES %10")
+        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3 | B %4 | T %5 | S %6 %7/%8 | CPU %9ms | %10 | RES %11")
             .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
             .arg(stats.FPS, 0, 'f', 1)
             .arg(compactCounter(stats.lastFrameMeshDrawCount))
             .arg(compactCounter(stats.lastFrameMeshBatchCount))
             .arg(compactCounter(stats.lastFrameVisibleTriangleCount))
+            .arg(shadowUpdateModeName(stats.lastFrameShadowUpdateMode))
             .arg(compactCounter(stats.lastFrameShadowViewCount))
-            .arg(compactCounter(stats.shadowCastersSubmitted))
+            .arg(compactCounter(stats.shadowBatchesSubmitted))
             .arg(static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(gpuText)
             .arg(compactCounter(stats.resourcePrepared)));
@@ -222,6 +243,13 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 65, QStringLiteral("%1").arg(stats.commandRecordingMs, 0, 'f', 3));
     setTableValue(profilerTable_, 66, QStringLiteral("%1").arg(stats.resourcePrepareMs, 0, 'f', 3));
     setTableValue(profilerTable_, 67, QStringLiteral("%1").arg(stats.FPS, 0, 'f', 1));
+    setTableValue(profilerTable_, 68, shadowUpdateModeName(stats.lastFrameShadowUpdateMode));
+    setTableValue(profilerTable_, 69, stats.lastFrameShadowMapUpdated ? QStringLiteral("yes") : QStringLiteral("no"));
+    setTableValue(profilerTable_, 70, QString::number(static_cast<qulonglong>(stats.shadowCandidateInstances)));
+    setTableValue(profilerTable_, 71, QString::number(static_cast<qulonglong>(stats.shadowPolicyRejectedInstances)));
+    setTableValue(profilerTable_, 72, QString::number(static_cast<qulonglong>(stats.shadowBatchesSubmitted)));
+    setTableValue(profilerTable_, 73, QString::number(static_cast<qulonglong>(stats.shadowInstancesSubmitted)));
+    setTableValue(profilerTable_, 74, QString::number(static_cast<qulonglong>(stats.shadowTrianglesSubmitted)));
 }
 
 } // namespace projectunity::editor

@@ -17,6 +17,12 @@ enum class RenderBackend : std::uint8_t {
     Vulkan,
 };
 
+enum class RenderShadowUpdateMode : std::uint8_t {
+    Live,
+    Frozen,
+    Off,
+};
+
 struct RendererConfig {
     std::string applicationName {"ProjectUnity"};
     bool enableValidation {true};
@@ -57,6 +63,11 @@ struct RendererStats {
     std::uint64_t visibleBatches {0};
     std::uint64_t resourcePrepared {0};
     std::uint64_t shadowCastersSubmitted {0};
+    std::uint64_t shadowCandidateInstances {0};
+    std::uint64_t shadowPolicyRejectedInstances {0};
+    std::uint64_t shadowBatchesSubmitted {0};
+    std::uint64_t shadowInstancesSubmitted {0};
+    std::uint64_t shadowTrianglesSubmitted {0};
     std::uint64_t vkBindVertex {0};
     std::uint64_t vkBindIndex {0};
     std::uint64_t vkBindDescriptors {0};
@@ -74,6 +85,8 @@ struct RendererStats {
     std::uint64_t lastFrameShadowViewCount {0};
     std::uint64_t lastFrameShadowBatchCount {0};
     std::uint64_t lastFrameShadowCulledBatchCount {0};
+    RenderShadowUpdateMode lastFrameShadowUpdateMode {RenderShadowUpdateMode::Live};
+    bool lastFrameShadowMapUpdated {false};
     std::uint64_t lastFrameRenderCpuTimeUs {0};
     std::uint64_t averageRenderCpuTimeUs {0};
     std::uint64_t lastFrameEditorBuildCpuTimeUs {0};
@@ -204,6 +217,7 @@ struct RenderFrame {
     RenderEnvironmentSettings environment;
     std::span<const RenderLight> lights;
     bool shadowsEnabled {false};
+    RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Live};
     std::uint32_t shadowLightIndex {0};
     std::uint32_t shadowViewCount {0};
     std::uint32_t shadowCascadeCount {0};
@@ -231,6 +245,8 @@ struct RenderFrame {
     std::uint64_t renderWorldBuildCpuTimeUs {0};
     std::uint64_t renderWorldRebuiltRecordCount {0};
     std::uint64_t renderWorldReusedRecordCount {0};
+    std::uint64_t shadowCandidateInstances {0};
+    std::uint64_t shadowPolicyRejectedInstances {0};
     std::span<const RenderMeshDraw> meshDraws;
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };

@@ -45,6 +45,8 @@ struct ViewportRenderWorldStats {
     std::uint64_t hlodMeshDrawCount {0};
     std::uint64_t hlodCandidateDrawCount {0};
     std::uint64_t hlodTriangleReductionCount {0};
+    std::uint64_t shadowCandidateInstances {0};
+    std::uint64_t shadowPolicyRejectedInstances {0};
     std::uint64_t largeRenderChunkCount {0};
     std::uint64_t largestRenderChunkTriangleCount {0};
     std::uint64_t largestRenderChunkInstanceCount {0};

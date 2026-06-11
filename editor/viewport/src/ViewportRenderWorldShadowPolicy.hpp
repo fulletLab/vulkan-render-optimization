@@ -13,6 +13,7 @@ void applyViewportShadowPolicy(
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     scene::EntityId selectedEntityId,
     const ViewportRenderWorldCamera& camera,
-    int viewportHeight);
+    int viewportHeight,
+    ViewportRenderWorldStats& stats);
 
 } // namespace projectunity::editor

@@ -775,7 +775,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     result.stats.culledTriangleCount = result.stats.candidateTriangleCount > visibleSourceTriangleCount
         ? result.stats.candidateTriangleCount - visibleSourceTriangleCount
         : 0U;
-    applyViewportShadowPolicy(meshDraws, selectedEntityId, camera, viewportHeight);
+    applyViewportShadowPolicy(meshDraws, selectedEntityId, camera, viewportHeight, result.stats);
     return result;
 }
 

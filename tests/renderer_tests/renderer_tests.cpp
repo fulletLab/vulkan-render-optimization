@@ -269,6 +269,12 @@ int main()
         || stats.visibleBatches != 0
         || stats.resourcePrepared != 0
         || stats.shadowCastersSubmitted != 0
+        || stats.shadowCandidateInstances != 0
+        || stats.shadowPolicyRejectedInstances != 0
+        || stats.shadowBatchesSubmitted != 0
+        || stats.shadowInstancesSubmitted != 0
+        || stats.shadowTrianglesSubmitted != 0
+        || stats.lastFrameShadowMapUpdated
         || stats.vkBindVertex != 0
         || stats.vkBindIndex != 0
         || stats.vkBindDescriptors != 0

@@ -16,6 +16,7 @@
 
 class QAction;
 class QActionGroup;
+class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
@@ -130,6 +131,7 @@ private:
     QLabel* performanceStatus_ {nullptr};
     QProgressBar* assetImportProgress_ {nullptr};
     QTableWidget* profilerTable_ {nullptr};
+    QComboBox* shadowModeCombo_ {nullptr};
     QDoubleSpinBox* skyColorR_ {nullptr};
     QDoubleSpinBox* skyColorG_ {nullptr};
     QDoubleSpinBox* skyColorB_ {nullptr};
@@ -150,6 +152,7 @@ private:
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
     renderer::RenderEnvironmentSettings environmentSettings_;
+    renderer::RenderShadowUpdateMode shadowUpdateMode_ {renderer::RenderShadowUpdateMode::Live};
     std::shared_ptr<const assets::TextureAsset> environmentTexture_;
     assets::AssetId environmentTextureId_;
     scene::EntityId selectedEntityId_;

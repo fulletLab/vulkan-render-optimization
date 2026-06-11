@@ -270,6 +270,8 @@ struct VulkanRenderer::Impl {
             stats.lastFrameShadowViewCount = profile.shadowViewCount;
             stats.lastFrameShadowBatchCount = profile.shadowBatchCount;
             stats.lastFrameShadowCulledBatchCount = profile.shadowCulledBatchCount;
+            stats.lastFrameShadowUpdateMode = profile.shadowUpdateMode;
+            stats.lastFrameShadowMapUpdated = profile.shadowMapUpdated;
             stats.lastFrameResourcePrepareCpuTimeUs = profile.resourcePrepareCpuTimeUs;
             stats.lastFrameCommandRecordCpuTimeUs = profile.commandRecordCpuTimeUs;
             stats.lastFrameShadowRecordCpuTimeUs = profile.shadowRecordCpuTimeUs;
@@ -277,6 +279,11 @@ struct VulkanRenderer::Impl {
             stats.lastFrameColorRecordCpuTimeUs = profile.colorRecordCpuTimeUs;
             stats.resourcePrepared = profile.resourcePrepared;
             stats.shadowCastersSubmitted = profile.shadowCastersSubmitted;
+            stats.shadowCandidateInstances = profile.shadowCandidateInstances;
+            stats.shadowPolicyRejectedInstances = profile.shadowPolicyRejectedInstances;
+            stats.shadowBatchesSubmitted = profile.shadowBatchesSubmitted;
+            stats.shadowInstancesSubmitted = profile.shadowInstancesSubmitted;
+            stats.shadowTrianglesSubmitted = profile.shadowTrianglesSubmitted;
             stats.lastFrameShadowCasterCount = profile.shadowCastersSubmitted;
             stats.vkBindVertex = profile.vkBindVertex;
             stats.vkBindIndex = profile.vkBindIndex;

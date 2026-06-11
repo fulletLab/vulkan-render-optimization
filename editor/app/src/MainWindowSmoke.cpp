@@ -9,6 +9,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QColor>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QImage>
 #include <QMenu>
@@ -51,6 +52,12 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " resourcePrepared=" << stats.resourcePrepared
         << " resourcePrepareMs=" << stats.resourcePrepareMs
         << " shadowCastersSubmitted=" << stats.shadowCastersSubmitted
+        << " shadowCandidateInstances=" << stats.shadowCandidateInstances
+        << " shadowPolicyRejectedInstances=" << stats.shadowPolicyRejectedInstances
+        << " shadowBatchesSubmitted=" << stats.shadowBatchesSubmitted
+        << " shadowInstancesSubmitted=" << stats.shadowInstancesSubmitted
+        << " shadowTrianglesSubmitted=" << stats.shadowTrianglesSubmitted
+        << " shadowGpuUs=" << stats.lastFrameShadowGpuTimeUs
         << " vkBindVertex=" << stats.vkBindVertex
         << " vkBindIndex=" << stats.vkBindIndex
         << " vkBindDescriptors=" << stats.vkBindDescriptors
@@ -305,8 +312,18 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             return fail(QStringLiteral("Imported NodePerformanceTest did not expose its camera as an editable child entity"));
         }
     }
-    if (skyColorR_ == nullptr || groundColorB_ == nullptr || environmentIntensity_ == nullptr || resetLightingButton_ == nullptr) {
+    if (skyColorR_ == nullptr
+        || groundColorB_ == nullptr
+        || environmentIntensity_ == nullptr
+        || shadowModeCombo_ == nullptr
+        || shadowModeCombo_->count() != 3
+        || resetLightingButton_ == nullptr) {
         return fail(QStringLiteral("Lighting panel environment controls were not created"));
+    }
+    shadowModeCombo_->setCurrentIndex(shadowModeCombo_->findData(static_cast<int>(renderer::RenderShadowUpdateMode::Frozen)));
+    if (sceneViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Frozen
+        || gameViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Frozen) {
+        return fail(QStringLiteral("Lighting shadow mode did not propagate to both viewports"));
     }
     QImage environmentImage(8, 4, QImage::Format_RGBA8888);
     for (int y = 0; y < environmentImage.height(); ++y) {
@@ -366,7 +383,10 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
         || environmentTextureId_.isValid()
         || environmentSettings_.skyColor != defaultEnvironment.skyColor
         || environmentSettings_.groundColor != defaultEnvironment.groundColor
-        || environmentSettings_.intensity != defaultEnvironment.intensity) {
+        || environmentSettings_.intensity != defaultEnvironment.intensity
+        || shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Live
+        || sceneViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Live
+        || gameViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Live) {
         return fail(QStringLiteral("Lighting reset defaults did not restore procedural environment state"));
     }
 

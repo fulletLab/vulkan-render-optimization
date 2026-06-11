@@ -170,6 +170,18 @@ struct ViewportCameraFrame {
 };
 
 } // namespace
+
+void ViewportWidget::setShadowUpdateMode(renderer::RenderShadowUpdateMode mode)
+{
+    shadowUpdateMode_ = mode;
+    update();
+}
+
+renderer::RenderShadowUpdateMode ViewportWidget::shadowUpdateMode() const noexcept
+{
+    return shadowUpdateMode_;
+}
+
 bool ViewportWidget::ensureRendererSurface()
 {
     if (rendererSurfaceResizePending_) {
@@ -351,6 +363,8 @@ bool ViewportWidget::renderRendererFrame()
         frame.renderWorldBuildCpuTimeUs = elapsedUs(renderWorldStart);
         frame.renderWorldRebuiltRecordCount = renderWorldFrame.stats.rebuiltRecordCount;
         frame.renderWorldReusedRecordCount = renderWorldFrame.stats.reusedRecordCount;
+        frame.shadowCandidateInstances = renderWorldFrame.stats.shadowCandidateInstances;
+        frame.shadowPolicyRejectedInstances = renderWorldFrame.stats.shadowPolicyRejectedInstances;
         hasMeshSceneContent = renderWorldFrame.hasMeshSceneContent;
         frame.sceneNodeCount = renderWorldFrame.stats.sceneNodeCount;
         frame.renderChunkCount = renderWorldFrame.stats.renderChunkCount;
@@ -394,10 +408,22 @@ bool ViewportWidget::renderRendererFrame()
             return draw.castsShadow
                 && !(draw.material != nullptr && draw.material->alphaMode == assets::MaterialAlphaMode::Blend);
         });
-    const auto shadowSelection = hasVisibleShadowCaster
+    auto shadowSelection = hasVisibleShadowCaster
         ? renderer::chooseShadowMap(frame.lights, frame.visibleBoundsCenter, frame.visibleBoundsRadius)
         : renderer::RenderShadowMapSelection {};
-    if (hasVisibleShadowCaster && shadowSelection.enabled) {
+    if (shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Frozen) {
+        if (frozenShadowSelection_.has_value()) {
+            shadowSelection = *frozenShadowSelection_;
+        } else if (shadowSelection.enabled) {
+            frozenShadowSelection_ = shadowSelection;
+        }
+    } else if (shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Live && shadowSelection.enabled) {
+        frozenShadowSelection_ = shadowSelection;
+    }
+    frame.shadowUpdateMode = shadowUpdateMode_;
+    if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
+        && hasVisibleShadowCaster
+        && shadowSelection.enabled) {
         frame.shadowViewProjection = shadowSelection.viewProjection;
         frame.shadowViewProjections = shadowSelection.viewProjections;
         frame.shadowCascadeSplits = shadowSelection.cascadeSplits;

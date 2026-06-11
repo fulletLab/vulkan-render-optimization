@@ -616,9 +616,11 @@ void MainWindow::pushLightingSettingsToViewports()
     environmentSettings_.sourceTexture = environmentTexture_.get();
     if (sceneViewport_ != nullptr) {
         sceneViewport_->setEnvironmentSettings(environmentSettings_);
+        sceneViewport_->setShadowUpdateMode(shadowUpdateMode_);
     }
     if (gameViewport_ != nullptr) {
         gameViewport_->setEnvironmentSettings(environmentSettings_);
+        gameViewport_->setShadowUpdateMode(shadowUpdateMode_);
     }
 }
 
