@@ -1,5 +1,6 @@
 #include "ViewportRenderWorldSelection.hpp"
 
+#include "ViewportRenderWorldProxy.hpp"
 #include "ViewportRendererCulling.hpp"
 
 #include <cmath>
@@ -136,16 +137,19 @@ void appendSelectedPrimitiveOverrideDraw(
     std::uint64_t& visibleSourceTriangleCount)
 {
     const auto* entity = selectedEntityId.isValid() ? scene.findEntity(selectedEntityId) : nullptr;
-    if (entity == nullptr || !entity->meshRenderer.has_value() || !entity->meshRenderer->primitiveInstanceIndex.has_value()) {
+    if (entity == nullptr || !entity->meshRenderer.has_value()) {
         return;
     }
     const auto model = assetManager.model(entity->meshRenderer->modelAssetId);
-    const auto instanceIndex = *entity->meshRenderer->primitiveInstanceIndex;
     const auto selectedPosition = entityWorldPosition(scene, entity->id);
-    if (model == nullptr || !selectedPosition.has_value() || instanceIndex >= model->primitiveInstances.size()) {
+    if (model == nullptr || !selectedPosition.has_value()) {
         return;
     }
-    const auto& source = model->primitiveInstances[instanceIndex];
+    const auto instanceIndex = primitiveInstanceIndexForProxy(*model, *entity->meshRenderer);
+    if (!instanceIndex.has_value() || *instanceIndex >= model->primitiveInstances.size()) {
+        return;
+    }
+    const auto& source = model->primitiveInstances[*instanceIndex];
     if (source.primitiveIndex >= model->primitives.size()) {
         return;
     }
@@ -196,8 +200,8 @@ void appendSelectedPrimitiveOverrideDraw(
         multiply(viewProjection, matrix),
         source.flipsWinding,
         true,
-        mixHash(entity->id.value(), mixHash(source.primitiveIndex, instanceIndex)),
-        mixHash(entity->id.value(), instanceIndex),
+        mixHash(entity->id.value(), mixHash(source.primitiveIndex, *instanceIndex)),
+        mixHash(entity->id.value(), *instanceIndex),
         entity->id.value(),
     });
 }

@@ -2,6 +2,7 @@
 
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldProxy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 #include "ViewportRenderWorldSelection.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
@@ -426,12 +427,18 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     for (const auto& entity : scene->entities()) {
         if (entity.meshRenderer.has_value()
             && !entity.meshRenderer->renderable
-            && entity.meshRenderer->primitiveInstanceIndex.has_value()
             && entity.id != selectedEntityId) {
+            const auto proxyModel = assetManager->model(entity.meshRenderer->modelAssetId);
+            const auto proxyPrimitiveIndex = proxyModel == nullptr
+                ? std::optional<std::uint32_t> {}
+                : primitiveInstanceIndexForProxy(*proxyModel, *entity.meshRenderer);
+            if (!proxyPrimitiveIndex.has_value()) {
+                continue;
+            }
             primitiveProxyEntities.insert_or_assign(
                 primitiveProxyKey({
                     entity.meshRenderer->modelAssetId.value(),
-                    *entity.meshRenderer->primitiveInstanceIndex,
+                    *proxyPrimitiveIndex,
                 }),
                 &entity);
         }
@@ -520,14 +527,18 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     ViewportFrameBounds visibleBounds;
     std::uint64_t visibleSourceTriangleCount = 0;
     const auto selectedPrimitiveEntity = selectedEntityId.isValid() ? scene->findEntity(selectedEntityId) : nullptr;
-    const auto selectedPrimitiveModel = selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()
-            && selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex.has_value()
-        ? selectedPrimitiveEntity->meshRenderer->modelAssetId
-        : assets::AssetId {};
-    const auto selectedPrimitiveIndex = selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()
-            && selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex.has_value()
-        ? *selectedPrimitiveEntity->meshRenderer->primitiveInstanceIndex
-        : UINT32_MAX;
+    assets::AssetId selectedPrimitiveModel;
+    auto selectedPrimitiveIndex = UINT32_MAX;
+    if (selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()) {
+        const auto selectedModel = assetManager->model(selectedPrimitiveEntity->meshRenderer->modelAssetId);
+        const auto selectedIndex = selectedModel == nullptr
+            ? std::optional<std::uint32_t> {}
+            : primitiveInstanceIndexForProxy(*selectedModel, *selectedPrimitiveEntity->meshRenderer);
+        if (selectedIndex.has_value()) {
+            selectedPrimitiveModel = selectedPrimitiveEntity->meshRenderer->modelAssetId;
+            selectedPrimitiveIndex = *selectedIndex;
+        }
+    }
     ViewportFrameBounds allChunkBounds;
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {

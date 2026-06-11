@@ -80,6 +80,13 @@ runtime cache replacement, or a full editor rewrite.
   of detailed chunk draws; selecting an individual imported part keeps the real editable
   chunk path active. The Profiler exposes active/available HLOD draws and skipped source
   triangles.
+- Editable-part/HLOD correction note: imported model children now prefer renderable
+  `primitiveInstanceIndex` proxies, and RenderWorld still resolves legacy
+  `editorInstanceIndex` proxies where they map cleanly. This keeps transform gizmos tied
+  to the Vulkan draw that actually moves, preserves full-resolution selected-part draws
+  over the coarse overview, and lowers the overview threshold so medium maps around the
+  30 MB class can receive the same renderer-only relief that already helped the 400 MB
+  terrain case.
 
 ## Blocking Renderer Status
 

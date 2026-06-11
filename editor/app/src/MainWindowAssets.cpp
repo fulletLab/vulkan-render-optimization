@@ -228,12 +228,15 @@ void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
         if (scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
             attachedMeshRenderer = true;
         }
-        if (model->editorInstances.size() > 1U) {
-            for (std::size_t index = 0; index < model->editorInstances.size(); ++index) {
-                const auto& instance = model->editorInstances[index];
-                const auto partName = instance.name.empty()
+        if (model->primitiveInstances.size() > 1U) {
+            for (std::size_t index = 0; index < model->primitiveInstances.size(); ++index) {
+                const auto& instance = model->primitiveInstances[index];
+                const auto editorName = index < model->editorInstances.size()
+                    ? model->editorInstances[index].name
+                    : std::string {};
+                const auto partName = editorName.empty()
                     ? record.displayName + " Part " + std::to_string(index + 1U)
-                    : instance.name;
+                    : editorName;
                 auto& part = scene_.createEntity(
                     partName,
                     importedId);
@@ -241,7 +244,7 @@ void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
                 transform.position = instance.bounds.center;
                 (void)scene_.setTransform(part.id, transform);
                 scene::MeshRendererComponent partRenderer {record.id};
-                partRenderer.editorInstanceIndex = static_cast<std::uint32_t>(index);
+                partRenderer.primitiveInstanceIndex = static_cast<std::uint32_t>(index);
                 partRenderer.renderable = false;
                 if (!scene_.setMeshRenderer(part.id, partRenderer)) {
                     core::logError(core::LogCategory::Assets, "Editor failed to attach imported model part to a scene entity");

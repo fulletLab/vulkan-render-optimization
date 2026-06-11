@@ -122,8 +122,9 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
 
 void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
 {
-    constexpr std::uint64_t kOverviewMinSourceTriangles = 250'000ULL;
-    constexpr std::uint64_t kOverviewTargetTriangles = 300'000ULL;
+    constexpr std::uint64_t kOverviewMinSourceTriangles = 64'000ULL;
+    constexpr std::uint64_t kOverviewMinTargetTriangles = 48'000ULL;
+    constexpr std::uint64_t kOverviewMaxTargetTriangles = 300'000ULL;
     constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
 
     ViewportFrameBounds bounds;
@@ -179,9 +180,13 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
         }
         overviewCandidateTriangles += indices->size() / 3U;
     }
+    const auto overviewTargetTriangles = std::clamp<std::uint64_t>(
+        record.sourceTriangleCount / 4U,
+        kOverviewMinTargetTriangles,
+        kOverviewMaxTargetTriangles);
     const auto overviewTriangleStride = std::max<std::uint64_t>(
         1U,
-        (overviewCandidateTriangles + kOverviewTargetTriangles - 1U) / kOverviewTargetTriangles);
+        (overviewCandidateTriangles + overviewTargetTriangles - 1U) / overviewTargetTriangles);
     std::uint64_t overviewTriangleOrdinal = 0;
     for (const auto& instance : record.instances) {
         if (instance.primitiveIndex >= instance.model->primitives.size()) {

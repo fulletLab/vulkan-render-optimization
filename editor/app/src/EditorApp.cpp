@@ -4,9 +4,12 @@
 #include <projectunity/editor/MainWindow.hpp>
 
 #include <QApplication>
+#include <QColor>
 #include <QFile>
+#include <QPalette>
 #include <QString>
 #include <QStringList>
+#include <QStyleFactory>
 
 #include <iostream>
 
@@ -17,9 +20,30 @@ int runEditor(int argc, char** argv)
     QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 
     QApplication app(argc, argv);
+    app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     QApplication::setApplicationName("ProjectUnity Editor");
     QApplication::setOrganizationName("ProjectUnity");
     QApplication::setOrganizationDomain("projectunity.local");
+
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor(26, 29, 34));
+    palette.setColor(QPalette::WindowText, QColor(226, 231, 240));
+    palette.setColor(QPalette::Base, QColor(20, 23, 28));
+    palette.setColor(QPalette::AlternateBase, QColor(29, 33, 39));
+    palette.setColor(QPalette::ToolTipBase, QColor(38, 44, 52));
+    palette.setColor(QPalette::ToolTipText, QColor(238, 242, 248));
+    palette.setColor(QPalette::Text, QColor(226, 231, 240));
+    palette.setColor(QPalette::Button, QColor(42, 47, 56));
+    palette.setColor(QPalette::ButtonText, QColor(238, 242, 248));
+    palette.setColor(QPalette::BrightText, QColor(255, 118, 118));
+    palette.setColor(QPalette::Highlight, QColor(45, 126, 214));
+    palette.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+    palette.setColor(QPalette::Link, QColor(99, 164, 255));
+    palette.setColor(QPalette::PlaceholderText, QColor(130, 140, 154));
+    palette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(105, 113, 126));
+    palette.setColor(QPalette::Disabled, QPalette::Text, QColor(105, 113, 126));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(105, 113, 126));
+    app.setPalette(palette);
 
     QFile themeFile(":/themes/unity_dark.qss");
     if (themeFile.open(QFile::ReadOnly | QFile::Text)) {

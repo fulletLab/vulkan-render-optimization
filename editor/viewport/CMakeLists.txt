@@ -27,6 +27,7 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportRenderWorldDiagnostics.cpp
     src/ViewportRenderWorldDiagnostics.hpp
     src/ViewportRenderWorldOverview.cpp
+    src/ViewportRenderWorldProxy.hpp
     src/ViewportRenderWorldRecord.hpp
     src/ViewportRenderWorldSelection.cpp
     src/ViewportRenderWorldSelection.hpp

@@ -173,6 +173,7 @@ void MainWindow::createDockLayout()
 {
     ads::CDockManager::setConfigFlags(ads::CDockManager::DefaultOpaqueConfig);
     dockManager_ = new ads::CDockManager(this);
+    dockManager_->setStyleSheet(qApp->styleSheet());
 
     auto* hierarchyDock = createDockWidget(QStringLiteral("Hierarchy"), createHierarchyPanel());
     auto* inspectorDock = createDockWidget(QStringLiteral("Inspector"), createInspectorPanel());

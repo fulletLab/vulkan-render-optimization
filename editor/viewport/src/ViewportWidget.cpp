@@ -700,6 +700,9 @@ bool ViewportWidget::applySelectedGizmoTransform(const EditorGizmoTransform& tra
         return false;
     }
 
+    if (renderWorld_ != nullptr) {
+        renderWorld_->markDirty();
+    }
     if (transformEditedCallback_) {
         transformEditedCallback_(selectedEntityId_);
     }

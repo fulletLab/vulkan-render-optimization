@@ -245,8 +245,7 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
                 const auto* child = scene_.findEntity(childId);
                 return child != nullptr
                     && child->meshRenderer.has_value()
-                    && (child->meshRenderer->primitiveInstanceIndex.has_value()
-                        || child->meshRenderer->editorInstanceIndex.has_value())
+                    && child->meshRenderer->primitiveInstanceIndex.has_value()
                     && !child->meshRenderer->renderable;
             });
         if (!splitImport.success
@@ -254,7 +253,7 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             || !splitRoot->meshRenderer.has_value()
             || !splitRoot->meshRenderer->renderable
             || !splitHasPartChild) {
-            return fail(QStringLiteral("Imported multi-instance model did not create a batched root with selectable non-rendering part children"));
+            return fail(QStringLiteral("Imported multi-instance model did not create selectable render-instance part children"));
         }
     }
     const auto cameraImportPath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
