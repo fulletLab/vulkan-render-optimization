@@ -248,6 +248,9 @@ struct VulkanRenderer::Impl {
             stats.lastFrameVisibleRenderChunkCount = frame.visibleRenderChunkCount;
             stats.lastFrameRenderInstanceCount = frame.renderInstanceCount;
             stats.lastFrameVisibleRenderInstanceCount = frame.visibleRenderInstanceCount;
+            stats.objectsConsidered = frame.candidateMeshDrawCount;
+            stats.passedFrustum = frame.visibleRenderInstanceCount;
+            stats.visibleBatches = existing->second->lastMeshBatchCount();
             stats.lastFrameLargeRenderChunkCount = frame.largeRenderChunkCount;
             stats.lastFrameLargestRenderChunkTriangleCount = frame.largestRenderChunkTriangleCount;
             stats.lastFrameLargestRenderChunkInstanceCount = frame.largestRenderChunkInstanceCount;
@@ -272,6 +275,17 @@ struct VulkanRenderer::Impl {
             stats.lastFrameShadowRecordCpuTimeUs = profile.shadowRecordCpuTimeUs;
             stats.lastFrameMeshRecordCpuTimeUs = profile.meshRecordCpuTimeUs;
             stats.lastFrameColorRecordCpuTimeUs = profile.colorRecordCpuTimeUs;
+            stats.resourcePrepared = profile.resourcePrepared;
+            stats.shadowCastersSubmitted = profile.shadowCastersSubmitted;
+            stats.lastFrameShadowCasterCount = profile.shadowCastersSubmitted;
+            stats.vkBindVertex = profile.vkBindVertex;
+            stats.vkBindIndex = profile.vkBindIndex;
+            stats.vkBindDescriptors = profile.vkBindDescriptors;
+            stats.vkDrawIndexed = profile.vkDrawIndexed;
+            stats.trianglesSubmitted = profile.trianglesSubmitted;
+            stats.commandRecordingMs = static_cast<double>(profile.commandRecordCpuTimeUs) / 1000.0;
+            stats.resourcePrepareMs = static_cast<double>(profile.resourcePrepareCpuTimeUs) / 1000.0;
+            stats.FPS = frameElapsedUs > 0 ? 1'000'000.0 / static_cast<double>(frameElapsedUs) : 0.0;
             stats.gpuTimestampsSupported = profile.gpuTimestampsSupported;
             stats.lastFrameGpuTimestampsValid = profile.gpuTimestampsValid;
             stats.lastFrameGpuTimeUs = profile.frameGpuTimeUs;
@@ -297,16 +311,13 @@ struct VulkanRenderer::Impl {
             stats.totalStaticUploadBytes = meshCache.uploadedBytes() + textureCache.uploadedBytes();
             stats.totalColorUploadBytes += dynamicColorBytes;
             for (const auto& draw : frame.meshDraws) {
-                if (frame.shadowsEnabled && draw.castsShadow && !isTransparentMeshDraw(draw)) {
-                    ++stats.lastFrameShadowCasterCount;
-                }
                 if (draw.baseColorTexture != nullptr && draw.baseColorTexture->id.isValid()) {
                     ++stats.texturedMeshDrawsPresented;
                 }
             }
             if (frame.shadowsEnabled) {
                 ++stats.shadowFramesPresented;
-                stats.shadowCasterDrawsPresented += stats.lastFrameShadowCasterCount;
+                stats.shadowCasterDrawsPresented += stats.shadowCastersSubmitted;
             }
         }
         return rendered;

@@ -35,13 +35,8 @@ struct LodBudgetCandidate {
     std::uint64_t visibleTriangles,
     std::uint64_t candidateTriangles) noexcept
 {
-    if (candidateTriangles >= 90'000'000ULL || visibleTriangles >= 4'000'000ULL) {
-        return 900'000ULL;
-    }
-    if (candidateTriangles >= 45'000'000ULL || visibleTriangles >= 2'500'000ULL) {
-        return 1'250'000ULL;
-    }
-    return 2'000'000ULL;
+    (void)candidateTriangles;
+    return visibleTriangles;
 }
 
 [[nodiscard]] std::uint32_t coarserViewportLod(const assets::MeshPrimitive& primitive, std::uint32_t currentLod) noexcept

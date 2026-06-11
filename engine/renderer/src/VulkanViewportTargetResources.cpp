@@ -82,6 +82,7 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
             return false;
         }
         preparedBatches.push_back(batch);
+        ++lastFrameProfile_.resourcePrepared;
     }
     meshBatches_ = std::move(preparedBatches);
     return true;

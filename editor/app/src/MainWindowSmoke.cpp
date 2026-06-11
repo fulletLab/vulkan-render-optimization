@@ -24,8 +24,10 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
+#include <sstream>
 #include <thread>
 
 namespace projectunity::editor {
@@ -36,6 +38,33 @@ constexpr int kLayoutVersion = 1;
 [[nodiscard]] QString pathToQString(const std::filesystem::path& path)
 {
     return QString::fromStdWString(path.wstring());
+}
+
+void printFrameCounters(const char* label, const renderer::RendererStats& stats)
+{
+    std::ostringstream line;
+    line << label
+        << ": drawCalls=" << stats.lastFrameMeshDrawCount
+        << " objectsConsidered=" << stats.objectsConsidered
+        << " passedFrustum=" << stats.passedFrustum
+        << " visibleBatches=" << stats.visibleBatches
+        << " resourcePrepared=" << stats.resourcePrepared
+        << " resourcePrepareMs=" << stats.resourcePrepareMs
+        << " shadowCastersSubmitted=" << stats.shadowCastersSubmitted
+        << " vkBindVertex=" << stats.vkBindVertex
+        << " vkBindIndex=" << stats.vkBindIndex
+        << " vkBindDescriptors=" << stats.vkBindDescriptors
+        << " vkDrawIndexed=" << stats.vkDrawIndexed
+        << " trianglesSubmitted=" << stats.trianglesSubmitted
+        << " commandRecordingMs=" << stats.commandRecordingMs
+        << " FPS=" << stats.FPS
+        << '\n';
+    std::cerr << line.str();
+    const auto logPath = qEnvironmentVariable("PROJECTUNITY_COUNTER_LOG");
+    if (!logPath.isEmpty()) {
+        std::ofstream log(logPath.toStdWString(), std::ios::app);
+        log << line.str();
+    }
 }
 
 } // namespace
@@ -444,12 +473,9 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
             || stats.lastFrameShadowViewCount == static_cast<std::uint64_t>(renderer::kMaxShadowCascades);
         sawPointCubemap = sawPointCubemap || stats.lastFrameShadowViewCount == 6U;
         if (QString::fromUtf8(assetName) == QStringLiteral("NodePerformanceTest.glb")) {
-            const auto exercisedLargeSceneShadowOrHlod = stats.lastFrameHlodMeshDrawCount > 0U
-                || stats.lastFrameShadowBatchCount + stats.lastFrameShadowCulledBatchCount > 0U;
+            printFrameCounters("NodePerformanceTest facing map", stats);
             sawLargeScene = stats.lastFrameCandidateTriangleCount > 10000U
                 && stats.lastFrameMeshBatchCount > 0U
-                && stats.lastFrameLodTriangleReductionCount > 0U
-                && exercisedLargeSceneShadowOrHlod
                 && stats.lastFrameRenderChunkCount > 0U
                 && stats.lastFrameVisibleRenderChunkCount > 0U
                 && stats.lastFrameRenderInstanceCount > 0U
@@ -471,6 +497,7 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
                 QApplication::processEvents();
             }
             const auto awayStats = renderer_->stats();
+            printFrameCounters("NodePerformanceTest facing empty space", awayStats);
             sawRenderWorldLookAwayCull = awayStats.lastFrameVisibleRenderChunkCount < stats.lastFrameVisibleRenderChunkCount
                 && awayStats.lastFrameVisibleRenderInstanceCount < stats.lastFrameVisibleRenderInstanceCount
                 && awayStats.lastFrameMeshDrawCount < stats.lastFrameMeshDrawCount
@@ -578,6 +605,7 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
         const auto moveWallTimeUs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - moveStart).count());
         const auto movedStats = renderer_->stats();
+        printFrameCounters("External asset facing map", movedStats);
         (void)scene_.setTransform(selectedEntityId_, originalTransform);
 
         std::cerr
@@ -609,6 +637,7 @@ bool MainWindow::runPhase6VisualChecks(QString* errorMessage)
             QApplication::processEvents();
         }
         const auto awayStats = renderer_->stats();
+        printFrameCounters("External asset facing empty space", awayStats);
         std::cerr
             << "External Phase 6 look-away profile: visibleChunks=" << movedStats.lastFrameVisibleRenderChunkCount
             << "->" << awayStats.lastFrameVisibleRenderChunkCount

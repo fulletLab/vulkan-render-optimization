@@ -15,6 +15,7 @@
 namespace projectunity::editor {
 
 struct ViewportFrameBounds;
+class ViewportSceneEntityLookup;
 
 struct ViewportRenderWorldCamera {
     math::Vec3 eye;
@@ -89,7 +90,7 @@ private:
     struct EntityRecord;
 
     [[nodiscard]] std::shared_ptr<EntityRecord> buildEntityRecord(
-        const scene::Scene& scene,
+        const ViewportSceneEntityLookup& entityLookup,
         const assets::IAssetManager& assetManager,
         const scene::Entity& entity,
         const std::unordered_map<std::uint64_t, const scene::Entity*>& primitiveProxyEntities,

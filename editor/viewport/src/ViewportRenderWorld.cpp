@@ -8,6 +8,7 @@
 #include "ViewportRenderWorldSelection.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
 #include "ViewportRendererCulling.hpp"
+#include "ViewportSceneLookup.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,11 +22,6 @@
 
 namespace projectunity::editor {
 namespace {
-
-struct PrimitiveProxyKey {
-    std::uint64_t modelAssetId {0};
-    std::uint32_t primitiveInstanceIndex {0};
-};
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
@@ -45,11 +41,6 @@ struct PrimitiveProxyKey {
     seed = mixHash(seed, floatBits(value.x));
     seed = mixHash(seed, floatBits(value.y));
     return mixHash(seed, floatBits(value.z));
-}
-
-[[nodiscard]] std::uint64_t primitiveProxyKey(PrimitiveProxyKey key) noexcept
-{
-    return mixHash(key.modelAssetId, key.primitiveInstanceIndex);
 }
 
 [[nodiscard]] float& matrixAt(renderer::RenderMatrix4& matrix, int row, int column)
@@ -136,22 +127,6 @@ struct PrimitiveProxyKey {
     return matrix;
 }
 
-[[nodiscard]] std::optional<math::Vec3> entityWorldPosition(const scene::Scene& scene, scene::EntityId id)
-{
-    math::Vec3 position {0.0F, 0.0F, 0.0F};
-    std::optional<scene::EntityId> currentId = id;
-    std::size_t guard = 0;
-    while (currentId.has_value() && guard++ < 128U) {
-        const auto* entity = scene.findEntity(*currentId);
-        if (entity == nullptr) {
-            return std::nullopt;
-        }
-        position = position + entity->transform.position;
-        currentId = entity->parent;
-    }
-    return position;
-}
-
 [[nodiscard]] float maxAbsScale(math::Vec3 scale)
 {
     return std::max({std::fabs(scale.x), std::fabs(scale.y), std::fabs(scale.z)});
@@ -223,7 +198,7 @@ void ViewportRenderWorld::markDirty() noexcept
 }
 
 std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEntityRecord(
-    const scene::Scene& scene,
+    const ViewportSceneEntityLookup& entityLookup,
     const assets::IAssetManager& assetManager,
     const scene::Entity& entity,
     const std::unordered_map<std::uint64_t, const scene::Entity*>& primitiveProxyEntities,
@@ -233,7 +208,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
         return nullptr;
     }
     const auto model = assetManager.model(entity.meshRenderer->modelAssetId);
-    const auto worldPosition = entityWorldPosition(scene, entity.id);
+    const auto worldPosition = entityLookup.worldPosition(entity.id);
     if (model == nullptr || !worldPosition.has_value()) {
         return nullptr;
     }
@@ -312,11 +287,11 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
             const auto& source = model->primitiveInstances[index];
             auto sceneNodeId = entity.id;
             auto matrix = multiply(entityModelMatrix, renderMatrix(source.transform));
-            const auto proxyIt = primitiveProxyEntities.find(primitiveProxyKey({model->id.value(), index}));
+            const auto proxyIt = primitiveProxyEntities.find(primitiveProxyKey({entity.id.value(), model->id.value(), index}));
             if (proxyIt != primitiveProxyEntities.end() && proxyIt->second != nullptr) {
                 sceneNodeId = proxyIt->second->id;
                 if (!defaultPrimitiveProxyTransform(proxyIt->second->transform, source.bounds.center)) {
-                    const auto proxyPosition = entityWorldPosition(scene, proxyIt->second->id);
+                    const auto proxyPosition = entityLookup.worldPosition(proxyIt->second->id);
                     if (proxyPosition.has_value()) {
                         const auto proxyMatrix = modelMatrix(*proxyIt->second, *proxyPosition);
                         matrix = multiply(
@@ -412,6 +387,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         return result;
     }
     result.stats.sceneNodeCount = scene->entityCount();
+    const ViewportSceneEntityLookup entityLookup(*scene);
     bool recordsChanged = false;
     if (scene_ != scene || assetManager_ != assetManager || dirty_) {
         records_.clear();
@@ -424,6 +400,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     }
 
     std::unordered_map<std::uint64_t, const scene::Entity*> primitiveProxyEntities;
+    std::unordered_map<std::uint64_t, std::vector<const scene::Entity*>> primitiveProxyEntitiesByOwner;
     primitiveProxyEntities.reserve(scene->entityCount());
     for (const auto& entity : scene->entities()) {
         if (entity.meshRenderer.has_value()
@@ -436,12 +413,12 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             if (!proxyPrimitiveIndex.has_value()) {
                 continue;
             }
-            primitiveProxyEntities.insert_or_assign(
-                primitiveProxyKey({
-                    entity.meshRenderer->modelAssetId.value(),
-                    *proxyPrimitiveIndex,
-                }),
-                &entity);
+            const auto ownerId = entityLookup.primitiveProxyOwnerEntityId(entity);
+            if (!ownerId.has_value()) {
+                continue;
+            }
+            primitiveProxyEntitiesByOwner[ownerId->value()].push_back(&entity);
+            primitiveProxyEntities.insert_or_assign(primitiveProxyKey({ownerId->value(), entity.meshRenderer->modelAssetId.value(), *proxyPrimitiveIndex}), &entity);
         }
     }
 
@@ -450,7 +427,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     orderedRecords_.clear();
     for (const auto& entity : scene->entities()) {
         if (entity.light.has_value()) {
-            const auto worldPosition = entityWorldPosition(*scene, entity.id);
+            const auto worldPosition = entityLookup.worldPosition(entity.id);
             if (!worldPosition.has_value()) {
                 continue;
             }
@@ -474,34 +451,43 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         if (!entity.meshRenderer.has_value() || !entity.meshRenderer->renderable) {
             continue;
         }
-        const auto worldPosition = entityWorldPosition(*scene, entity.id);
+        const auto worldPosition = entityLookup.worldPosition(entity.id);
         if (!worldPosition.has_value()) {
             continue;
         }
         const auto model = assetManager->model(entity.meshRenderer->modelAssetId);
         auto signature = hashEntitySignature(entity, *worldPosition, model.get());
-        for (const auto& [key, proxy] : primitiveProxyEntities) {
-            if (proxy == nullptr || !proxy->meshRenderer.has_value()) {
-                continue;
+        const auto ownerProxyIt = primitiveProxyEntitiesByOwner.find(entity.id.value());
+        if (ownerProxyIt != primitiveProxyEntitiesByOwner.end()) {
+            for (const auto* proxy : ownerProxyIt->second) {
+                if (proxy == nullptr || !proxy->meshRenderer.has_value()) {
+                    continue;
+                }
+                if (proxy->meshRenderer->modelAssetId != entity.meshRenderer->modelAssetId) {
+                    continue;
+                }
+                const auto proxyPrimitiveIndex = model == nullptr
+                    ? std::optional<std::uint32_t> {}
+                    : primitiveInstanceIndexForProxy(*model, *proxy->meshRenderer);
+                if (!proxyPrimitiveIndex.has_value()) {
+                    continue;
+                }
+                const auto proxyPosition = entityLookup.worldPosition(proxy->id);
+                signature = mixHash(signature, primitiveProxyKey({entity.id.value(), proxy->meshRenderer->modelAssetId.value(), *proxyPrimitiveIndex}));
+                if (proxyPosition.has_value()) {
+                    signature = hashVec3(signature, *proxyPosition);
+                }
+                signature = hashVec3(signature, proxy->transform.position);
+                signature = hashVec3(signature, proxy->transform.rotationEuler);
+                signature = hashVec3(signature, proxy->transform.scale);
             }
-            if (proxy->meshRenderer->modelAssetId != entity.meshRenderer->modelAssetId) {
-                continue;
-            }
-            const auto proxyPosition = entityWorldPosition(*scene, proxy->id);
-            signature = mixHash(signature, key);
-            if (proxyPosition.has_value()) {
-                signature = hashVec3(signature, *proxyPosition);
-            }
-            signature = hashVec3(signature, proxy->transform.position);
-            signature = hashVec3(signature, proxy->transform.rotationEuler);
-            signature = hashVec3(signature, proxy->transform.scale);
         }
 
         const auto recordKey = entity.id.value();
         visited.insert(recordKey);
         auto recordIt = records_.find(recordKey);
         if (recordIt == records_.end() || recordIt->second == nullptr || recordIt->second->signature != signature) {
-            auto record = buildEntityRecord(*scene, *assetManager, entity, primitiveProxyEntities, signature);
+            auto record = buildEntityRecord(entityLookup, *assetManager, entity, primitiveProxyEntities, signature);
             if (record != nullptr) {
                 auto [insertIt, inserted] = records_.insert_or_assign(recordKey, std::move(record));
                 orderedRecords_.push_back(insertIt->second.get());
@@ -527,7 +513,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
 
     ViewportFrameBounds visibleBounds;
     std::uint64_t visibleSourceTriangleCount = 0;
-    const auto selectedPrimitiveEntity = selectedEntityId.isValid() ? scene->findEntity(selectedEntityId) : nullptr;
+    const auto selectedPrimitiveEntity = selectedEntityId.isValid() ? entityLookup.find(selectedEntityId) : nullptr;
     assets::AssetId selectedPrimitiveModel;
     auto selectedPrimitiveIndex = UINT32_MAX;
     if (selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()) {

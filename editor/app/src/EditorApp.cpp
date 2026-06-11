@@ -131,6 +131,26 @@ int runEditor(int argc, char** argv)
         return 0;
     }
 
+    if (QCoreApplication::arguments().contains(QStringLiteral("--phase6-culling-profile"))) {
+        mainWindow.show();
+        applyDarkWindowFrame(mainWindow);
+        QApplication::processEvents();
+
+        QString errorMessage;
+        const bool passed = mainWindow.runPhase6CullingProfile(&errorMessage);
+        mainWindow.close();
+        QApplication::processEvents();
+
+        if (!passed) {
+            core::logError(core::LogCategory::Editor, errorMessage.toStdString());
+            std::cerr << errorMessage.toStdString() << '\n';
+            return 2;
+        }
+
+        core::logInfo(core::LogCategory::Editor, "Phase 6 culling profile passed");
+        return 0;
+    }
+
     mainWindow.show();
     applyDarkWindowFrame(mainWindow);
 

@@ -29,7 +29,9 @@ qt_add_executable(projectunity_editor
     src/EditorApp.cpp
     src/MainWindow.cpp
     src/MainWindowAssets.cpp
+    src/MainWindowCullingProfile.cpp
     src/MainWindowPanels.cpp
+    src/MainWindowProfiler.cpp
     src/MainWindowSmoke.cpp
     include/projectunity/editor/EditorApp.hpp
     include/projectunity/editor/MainWindow.hpp

@@ -387,11 +387,17 @@ bool ViewportWidget::renderRendererFrame()
         frame.visibleBoundsRadius = std::max(camera_.distance, 1.0F);
     }
     frame.lights = std::span<const renderer::RenderLight>(rendererLights_);
-    const auto shadowSelection = renderer::chooseShadowMap(
-        frame.lights,
-        frame.visibleBoundsCenter,
-        frame.visibleBoundsRadius);
-    if (shadowSelection.enabled) {
+    const auto hasVisibleShadowCaster = std::any_of(
+        rendererMeshDraws_.begin(),
+        rendererMeshDraws_.end(),
+        [](const renderer::RenderMeshDraw& draw) {
+            return draw.castsShadow
+                && !(draw.material != nullptr && draw.material->alphaMode == assets::MaterialAlphaMode::Blend);
+        });
+    const auto shadowSelection = hasVisibleShadowCaster
+        ? renderer::chooseShadowMap(frame.lights, frame.visibleBoundsCenter, frame.visibleBoundsRadius)
+        : renderer::RenderShadowMapSelection {};
+    if (hasVisibleShadowCaster && shadowSelection.enabled) {
         frame.shadowViewProjection = shadowSelection.viewProjection;
         frame.shadowViewProjections = shadowSelection.viewProjections;
         frame.shadowCascadeSplits = shadowSelection.cascadeSplits;
@@ -428,25 +434,30 @@ bool ViewportWidget::renderRendererFrame()
             }
         }
         if (scene_ != nullptr) {
-            const auto primitiveProxyCount = std::count_if(scene_->entities().begin(), scene_->entities().end(), [](const scene::Entity& entity) {
-                return entity.meshRenderer.has_value()
-                    && (entity.meshRenderer->primitiveInstanceIndex.has_value()
-                        || entity.meshRenderer->editorInstanceIndex.has_value())
-                    && !entity.meshRenderer->renderable;
-            });
+            auto primitiveProxyCount = std::size_t {0};
+            if (scene_->entityCount() <= 96U) {
+                primitiveProxyCount = std::count_if(scene_->entities().begin(), scene_->entities().end(), [](const scene::Entity& entity) {
+                    return entity.meshRenderer.has_value()
+                        && (entity.meshRenderer->primitiveInstanceIndex.has_value()
+                            || entity.meshRenderer->editorInstanceIndex.has_value())
+                        && !entity.meshRenderer->renderable;
+                });
+            }
             const auto denseImportedHierarchy = primitiveProxyCount > 24U || scene_->entityCount() > 96U;
-            detail::appendHierarchyLinks(
-                rendererGizmoVertices_,
-                rendererGizmoIndices_,
-                *scene_,
-                [this](scene::EntityId id) {
-                    return entityWorldPosition(id);
-                },
-                selectedEntityId_,
-                denseImportedHierarchy,
-                forward,
-                right,
-                camera_.distance);
+            if (!denseImportedHierarchy) {
+                detail::appendHierarchyLinks(
+                    rendererGizmoVertices_,
+                    rendererGizmoIndices_,
+                    *scene_,
+                    [this](scene::EntityId id) {
+                        return entityWorldPosition(id);
+                    },
+                    selectedEntityId_,
+                    false,
+                    forward,
+                    right,
+                    camera_.distance);
+            }
             const ViewportLabelCamera labelCamera {
                 eye,
                 right,
@@ -456,9 +467,9 @@ bool ViewportWidget::renderRendererFrame()
                 static_cast<float>(std::max(height(), 1)),
             };
             std::size_t labelsSubmitted = 0;
-            for (const auto& entity : scene_->entities()) {
+            const auto appendEntityOverlay = [&](const scene::Entity& entity) {
                 if (labelsSubmitted >= 128U) {
-                    break;
+                    return;
                 }
                 const auto isPrimitiveProxy = entity.meshRenderer.has_value()
                     && (entity.meshRenderer->primitiveInstanceIndex.has_value()
@@ -473,11 +484,11 @@ bool ViewportWidget::renderRendererFrame()
                     || entity.light.has_value()
                     || (!denseImportedHierarchy && !isPrimitiveProxy);
                 if (!showMarker && !showLabel) {
-                    continue;
+                    return;
                 }
                 const auto position = entityWorldPosition(entity.id);
                 if (!position.has_value()) {
-                    continue;
+                    return;
                 }
                 if (showMarker) {
                     detail::appendEntityMarker(
@@ -492,7 +503,7 @@ bool ViewportWidget::renderRendererFrame()
                         camera_.distance);
                 }
                 if (!showLabel) {
-                    continue;
+                    return;
                 }
                 appendViewportLabel(
                     rendererGizmoVertices_,
@@ -502,6 +513,20 @@ bool ViewportWidget::renderRendererFrame()
                     entity.name,
                     selected);
                 ++labelsSubmitted;
+            };
+            if (denseImportedHierarchy) {
+                if (selectedEntityId_.isValid()) {
+                    if (const auto* selectedEntity = scene_->findEntity(selectedEntityId_)) {
+                        appendEntityOverlay(*selectedEntity);
+                    }
+                }
+            } else {
+                for (const auto& entity : scene_->entities()) {
+                    if (labelsSubmitted >= 128U) {
+                        break;
+                    }
+                    appendEntityOverlay(entity);
+                }
             }
         }
         const auto vertexCountBeforeGizmo = rendererGizmoVertices_.size();

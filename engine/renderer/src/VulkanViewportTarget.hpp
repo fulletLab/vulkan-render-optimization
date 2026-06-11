@@ -76,6 +76,13 @@ struct VulkanViewportFrameProfile {
     std::uint64_t shadowViewCount {0};
     std::uint64_t shadowBatchCount {0};
     std::uint64_t shadowCulledBatchCount {0};
+    std::uint64_t resourcePrepared {0};
+    std::uint64_t shadowCastersSubmitted {0};
+    std::uint64_t vkBindVertex {0};
+    std::uint64_t vkBindIndex {0};
+    std::uint64_t vkBindDescriptors {0};
+    std::uint64_t vkDrawIndexed {0};
+    std::uint64_t trianglesSubmitted {0};
 };
 
 class VulkanViewportTarget final {

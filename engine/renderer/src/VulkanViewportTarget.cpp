@@ -620,10 +620,15 @@ bool VulkanViewportTarget::recordFrameCommand(
             const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
             const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
             vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
+            ++lastFrameProfile_.vkBindVertex;
             vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+            ++lastFrameProfile_.vkBindIndex;
             vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->layout(), 0, 1, &descriptor, 0, nullptr);
+            ++lastFrameProfile_.vkBindDescriptors;
             vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
             vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
+            ++lastFrameProfile_.vkDrawIndexed;
+            lastFrameProfile_.trianglesSubmitted += static_cast<std::uint64_t>(mesh->indexCount / 3U) * batch.instanceCount;
         }
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::MeshEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.meshRecordCpuTimeUs = elapsedUs(passStart);
@@ -639,9 +644,13 @@ bool VulkanViewportTarget::recordFrameCommand(
             const VkDeviceSize vertexOffset = 0;
             const auto vertexBuffer = colorMeshes_[index].vertices.buffer();
             vkCmdBindVertexBuffers(commandBuffer_, 0, 1, &vertexBuffer, &vertexOffset);
+            ++lastFrameProfile_.vkBindVertex;
             vkCmdBindIndexBuffer(commandBuffer_, colorMeshes_[index].indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+            ++lastFrameProfile_.vkBindIndex;
             vkCmdPushConstants(commandBuffer_, colorPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VulkanColorPushConstants), &push);
             vkCmdDrawIndexed(commandBuffer_, colorMeshes_[index].indexCount, 1, 0, 0, 0);
+            ++lastFrameProfile_.vkDrawIndexed;
+            lastFrameProfile_.trianglesSubmitted += colorMeshes_[index].indexCount / 3U;
         }
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ColorEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.colorRecordCpuTimeUs = elapsedUs(passStart);

@@ -9,6 +9,18 @@
 
 namespace projectunity::editor {
 
+struct PrimitiveProxyKey {
+    std::uint64_t ownerEntityId {0};
+    std::uint64_t modelAssetId {0};
+    std::uint32_t primitiveInstanceIndex {0};
+};
+
+[[nodiscard]] inline std::uint64_t primitiveProxyKey(PrimitiveProxyKey key) noexcept
+{
+    auto seed = key.ownerEntityId ^ (key.modelAssetId + 0x9e3779b97f4a7c15ULL + (key.ownerEntityId << 6U) + (key.ownerEntityId >> 2U));
+    return seed ^ (static_cast<std::uint64_t>(key.primitiveInstanceIndex) + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+}
+
 [[nodiscard]] inline std::optional<std::uint32_t> primitiveInstanceIndexForProxy(
     const assets::ModelAsset& model,
     const scene::MeshRendererComponent& renderer) noexcept

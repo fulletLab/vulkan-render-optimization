@@ -49,6 +49,7 @@ public:
 
     [[nodiscard]] bool runSmokeChecks(QString* errorMessage);
     [[nodiscard]] bool runPhase6VisualChecks(QString* errorMessage);
+    [[nodiscard]] bool runPhase6CullingProfile(QString* errorMessage);
 
 private:
     void createMenus();

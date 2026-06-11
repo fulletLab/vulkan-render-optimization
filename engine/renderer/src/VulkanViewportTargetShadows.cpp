@@ -105,9 +105,21 @@ bool VulkanViewportTarget::recordShadowPass(
     std::string* errorMessage)
 {
     const auto passStart = std::chrono::steady_clock::now();
+    const auto shadowViewCount = renderableShadowViewCount(frame);
+    lastFrameProfile_.shadowViewCount = shadowViewCount;
+    const auto hasShadowCaster = std::any_of(meshBatches_.begin(), meshBatches_.end(), [](const VulkanMeshDrawBatch& batch) {
+        return batch.draw != nullptr
+            && batch.draw->castsShadow
+            && !isTransparentMeshDraw(*batch.draw);
+    });
+    gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+    if (shadowViewCount == 0U || !hasShadowCaster) {
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
+        return true;
+    }
     VkClearValue clear {};
     clear.depthStencil = {1.0F, 0};
-    gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
     const auto beginShadowRenderPass = [&](VkFramebuffer framebuffer, VkExtent2D extent) {
         VkRenderPassBeginInfo renderPass {};
         renderPass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -126,18 +138,6 @@ bool VulkanViewportTarget::recordShadowPass(
         commandBuffer_,
         "ProjectUnity Shadow Pass",
         {0.22F, 0.26F, 0.92F, 1.0F});
-    const auto shadowViewCount = renderableShadowViewCount(frame);
-    lastFrameProfile_.shadowViewCount = shadowViewCount;
-    if (shadowViewCount == 0U) {
-        vkCmdEndRenderPass(commandBuffer_);
-        if (!pointShadowCubeReadable_) {
-            transitionPointCubeToReadable(commandBuffer_, shadowPipeline_->pointCubeImage());
-            pointShadowCubeReadable_ = true;
-        }
-        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-        lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
-        return true;
-    }
 
     VkDescriptorSet opaqueShadowDescriptor = VK_NULL_HANDLE;
     const auto getOpaqueShadowDescriptor = [&]() -> VkDescriptorSet {
@@ -182,7 +182,6 @@ bool VulkanViewportTarget::recordShadowPass(
                 ++lastFrameProfile_.shadowCulledBatchCount;
                 continue;
             }
-            ++lastFrameProfile_.shadowBatchCount;
             const auto* mesh = batch.mesh;
             if (mesh == nullptr) {
                 return false;
@@ -221,7 +220,9 @@ bool VulkanViewportTarget::recordShadowPass(
                 static_cast<std::uint32_t>(vertexBuffers.size()),
                 vertexBuffers.data(),
                 vertexOffsets.data());
+            ++lastFrameProfile_.vkBindVertex;
             vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+            ++lastFrameProfile_.vkBindIndex;
             vkCmdBindDescriptorSets(
                 commandBuffer_,
                 VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -231,6 +232,7 @@ bool VulkanViewportTarget::recordShadowPass(
                 &descriptor,
                 0,
                 nullptr);
+            ++lastFrameProfile_.vkBindDescriptors;
             vkCmdPushConstants(
                 commandBuffer_,
                 shadowPipeline_->layout(),
@@ -239,6 +241,10 @@ bool VulkanViewportTarget::recordShadowPass(
                 sizeof(VulkanDrawPushConstants),
                 &push);
             vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
+            ++lastFrameProfile_.vkDrawIndexed;
+            ++lastFrameProfile_.shadowBatchCount;
+            ++lastFrameProfile_.shadowCastersSubmitted;
+            lastFrameProfile_.trianglesSubmitted += static_cast<std::uint64_t>(mesh->indexCount / 3U) * batch.instanceCount;
         }
         return true;
     };

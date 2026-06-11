@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr bool kOverviewHlodEnabled = true;
+constexpr bool kOverviewHlodEnabled = false;
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
