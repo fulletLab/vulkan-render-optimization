@@ -169,6 +169,70 @@ struct ViewportCameraFrame {
     float farPlane {4000.0F};
 };
 
+[[nodiscard]] QString compactCounter(std::uint64_t value)
+{
+    if (value >= 1'000'000'000ULL) {
+        return QStringLiteral("%1B").arg(static_cast<double>(value) / 1'000'000'000.0, 0, 'f', 1);
+    }
+    if (value >= 1'000'000ULL) {
+        return QStringLiteral("%1M").arg(static_cast<double>(value) / 1'000'000.0, 0, 'f', 1);
+    }
+    if (value >= 1'000ULL) {
+        return QStringLiteral("%1K").arg(static_cast<double>(value) / 1'000.0, 0, 'f', 1);
+    }
+    return QString::number(static_cast<qulonglong>(value));
+}
+
+void appendPerformanceLine(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const ViewportLabelCamera& camera,
+    float aspectRatio,
+    std::string_view text,
+    std::size_t lineIndex)
+{
+    constexpr float kDepth = 2.0F;
+    const auto worldPerPixel = (2.0F * std::tan(camera.verticalFovRadians * 0.5F) * kDepth)
+        / std::max(camera.viewportHeightPixels, 1.0F);
+    const auto pixelSize = std::clamp(worldPerPixel * 2.0F, 0.012F, 0.085F);
+    const auto labelWidth = static_cast<float>(std::min<std::size_t>(text.size(), 48U)) * pixelSize * 6.0F;
+    const auto halfHeight = std::tan(camera.verticalFovRadians * 0.5F) * kDepth;
+    const auto halfWidth = halfHeight * std::max(aspectRatio, 0.001F);
+    const auto anchor = camera.eye
+        + camera.forward * kDepth
+        - camera.right * (halfWidth - labelWidth * 0.5F - pixelSize * 4.0F)
+        + camera.up * (halfHeight - pixelSize * (22.0F + static_cast<float>(lineIndex) * 14.0F));
+    appendViewportLabel(vertices, indices, camera, anchor, text, false);
+}
+
+void appendPerformanceOverlay(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const ViewportLabelCamera& camera,
+    float aspectRatio,
+    const std::optional<renderer::RendererStats>& stats)
+{
+    if (!stats.has_value() || stats->viewportFramesPresented == 0U) {
+        return;
+    }
+    const auto line1 = QStringLiteral("FPS %1 D %2 B %3 T %4")
+        .arg(stats->FPS, 0, 'f', 1)
+        .arg(compactCounter(stats->lastFrameMeshDrawCount))
+        .arg(compactCounter(stats->lastFrameMeshBatchCount))
+        .arg(compactCounter(stats->lastFrameVisibleTriangleCount))
+        .toStdString();
+    const auto gpuText = stats->lastFrameGpuTimestampsValid
+        ? QStringLiteral("GPU %1MS").arg(static_cast<double>(stats->lastFrameGpuTimeUs) / 1000.0, 0, 'f', 1)
+        : QStringLiteral("GPU -");
+    const auto line2 = QStringLiteral("CPU %1MS %2 RES %3")
+        .arg(static_cast<double>(stats->lastFrameRenderCpuTimeUs) / 1000.0, 0, 'f', 1)
+        .arg(gpuText)
+        .arg(compactCounter(stats->resourcePrepared))
+        .toStdString();
+    appendPerformanceLine(vertices, indices, camera, aspectRatio, line1, 0U);
+    appendPerformanceLine(vertices, indices, camera, aspectRatio, line2, 1U);
+}
+
 } // namespace
 bool ViewportWidget::ensureRendererSurface()
 {
@@ -466,6 +530,12 @@ bool ViewportWidget::renderRendererFrame()
                 cameraFrame.verticalFovRadians,
                 static_cast<float>(std::max(height(), 1)),
             };
+            appendPerformanceOverlay(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                labelCamera,
+                cameraFrame.aspectRatio,
+                lastRendererStats_);
             std::size_t labelsSubmitted = 0;
             const auto appendEntityOverlay = [&](const scene::Entity& entity) {
                 if (labelsSubmitted >= 128U) {
