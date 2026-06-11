@@ -67,13 +67,6 @@ void applyViewportShadowPolicy(
             draw.sortDepth,
             camera.verticalFovRadians,
             viewportHeight);
-        if (!pinned
-            && (projectedRadius < 8.0F
-                || (draw.lodIndex >= 4U && projectedRadius < 96.0F)
-                || (draw.sortDepth > draw.worldBoundsRadius * 12.0F && projectedRadius < 80.0F))) {
-            draw.castsShadow = false;
-            continue;
-        }
         const auto lodBonus = draw.lodIndex == 0U ? 64.0F : 0.0F;
         const auto score = pinned
             ? std::numeric_limits<float>::max()

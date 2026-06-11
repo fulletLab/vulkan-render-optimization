@@ -131,12 +131,14 @@ void MainWindow::updateProfilerPanel()
         const auto gpuText = stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("GPU %1ms").arg(static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0, 0, 'f', 1)
             : QStringLiteral("GPU -");
-        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3 | B %4 | T %5 | CPU %6ms | %7 | RES %8")
+        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3 | B %4 | T %5 | S %6/%7 | CPU %8ms | %9 | RES %10")
             .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
             .arg(stats.FPS, 0, 'f', 1)
             .arg(compactCounter(stats.lastFrameMeshDrawCount))
             .arg(compactCounter(stats.lastFrameMeshBatchCount))
             .arg(compactCounter(stats.lastFrameVisibleTriangleCount))
+            .arg(compactCounter(stats.lastFrameShadowViewCount))
+            .arg(compactCounter(stats.shadowCastersSubmitted))
             .arg(static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(gpuText)
             .arg(compactCounter(stats.resourcePrepared)));
