@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +34,11 @@ struct MaterialOverview {
     std::size_t materialIndex {0};
     assets::MeshPrimitive primitive;
     std::uint64_t sourceTriangleCount {0};
+};
+
+struct CachedOverviewModel {
+    std::vector<CachedOverviewDraw> fullDraws;
+    std::vector<std::vector<CachedOverviewDraw>> clusterDraws;
 };
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
@@ -130,6 +136,24 @@ struct MaterialOverview {
     return coarsestLodIndices(primitive);
 }
 
+[[nodiscard]] std::uint64_t sourceTriangleCountForInstances(
+    const assets::ModelAsset& model,
+    std::span<const std::uint32_t> instanceIndices) noexcept
+{
+    std::uint64_t sourceTriangleCount = 0;
+    for (const auto instanceIndex : instanceIndices) {
+        if (instanceIndex >= model.primitiveInstances.size()) {
+            continue;
+        }
+        const auto& instance = model.primitiveInstances[instanceIndex];
+        if (instance.primitiveIndex >= model.primitives.size()) {
+            continue;
+        }
+        sourceTriangleCount += model.primitives[instance.primitiveIndex].indices.size() / 3U;
+    }
+    return sourceTriangleCount;
+}
+
 [[nodiscard]] float projectedRadiusPixels(
     float radius,
     float depth,
@@ -215,36 +239,22 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
     }
 }
 
-[[nodiscard]] const std::vector<CachedOverviewDraw>& cachedOverviewDrawsForModel(const assets::ModelAsset& model)
+[[nodiscard]] std::vector<CachedOverviewDraw> buildOverviewDrawsForInstances(
+    const assets::ModelAsset& model,
+    std::span<const std::uint32_t> instanceIndices,
+    std::uint64_t salt)
 {
-    static const std::vector<CachedOverviewDraw> kEmpty;
-    static std::unordered_map<std::uint64_t, std::vector<CachedOverviewDraw>> cache;
-
-    const auto cacheKey = model.id.value();
-    if (const auto existing = cache.find(cacheKey); existing != cache.end()) {
-        return existing->second;
-    }
-
     std::vector<CachedOverviewDraw> cached;
-    if (model.primitiveInstances.empty()) {
-        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
-        return inserted->second;
-    }
-
-    std::uint64_t sourceTriangleCount = 0;
-    for (const auto& instance : model.primitiveInstances) {
-        if (instance.primitiveIndex >= model.primitives.size()) {
-            continue;
-        }
-        sourceTriangleCount += model.primitives[instance.primitiveIndex].indices.size() / 3U;
-    }
-    if (sourceTriangleCount < kOverviewMinSourceTriangles || sourceTriangleCount > kOverviewMaxSourceTriangles) {
-        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
-        return inserted->second;
+    if (instanceIndices.empty()) {
+        return cached;
     }
 
     std::uint64_t overviewCandidateTriangles = 0;
-    for (const auto& instance : model.primitiveInstances) {
+    for (const auto instanceIndex : instanceIndices) {
+        if (instanceIndex >= model.primitiveInstances.size()) {
+            continue;
+        }
+        const auto& instance = model.primitiveInstances[instanceIndex];
         if (instance.primitiveIndex >= model.primitives.size()) {
             continue;
         }
@@ -259,14 +269,17 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
         overviewCandidateTriangles += indices->size() / 3U;
     }
     if (overviewCandidateTriangles == 0U || overviewCandidateTriangles > kOverviewMaxTriangles) {
-        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
-        return inserted->second;
+        return cached;
     }
 
     std::vector<MaterialOverview> overviews;
     overviews.reserve(32U);
     std::uint64_t overviewSourceTriangles = 0;
-    for (const auto& instance : model.primitiveInstances) {
+    for (const auto instanceIndex : instanceIndices) {
+        if (instanceIndex >= model.primitiveInstances.size()) {
+            continue;
+        }
+        const auto& instance = model.primitiveInstances[instanceIndex];
         if (instance.primitiveIndex >= model.primitives.size()) {
             continue;
         }
@@ -321,13 +334,13 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
         }
     }
 
-    if (overviewSourceTriangles < sourceTriangleCount / 2U) {
-        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
-        return inserted->second;
+    const auto sourceTriangleCount = sourceTriangleCountForInstances(model, instanceIndices);
+    if (sourceTriangleCount == 0U || overviewSourceTriangles < sourceTriangleCount / 2U) {
+        return cached;
     }
 
     const auto overviewCanReduceDrawWork = overviews.size() < model.primitiveInstances.size()
-        && model.primitiveInstances.size() >= kOverviewMinVisibleInstanceReferences;
+        && overviews.size() < instanceIndices.size();
     cached.reserve(overviews.size());
     for (auto& overview : overviews) {
         const auto overviewTriangles = static_cast<std::uint64_t>(overview.primitive.indices.size() / 3U);
@@ -341,16 +354,61 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
         }
         CachedOverviewDraw draw;
         draw.modelAssetId = assets::AssetId(
-            mixHash(model.id.value(), mixHash(0x4810d00dULL, static_cast<std::uint64_t>(cached.size())))
+            mixHash(model.id.value(), mixHash(salt, static_cast<std::uint64_t>(cached.size())))
             | 0x8000000000000000ULL);
         draw.primitiveIndex = kOverviewPrimitiveIndexBase + static_cast<std::uint32_t>(cached.size());
         draw.sourceTriangleCount = overview.sourceTriangleCount;
         draw.primitive = std::make_shared<const assets::MeshPrimitive>(std::move(overview.primitive));
         cached.push_back(std::move(draw));
     }
+    return cached;
+}
+
+[[nodiscard]] const CachedOverviewModel& cachedOverviewForModel(const assets::ModelAsset& model)
+{
+    static const CachedOverviewModel kEmpty;
+    static std::unordered_map<std::uint64_t, CachedOverviewModel> cache;
+
+    const auto cacheKey = model.id.value();
+    if (const auto existing = cache.find(cacheKey); existing != cache.end()) {
+        return existing->second;
+    }
+
+    CachedOverviewModel cached;
+    if (model.primitiveInstances.empty()) {
+        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+        return inserted->second;
+    }
+
+    std::vector<std::uint32_t> allInstances;
+    allInstances.reserve(model.primitiveInstances.size());
+    for (std::uint32_t index = 0; index < model.primitiveInstances.size(); ++index) {
+        allInstances.push_back(index);
+    }
+
+    const auto sourceTriangleCount = sourceTriangleCountForInstances(model, allInstances);
+    if (sourceTriangleCount < kOverviewMinSourceTriangles || sourceTriangleCount > kOverviewMaxSourceTriangles) {
+        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+        return inserted->second;
+    }
+
+    cached.fullDraws = buildOverviewDrawsForInstances(model, allInstances, 0x4810d00dULL);
+    if (!cached.fullDraws.empty() && !model.primitiveClusters.empty()) {
+        cached.clusterDraws.resize(model.primitiveClusters.size());
+        for (std::size_t clusterIndex = 0; clusterIndex < model.primitiveClusters.size(); ++clusterIndex) {
+            const auto& cluster = model.primitiveClusters[clusterIndex];
+            if (cluster.primitiveInstanceIndices.size() < 2U) {
+                continue;
+            }
+            cached.clusterDraws[clusterIndex] = buildOverviewDrawsForInstances(
+                model,
+                cluster.primitiveInstanceIndices,
+                mixHash(0x4810c10dULL, static_cast<std::uint64_t>(clusterIndex)));
+        }
+    }
 
     auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
-    return inserted->second.empty() ? kEmpty : inserted->second;
+    return inserted->second.fullDraws.empty() ? kEmpty : inserted->second;
 }
 
 } // namespace
@@ -385,21 +443,46 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
     if (record.instances.empty() || record.instances.front().model == nullptr) {
         return;
     }
-    const auto& cachedOverviews = cachedOverviewDrawsForModel(*record.instances.front().model);
-    record.overviewDraws.reserve(cachedOverviews.size());
-    for (const auto& cached : cachedOverviews) {
-        if (cached.primitive == nullptr) {
-            continue;
-        }
+    for (auto& chunk : record.chunks) {
+        chunk.overviewDraws.clear();
+    }
+    const auto makeOverviewDraw = [&record](const CachedOverviewDraw& cached) {
         EntityRecord::OverviewDraw draw;
-        draw.renderInstanceId = mixHash(record.entityId.value(), cached.primitiveIndex);
+        draw.renderInstanceId = mixHash(record.entityId.value(), mixHash(cached.modelAssetId.value(), cached.primitiveIndex));
         draw.modelAssetId = cached.modelAssetId;
         draw.primitiveIndex = cached.primitiveIndex;
         draw.primitive = cached.primitive;
         draw.modelMatrix = record.modelMatrix;
         draw.worldBounds = transformViewportBounds(record.modelMatrix, cached.primitive->bounds);
         draw.sourceTriangleCount = cached.sourceTriangleCount;
-        record.overviewDraws.push_back(std::move(draw));
+        return draw;
+    };
+    const auto& cachedOverviews = cachedOverviewForModel(*record.instances.front().model);
+    record.overviewDraws.reserve(cachedOverviews.fullDraws.size());
+    for (const auto& cached : cachedOverviews.fullDraws) {
+        if (cached.primitive == nullptr) {
+            continue;
+        }
+        record.overviewDraws.push_back(makeOverviewDraw(cached));
+    }
+    const auto* model = record.instances.front().model.get();
+    for (auto& chunk : record.chunks) {
+        if (chunk.sourceClusterIndex >= cachedOverviews.clusterDraws.size()
+            || chunk.sourceClusterIndex >= model->primitiveClusters.size()) {
+            continue;
+        }
+        const auto& sourceCluster = model->primitiveClusters[chunk.sourceClusterIndex];
+        if (chunk.instanceIndices.size() != sourceCluster.primitiveInstanceIndices.size()) {
+            continue;
+        }
+        const auto& cachedChunkOverviews = cachedOverviews.clusterDraws[chunk.sourceClusterIndex];
+        chunk.overviewDraws.reserve(cachedChunkOverviews.size());
+        for (const auto& cached : cachedChunkOverviews) {
+            if (cached.primitive == nullptr) {
+                continue;
+            }
+            chunk.overviewDraws.push_back(makeOverviewDraw(cached));
+        }
     }
 }
 
@@ -428,6 +511,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     std::uint64_t visibleChunkCount = 0;
     std::uint64_t visibleChunkInstanceReferences = 0;
     std::uint64_t visibleChunkTriangles = 0;
+    std::vector<const EntityRecord::Chunk*> visibleChunks;
+    visibleChunks.reserve(record.chunks.size());
     for (const auto& chunk : record.chunks) {
         if (!viewportBoundsVisible(
                 chunk.worldBounds,
@@ -444,6 +529,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         ++visibleChunkCount;
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
         visibleChunkTriangles += chunk.triangleCount;
+        visibleChunks.push_back(&chunk);
     }
     if (visibleChunkCount == 0U) {
         return false;
@@ -460,7 +546,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             / static_cast<float>(record.instances.size());
     const auto enoughVisibleWork = visibleChunkInstanceReferences >= kOverviewMinVisibleInstanceReferences
         || visibleChunkTriangles >= kOverviewMinVisibleTriangles;
-    const auto overviewCoverageEnough = (visibleChunkRatio >= 0.55F || visibleInstanceRatio >= 0.55F)
+    const auto broadOverviewCoverage = visibleChunkRatio >= 0.55F || visibleInstanceRatio >= 0.55F;
+    const auto overviewCoverageEnough = broadOverviewCoverage
         && enoughVisibleWork;
     const auto wantsOverview = !record.overviewDraws.empty()
         && overviewCoverageEnough
@@ -472,17 +559,15 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             viewportHeight,
             visibleChunkInstanceReferences,
             visibleChunkTriangles);
-    if (!wantsOverview) {
-        return false;
-    }
     bool emittedOverview = false;
     const auto model = record.instances.empty() ? std::shared_ptr<const assets::ModelAsset> {} : record.instances.front().model;
     if (model == nullptr) {
         return false;
     }
-    for (const auto& overview : record.overviewDraws) {
+
+    const auto emitOverview = [&](const EntityRecord::OverviewDraw& overview, std::uint64_t renderChunkId) {
         if (overview.primitive == nullptr || overview.primitive->materialIndex >= model->materials.size()) {
-            continue;
+            return;
         }
         const auto& material = model->materials[overview.primitive->materialIndex];
         const auto sortDepth = math::dot(overview.worldBounds.center - camera.eye, camera.forward);
@@ -516,10 +601,38 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             false,
             false,
             overview.renderInstanceId,
-            mixHash(record.entityId.value(), 0x4810d00dULL),
+            renderChunkId,
             record.entityId.value(),
         });
         emittedOverview = true;
+    };
+
+    if (wantsOverview) {
+        const auto renderChunkId = mixHash(record.entityId.value(), 0x4810d00dULL);
+        for (const auto& overview : record.overviewDraws) {
+            emitOverview(overview, renderChunkId);
+        }
+        return emittedOverview;
+    }
+    if (!enoughVisibleWork) {
+        return false;
+    }
+    const auto allVisibleChunksHaveOverview = std::all_of(
+        visibleChunks.begin(),
+        visibleChunks.end(),
+        [](const EntityRecord::Chunk* chunk) {
+            return chunk != nullptr && !chunk->overviewDraws.empty();
+        });
+    if (!allVisibleChunksHaveOverview) {
+        return false;
+    }
+    for (const auto* chunk : visibleChunks) {
+        if (chunk == nullptr || chunk->overviewDraws.empty()) {
+            continue;
+        }
+        for (const auto& overview : chunk->overviewDraws) {
+            emitOverview(overview, chunk->renderChunkId);
+        }
     }
     return emittedOverview;
 }

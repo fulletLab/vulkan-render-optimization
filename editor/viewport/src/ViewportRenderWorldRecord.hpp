@@ -63,14 +63,6 @@ struct ViewportRenderWorld::EntityRecord {
         bool flipsWinding {false};
     };
 
-    struct Chunk {
-        std::uint64_t renderChunkId {0};
-        scene::EntityId sceneNodeId;
-        ViewportWorldBounds worldBounds;
-        std::vector<std::size_t> instanceIndices;
-        std::uint64_t triangleCount {0};
-    };
-
     struct OverviewDraw {
         std::uint64_t renderInstanceId {0};
         assets::AssetId modelAssetId;
@@ -79,6 +71,16 @@ struct ViewportRenderWorld::EntityRecord {
         renderer::RenderMatrix4 modelMatrix;
         ViewportWorldBounds worldBounds;
         std::uint64_t sourceTriangleCount {0};
+    };
+
+    struct Chunk {
+        std::uint64_t renderChunkId {0};
+        scene::EntityId sceneNodeId;
+        ViewportWorldBounds worldBounds;
+        std::vector<std::size_t> instanceIndices;
+        std::vector<OverviewDraw> overviewDraws;
+        std::uint32_t sourceClusterIndex {UINT32_MAX};
+        std::uint64_t triangleCount {0};
     };
 
     scene::EntityId entityId;

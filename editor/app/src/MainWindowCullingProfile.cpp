@@ -216,6 +216,10 @@ bool MainWindow::runPhase6CullingProfile(QString* errorMessage)
     const auto partialStats = renderFrames();
     printFrameCounters("400MB duplicated map partially facing map", partialStats);
 
+    sceneViewport_->setCameraForTesting(center, std::clamp(profileRadius * 0.22F, 4.0F, 80.0F), 0.65F, -0.18F);
+    const auto closeStats = renderFrames();
+    printFrameCounters("400MB duplicated map close dense view", closeStats);
+
     const auto emptyTarget = center + math::Vec3 {0.0F, profileRadius * 3.0F + 5000.0F, profileRadius * 3.0F + 5000.0F};
     sceneViewport_->setCameraForTesting(emptyTarget, 480.0F, 0.65F, -0.35F);
     const auto emptyStats = renderFrames();

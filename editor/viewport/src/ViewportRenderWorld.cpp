@@ -246,7 +246,8 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
     const auto appendChunk = [&](scene::EntityId sceneNodeId,
                                  std::uint64_t chunkId,
                                  const ViewportWorldBounds& bounds,
-                                 std::span<const std::size_t> instanceIndices) {
+                                 std::span<const std::size_t> instanceIndices,
+                                 std::uint32_t sourceClusterIndex = UINT32_MAX) {
         if (instanceIndices.empty()) {
             return;
         }
@@ -254,6 +255,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
         chunk.sceneNodeId = sceneNodeId;
         chunk.renderChunkId = chunkId;
         chunk.worldBounds = bounds;
+        chunk.sourceClusterIndex = sourceClusterIndex;
         chunk.instanceIndices.assign(instanceIndices.begin(), instanceIndices.end());
         for (const auto instanceIndex : chunk.instanceIndices) {
             if (instanceIndex >= record->instances.size()) {
@@ -320,7 +322,12 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
                     }
                 }
                 const auto bounds = transformViewportBounds(entityModelMatrix, cluster.bounds);
-                appendChunk(entity.id, mixHash(entity.id.value(), static_cast<std::uint64_t>(clusterIndex)), bounds, chunkInstances);
+                appendChunk(
+                    entity.id,
+                    mixHash(entity.id.value(), static_cast<std::uint64_t>(clusterIndex)),
+                    bounds,
+                    chunkInstances,
+                    static_cast<std::uint32_t>(clusterIndex));
             }
         } else {
             for (std::size_t index = 0; index < modelInstanceToRecord.size(); ++index) {
@@ -536,6 +543,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         result.stats.renderInstanceCount += record->instances.size();
         result.stats.renderChunkCount += record->chunks.size();
         result.stats.hlodCandidateDrawCount += record->overviewDraws.size();
+        for (const auto& chunk : record->chunks) {
+            result.stats.hlodCandidateDrawCount += chunk.overviewDraws.size();
+        }
         for (const auto& instance : record->instances) {
             if (instance.primitiveIndex >= instance.model->primitives.size()) {
                 continue;
