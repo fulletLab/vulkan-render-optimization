@@ -75,7 +75,8 @@ struct ViewportRenderWorld::EntityRecord {
         std::uint64_t renderInstanceId {0};
         assets::AssetId modelAssetId;
         std::uint32_t primitiveIndex {0};
-        assets::MeshPrimitive primitive;
+        std::shared_ptr<const assets::MeshPrimitive> primitive;
+        renderer::RenderMatrix4 modelMatrix;
         ViewportWorldBounds worldBounds;
         std::uint64_t sourceTriangleCount {0};
     };
@@ -85,6 +86,7 @@ struct ViewportRenderWorld::EntityRecord {
     bool hasMeshSceneContent {false};
     bool overviewOnly {false};
     assets::AssetId coveredModelAssetId;
+    renderer::RenderMatrix4 modelMatrix;
     std::vector<Instance> instances;
     std::vector<Chunk> chunks;
     std::vector<OverviewDraw> overviewDraws;

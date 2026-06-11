@@ -74,6 +74,9 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " objectsConsidered=" << stats.objectsConsidered
         << " passedFrustum=" << stats.passedFrustum
         << " visibleBatches=" << stats.visibleBatches
+        << " hlodDraws=" << stats.lastFrameHlodMeshDrawCount
+        << " hlodCandidates=" << stats.lastFrameHlodCandidateDrawCount
+        << " hlodTriangleReduction=" << stats.lastFrameHlodTriangleReductionCount
         << " resourcePrepared=" << stats.resourcePrepared
         << " resourcePrepareMs=" << stats.resourcePrepareMs
         << " shadowCastersSubmitted=" << stats.shadowCastersSubmitted

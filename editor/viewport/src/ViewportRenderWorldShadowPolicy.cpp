@@ -68,9 +68,11 @@ void applyViewportShadowPolicy(
     candidates.reserve(meshDraws.size());
     for (std::size_t index = 0; index < meshDraws.size(); ++index) {
         auto& draw = meshDraws[index];
-        draw.castsShadow = true;
         if (draw.material != nullptr && draw.material->alphaMode == assets::MaterialAlphaMode::Blend) {
             draw.castsShadow = false;
+            continue;
+        }
+        if (!draw.castsShadow) {
             continue;
         }
         const auto pinned = pinSelectedDraws && draw.sceneNodeId == selectedEntityId.value();

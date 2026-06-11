@@ -218,6 +218,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
     record->signature = signature;
     record->hasMeshSceneContent = !model->primitives.empty();
     const auto entityModelMatrix = modelMatrix(entity, *worldPosition);
+    record->modelMatrix = entityModelMatrix;
 
     const auto appendInstance = [&](scene::EntityId sceneNodeId,
                                     std::uint32_t primitiveIndex,
@@ -591,6 +592,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 selectedPrimitiveIndex,
                 camera,
                 viewProjection,
+                viewportHeight,
                 true,
                 meshDraws,
                 result.stats,
@@ -663,6 +665,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 selectedPrimitiveIndex,
                 camera,
                 viewProjection,
+                viewportHeight,
                 false,
                 meshDraws,
                 result.stats,

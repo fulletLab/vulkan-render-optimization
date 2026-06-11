@@ -14,7 +14,26 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr bool kOverviewHlodEnabled = false;
+constexpr bool kOverviewHlodEnabled = true;
+constexpr std::uint64_t kOverviewMinSourceTriangles = 64'000ULL;
+constexpr std::uint64_t kOverviewMaxSourceTriangles = 8'000'000ULL;
+constexpr std::uint64_t kOverviewMaxTriangles = 2'000'000ULL;
+constexpr std::uint64_t kOverviewMinVisibleInstanceReferences = 512ULL;
+constexpr std::uint64_t kOverviewMinVisibleTriangles = 250'000ULL;
+constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
+
+struct CachedOverviewDraw {
+    assets::AssetId modelAssetId;
+    std::uint32_t primitiveIndex {0};
+    std::shared_ptr<const assets::MeshPrimitive> primitive;
+    std::uint64_t sourceTriangleCount {0};
+};
+
+struct MaterialOverview {
+    std::size_t materialIndex {0};
+    assets::MeshPrimitive primitive;
+    std::uint64_t sourceTriangleCount {0};
+};
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
@@ -26,9 +45,35 @@ constexpr bool kOverviewHlodEnabled = false;
     return matrix.values[static_cast<std::size_t>(column * 4 + row)];
 }
 
+[[nodiscard]] float& matrixAt(renderer::RenderMatrix4& matrix, int row, int column)
+{
+    return matrix.values[static_cast<std::size_t>(column * 4 + row)];
+}
+
+[[nodiscard]] renderer::RenderMatrix4 multiply(const renderer::RenderMatrix4& lhs, const renderer::RenderMatrix4& rhs)
+{
+    renderer::RenderMatrix4 result;
+    result.values.fill(0.0F);
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            for (int index = 0; index < 4; ++index) {
+                matrixAt(result, row, column) += matrixAt(lhs, row, index) * matrixAt(rhs, index, column);
+            }
+        }
+    }
+    return result;
+}
+
 [[nodiscard]] renderer::RenderMatrix4 identityMatrix()
 {
     return {};
+}
+
+[[nodiscard]] renderer::RenderMatrix4 renderMatrix(const std::array<float, 16>& values)
+{
+    renderer::RenderMatrix4 matrix;
+    matrix.values = values;
+    return matrix;
 }
 
 [[nodiscard]] math::Vec3 transformMatrixPoint(const renderer::RenderMatrix4& matrix, math::Vec3 point) noexcept
@@ -85,6 +130,61 @@ constexpr bool kOverviewHlodEnabled = false;
     return coarsestLodIndices(primitive);
 }
 
+[[nodiscard]] float projectedRadiusPixels(
+    float radius,
+    float depth,
+    float verticalFovRadians,
+    int viewportHeight) noexcept
+{
+    if (radius <= 0.0F
+        || depth <= 0.05F
+        || viewportHeight <= 0
+        || !std::isfinite(radius)
+        || !std::isfinite(depth)
+        || !std::isfinite(verticalFovRadians)) {
+        return 0.0F;
+    }
+    const auto tangent = std::tan(verticalFovRadians * 0.5F);
+    if (!std::isfinite(tangent) || tangent <= 0.0F) {
+        return 0.0F;
+    }
+    const auto projectionScale = (static_cast<float>(viewportHeight) * 0.5F) / tangent;
+    const auto projected = radius * projectionScale / depth;
+    return std::isfinite(projected) ? projected : 0.0F;
+}
+
+[[nodiscard]] bool overviewScreenEligible(
+    bool worldBoundsValid,
+    math::Vec3 worldBoundsCenter,
+    float worldBoundsRadius,
+    const ViewportRenderWorldCamera& camera,
+    int viewportHeight,
+    std::uint64_t visibleInstanceReferences,
+    std::uint64_t visibleTriangles) noexcept
+{
+    if (!worldBoundsValid || viewportHeight <= 0) {
+        return false;
+    }
+    const auto depth = math::dot(worldBoundsCenter - camera.eye, camera.forward);
+    if (!std::isfinite(depth) || depth <= camera.nearPlane) {
+        return false;
+    }
+    const auto projectedRadius = projectedRadiusPixels(
+        worldBoundsRadius,
+        depth,
+        camera.verticalFovRadians,
+        viewportHeight);
+    if (projectedRadius <= 0.0F) {
+        return false;
+    }
+    const auto heavyDecorativeCluster = visibleInstanceReferences >= 4096ULL
+        && visibleTriangles <= kOverviewMaxSourceTriangles;
+    const auto maxProjectedRadius = heavyDecorativeCluster
+        ? static_cast<float>(viewportHeight) * 1.75F
+        : static_cast<float>(viewportHeight) * 0.90F;
+    return projectedRadius <= maxProjectedRadius;
+}
+
 void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
 {
     if (primitive.vertices.empty()) {
@@ -115,14 +215,148 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
     }
 }
 
+[[nodiscard]] const std::vector<CachedOverviewDraw>& cachedOverviewDrawsForModel(const assets::ModelAsset& model)
+{
+    static const std::vector<CachedOverviewDraw> kEmpty;
+    static std::unordered_map<std::uint64_t, std::vector<CachedOverviewDraw>> cache;
+
+    const auto cacheKey = model.id.value();
+    if (const auto existing = cache.find(cacheKey); existing != cache.end()) {
+        return existing->second;
+    }
+
+    std::vector<CachedOverviewDraw> cached;
+    if (model.primitiveInstances.empty()) {
+        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+        return inserted->second;
+    }
+
+    std::uint64_t sourceTriangleCount = 0;
+    for (const auto& instance : model.primitiveInstances) {
+        if (instance.primitiveIndex >= model.primitives.size()) {
+            continue;
+        }
+        sourceTriangleCount += model.primitives[instance.primitiveIndex].indices.size() / 3U;
+    }
+    if (sourceTriangleCount < kOverviewMinSourceTriangles || sourceTriangleCount > kOverviewMaxSourceTriangles) {
+        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+        return inserted->second;
+    }
+
+    std::uint64_t overviewCandidateTriangles = 0;
+    for (const auto& instance : model.primitiveInstances) {
+        if (instance.primitiveIndex >= model.primitives.size()) {
+            continue;
+        }
+        const auto& source = model.primitives[instance.primitiveIndex];
+        if (source.materialIndex >= model.materials.size()) {
+            continue;
+        }
+        const auto* indices = overviewSourceIndices(source);
+        if (indices == nullptr || indices->size() < 3U) {
+            continue;
+        }
+        overviewCandidateTriangles += indices->size() / 3U;
+    }
+    if (overviewCandidateTriangles == 0U || overviewCandidateTriangles > kOverviewMaxTriangles) {
+        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+        return inserted->second;
+    }
+
+    std::vector<MaterialOverview> overviews;
+    overviews.reserve(32U);
+    std::uint64_t overviewSourceTriangles = 0;
+    for (const auto& instance : model.primitiveInstances) {
+        if (instance.primitiveIndex >= model.primitives.size()) {
+            continue;
+        }
+        const auto& source = model.primitives[instance.primitiveIndex];
+        if (source.materialIndex >= model.materials.size()) {
+            continue;
+        }
+        const auto* indices = overviewSourceIndices(source);
+        if (indices == nullptr || indices->size() < 3U) {
+            continue;
+        }
+        auto overview = std::find_if(overviews.begin(), overviews.end(), [&source](const MaterialOverview& value) {
+            return value.materialIndex == source.materialIndex;
+        });
+        if (overview == overviews.end()) {
+            MaterialOverview next;
+            next.materialIndex = source.materialIndex;
+            next.primitive.materialIndex = source.materialIndex;
+            overviews.push_back(std::move(next));
+            overview = overviews.end() - 1;
+        }
+
+        const auto sourceTriangles = source.indices.size() / 3U;
+        overview->sourceTriangleCount += sourceTriangles;
+        overviewSourceTriangles += sourceTriangles;
+        if (overview->primitive.vertices.size() + source.vertices.size() > std::numeric_limits<std::uint32_t>::max()) {
+            continue;
+        }
+        const auto localMatrix = renderMatrix(instance.transform);
+        const auto vertexBase = static_cast<std::uint32_t>(overview->primitive.vertices.size());
+        for (const auto& sourceVertex : source.vertices) {
+            auto vertex = sourceVertex;
+            vertex.position = transformMatrixPoint(localMatrix, vertex.position);
+            vertex.normal = safeNormalized(transformMatrixVector(localMatrix, vertex.normal), vertex.normal);
+            vertex.tangent = safeNormalized(transformMatrixVector(localMatrix, vertex.tangent), vertex.tangent);
+            overview->primitive.vertices.push_back(vertex);
+        }
+        for (std::size_t index = 2; index < indices->size(); index += 3U) {
+            const std::array<std::uint32_t, 3> triangle {{
+                (*indices)[index - 2U],
+                instance.flipsWinding ? (*indices)[index] : (*indices)[index - 1U],
+                instance.flipsWinding ? (*indices)[index - 1U] : (*indices)[index],
+            }};
+            if (triangle[0] >= source.vertices.size()
+                || triangle[1] >= source.vertices.size()
+                || triangle[2] >= source.vertices.size()) {
+                continue;
+            }
+            overview->primitive.indices.push_back(vertexBase + triangle[0]);
+            overview->primitive.indices.push_back(vertexBase + triangle[1]);
+            overview->primitive.indices.push_back(vertexBase + triangle[2]);
+        }
+    }
+
+    if (overviewSourceTriangles < sourceTriangleCount / 2U) {
+        auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+        return inserted->second;
+    }
+
+    const auto overviewCanReduceDrawWork = overviews.size() < model.primitiveInstances.size()
+        && model.primitiveInstances.size() >= kOverviewMinVisibleInstanceReferences;
+    cached.reserve(overviews.size());
+    for (auto& overview : overviews) {
+        const auto overviewTriangles = static_cast<std::uint64_t>(overview.primitive.indices.size() / 3U);
+        if (overview.primitive.indices.size() < 3U
+            || (!overviewCanReduceDrawWork && overview.sourceTriangleCount <= overviewTriangles)) {
+            continue;
+        }
+        updatePrimitiveBounds(overview.primitive);
+        if (overview.primitive.bounds.radius <= 0.0F) {
+            continue;
+        }
+        CachedOverviewDraw draw;
+        draw.modelAssetId = assets::AssetId(
+            mixHash(model.id.value(), mixHash(0x4810d00dULL, static_cast<std::uint64_t>(cached.size())))
+            | 0x8000000000000000ULL);
+        draw.primitiveIndex = kOverviewPrimitiveIndexBase + static_cast<std::uint32_t>(cached.size());
+        draw.sourceTriangleCount = overview.sourceTriangleCount;
+        draw.primitive = std::make_shared<const assets::MeshPrimitive>(std::move(overview.primitive));
+        cached.push_back(std::move(draw));
+    }
+
+    auto [inserted, _] = cache.emplace(cacheKey, std::move(cached));
+    return inserted->second.empty() ? kEmpty : inserted->second;
+}
+
 } // namespace
 
 void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
 {
-    constexpr std::uint64_t kOverviewMinSourceTriangles = 64'000ULL;
-    constexpr std::uint64_t kOverviewMaxTriangles = 500'000ULL;
-    constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
-
     ViewportFrameBounds bounds;
     for (const auto& chunk : record.chunks) {
         bounds.includeSphere(chunk.worldBounds.center, chunk.worldBounds.radius);
@@ -148,111 +382,23 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
     if (!kOverviewHlodEnabled) {
         return;
     }
-    if (record.sourceTriangleCount < kOverviewMinSourceTriangles) {
+    if (record.instances.empty() || record.instances.front().model == nullptr) {
         return;
     }
-
-    struct MaterialOverview {
-        std::size_t materialIndex {0};
-        assets::MeshPrimitive primitive;
-        std::uint64_t sourceTriangleCount {0};
-    };
-
-    std::vector<MaterialOverview> overviews;
-    overviews.reserve(32U);
-    std::uint64_t overviewSourceTriangles = 0;
-    std::uint64_t overviewCandidateTriangles = 0;
-    for (const auto& instance : record.instances) {
-        if (instance.primitiveIndex >= instance.model->primitives.size()) {
-            continue;
-        }
-        const auto& source = instance.model->primitives[instance.primitiveIndex];
-        if (source.materialIndex >= instance.model->materials.size()) {
-            continue;
-        }
-        const auto* indices = overviewSourceIndices(source);
-        if (indices == nullptr || indices->size() < 3U) {
-            continue;
-        }
-        overviewCandidateTriangles += indices->size() / 3U;
-    }
-    if (overviewCandidateTriangles == 0U || overviewCandidateTriangles > kOverviewMaxTriangles) {
-        return;
-    }
-    for (const auto& instance : record.instances) {
-        if (instance.primitiveIndex >= instance.model->primitives.size()) {
-            continue;
-        }
-        const auto& source = instance.model->primitives[instance.primitiveIndex];
-        if (source.materialIndex >= instance.model->materials.size()) {
-            continue;
-        }
-        const auto* indices = overviewSourceIndices(source);
-        if (indices == nullptr || indices->size() < 3U) {
-            continue;
-        }
-        auto overview = std::find_if(overviews.begin(), overviews.end(), [&source](const MaterialOverview& value) {
-            return value.materialIndex == source.materialIndex;
-        });
-        if (overview == overviews.end()) {
-            MaterialOverview next;
-            next.materialIndex = source.materialIndex;
-            next.primitive.materialIndex = source.materialIndex;
-            overviews.push_back(std::move(next));
-            overview = overviews.end() - 1;
-        }
-
-        const auto sourceTriangles = source.indices.size() / 3U;
-        overview->sourceTriangleCount += sourceTriangles;
-        overviewSourceTriangles += sourceTriangles;
-        for (std::size_t index = 2; index < indices->size(); index += 3U) {
-            const std::array<std::uint32_t, 3> triangle {{
-                (*indices)[index - 2U],
-                instance.flipsWinding ? (*indices)[index] : (*indices)[index - 1U],
-                instance.flipsWinding ? (*indices)[index - 1U] : (*indices)[index],
-            }};
-            if (triangle[0] >= source.vertices.size()
-                || triangle[1] >= source.vertices.size()
-                || triangle[2] >= source.vertices.size()
-                || overview->primitive.vertices.size() + 3U > std::numeric_limits<std::uint32_t>::max()) {
-                continue;
-            }
-            const auto vertexBase = static_cast<std::uint32_t>(overview->primitive.vertices.size());
-            for (std::uint32_t corner = 0; corner < 3U; ++corner) {
-                auto vertex = source.vertices[triangle[corner]];
-                vertex.position = transformMatrixPoint(instance.modelMatrix, vertex.position);
-                vertex.normal = safeNormalized(transformMatrixVector(instance.modelMatrix, vertex.normal), vertex.normal);
-                vertex.tangent = safeNormalized(transformMatrixVector(instance.modelMatrix, vertex.tangent), vertex.tangent);
-                overview->primitive.vertices.push_back(vertex);
-                overview->primitive.indices.push_back(vertexBase + corner);
-            }
-        }
-    }
-
-    if (overviewSourceTriangles < record.sourceTriangleCount / 2U) {
-        return;
-    }
-
-    const auto overviewModelAssetId = assets::AssetId(
-        mixHash(record.instances.front().modelAssetId.value(), mixHash(record.signature, 0x4810d00dULL))
-        | 0x8000000000000000ULL);
-    record.overviewDraws.reserve(overviews.size());
-    for (auto& overview : overviews) {
-        if (overview.primitive.indices.size() < 3U
-            || overview.sourceTriangleCount <= overview.primitive.indices.size() / 3U) {
-            continue;
-        }
-        updatePrimitiveBounds(overview.primitive);
-        if (overview.primitive.bounds.radius <= 0.0F) {
+    const auto& cachedOverviews = cachedOverviewDrawsForModel(*record.instances.front().model);
+    record.overviewDraws.reserve(cachedOverviews.size());
+    for (const auto& cached : cachedOverviews) {
+        if (cached.primitive == nullptr) {
             continue;
         }
         EntityRecord::OverviewDraw draw;
-        draw.renderInstanceId = mixHash(record.entityId.value(), mixHash(overview.materialIndex, 0x4810d00dULL));
-        draw.modelAssetId = overviewModelAssetId;
-        draw.primitiveIndex = kOverviewPrimitiveIndexBase + static_cast<std::uint32_t>(record.overviewDraws.size());
-        draw.worldBounds = transformViewportBounds(identityMatrix(), overview.primitive.bounds);
-        draw.sourceTriangleCount = overview.sourceTriangleCount;
-        draw.primitive = std::move(overview.primitive);
+        draw.renderInstanceId = mixHash(record.entityId.value(), cached.primitiveIndex);
+        draw.modelAssetId = cached.modelAssetId;
+        draw.primitiveIndex = cached.primitiveIndex;
+        draw.primitive = cached.primitive;
+        draw.modelMatrix = record.modelMatrix;
+        draw.worldBounds = transformViewportBounds(record.modelMatrix, cached.primitive->bounds);
+        draw.sourceTriangleCount = cached.sourceTriangleCount;
         record.overviewDraws.push_back(std::move(draw));
     }
 }
@@ -260,63 +406,6 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
 void ViewportRenderWorld::rebuildOverviewRecords()
 {
     overviewRecords_.clear();
-    if (!kOverviewHlodEnabled) {
-        return;
-    }
-
-    struct OverviewGroup {
-        std::shared_ptr<EntityRecord> record;
-    };
-    std::unordered_map<std::uint64_t, OverviewGroup> groups;
-    for (const auto* sourceRecord : orderedRecords_) {
-        if (sourceRecord == nullptr || sourceRecord->instances.empty()) {
-            continue;
-        }
-        const auto modelAssetId = sourceRecord->instances.front().modelAssetId;
-        auto& group = groups[modelAssetId.value()];
-        if (group.record == nullptr) {
-            group.record = std::make_shared<EntityRecord>();
-            group.record->entityId = sourceRecord->entityId;
-            group.record->signature = mixHash(modelAssetId.value(), 0x4810d00dULL);
-            group.record->hasMeshSceneContent = true;
-            group.record->overviewOnly = true;
-            group.record->coveredModelAssetId = modelAssetId;
-        }
-        const auto instanceBase = group.record->instances.size();
-        group.record->instances.insert(
-            group.record->instances.end(),
-            sourceRecord->instances.begin(),
-            sourceRecord->instances.end());
-        for (const auto& sourceChunk : sourceRecord->chunks) {
-            EntityRecord::Chunk chunk;
-            chunk.renderChunkId = mixHash(sourceChunk.renderChunkId, sourceRecord->entityId.value());
-            chunk.sceneNodeId = sourceChunk.sceneNodeId;
-            chunk.worldBounds = sourceChunk.worldBounds;
-            chunk.triangleCount = sourceChunk.triangleCount;
-            chunk.instanceIndices.reserve(sourceChunk.instanceIndices.size());
-            for (const auto sourceIndex : sourceChunk.instanceIndices) {
-                if (sourceIndex < sourceRecord->instances.size()) {
-                    chunk.instanceIndices.push_back(instanceBase + sourceIndex);
-                }
-            }
-            if (!chunk.instanceIndices.empty()) {
-                group.record->chunks.push_back(std::move(chunk));
-            }
-        }
-        group.record->signature = mixHash(group.record->signature, sourceRecord->signature);
-    }
-
-    overviewRecords_.reserve(groups.size());
-    for (auto& [modelAssetId, group] : groups) {
-        (void)modelAssetId;
-        if (group.record == nullptr) {
-            continue;
-        }
-        finalizeEntityRecord(*group.record);
-        if (!group.record->overviewDraws.empty()) {
-            overviewRecords_.push_back(std::move(group.record));
-        }
-    }
 }
 
 bool ViewportRenderWorld::tryEmitOverviewRecord(
@@ -325,6 +414,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     std::uint32_t /*selectedPrimitiveIndex*/,
     const ViewportRenderWorldCamera& camera,
     const renderer::RenderMatrix4& viewProjection,
+    int viewportHeight,
     bool countVisibleChunks,
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     ViewportRenderWorldStats& stats,
@@ -337,6 +427,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
 
     std::uint64_t visibleChunkCount = 0;
     std::uint64_t visibleChunkInstanceReferences = 0;
+    std::uint64_t visibleChunkTriangles = 0;
     for (const auto& chunk : record.chunks) {
         if (!viewportBoundsVisible(
                 chunk.worldBounds,
@@ -352,6 +443,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         }
         ++visibleChunkCount;
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
+        visibleChunkTriangles += chunk.triangleCount;
     }
     if (visibleChunkCount == 0U) {
         return false;
@@ -366,12 +458,20 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         ? 0.0F
         : static_cast<float>(std::min<std::uint64_t>(visibleChunkInstanceReferences, record.instances.size()))
             / static_cast<float>(record.instances.size());
-    const auto overviewCoverageEnough = record.overviewOnly
-        ? visibleChunkCount > 0U
-        : ((visibleChunkRatio >= 0.60F || visibleInstanceRatio >= 0.60F)
-            && visibleChunkInstanceReferences >= 1024U);
+    const auto enoughVisibleWork = visibleChunkInstanceReferences >= kOverviewMinVisibleInstanceReferences
+        || visibleChunkTriangles >= kOverviewMinVisibleTriangles;
+    const auto overviewCoverageEnough = (visibleChunkRatio >= 0.55F || visibleInstanceRatio >= 0.55F)
+        && enoughVisibleWork;
     const auto wantsOverview = !record.overviewDraws.empty()
-        && overviewCoverageEnough;
+        && overviewCoverageEnough
+        && overviewScreenEligible(
+            record.worldBoundsValid,
+            record.worldBounds.center,
+            record.worldBounds.radius,
+            camera,
+            viewportHeight,
+            visibleChunkInstanceReferences,
+            visibleChunkTriangles);
     if (!wantsOverview) {
         return false;
     }
@@ -381,13 +481,13 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         return false;
     }
     for (const auto& overview : record.overviewDraws) {
-        if (overview.primitive.materialIndex >= model->materials.size()) {
+        if (overview.primitive == nullptr || overview.primitive->materialIndex >= model->materials.size()) {
             continue;
         }
-        const auto& material = model->materials[overview.primitive.materialIndex];
+        const auto& material = model->materials[overview.primitive->materialIndex];
         const auto sortDepth = math::dot(overview.worldBounds.center - camera.eye, camera.forward);
         const auto sourceTriangleCount = overview.sourceTriangleCount;
-        const auto selectedTriangleCount = static_cast<std::uint64_t>(overview.primitive.indices.size() / 3U);
+        const auto selectedTriangleCount = static_cast<std::uint64_t>(overview.primitive->indices.size() / 3U);
         visibleSourceTriangleCount += sourceTriangleCount;
         ++stats.hlodMeshDrawCount;
         if (sourceTriangleCount > selectedTriangleCount) {
@@ -401,7 +501,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             overview.modelAssetId,
             overview.primitiveIndex,
             0U,
-            &overview.primitive,
+            overview.primitive.get(),
             &material,
             modelTexture(*model, material.baseColorTexture),
             modelTexture(*model, material.normalTexture),
@@ -411,8 +511,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             sortDepth,
             {overview.worldBounds.center.x, overview.worldBounds.center.y, overview.worldBounds.center.z},
             overview.worldBounds.radius,
-            renderer::RenderMatrix4 {},
-            viewProjection,
+            overview.modelMatrix,
+            multiply(viewProjection, overview.modelMatrix),
             false,
             false,
             overview.renderInstanceId,

@@ -106,6 +106,7 @@ private:
         std::uint32_t selectedPrimitiveIndex,
         const ViewportRenderWorldCamera& camera,
         const renderer::RenderMatrix4& viewProjection,
+        int viewportHeight,
         bool countVisibleChunks,
         std::vector<renderer::RenderMeshDraw>& meshDraws,
         ViewportRenderWorldStats& stats,
