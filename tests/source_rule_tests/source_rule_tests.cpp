@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,15 @@ constexpr std::size_t kMaxCodeLines = 800;
     return count;
 }
 
+[[nodiscard]] std::string fileText(const std::filesystem::path& path)
+{
+    std::ifstream file(path);
+    return {
+        std::istreambuf_iterator<char>(file),
+        std::istreambuf_iterator<char>(),
+    };
+}
+
 } // namespace
 
 int main()
@@ -67,6 +77,14 @@ int main()
         for (const auto& path : violations) {
             std::cerr << "  " << path.string() << '\n';
         }
+        return EXIT_FAILURE;
+    }
+
+    const auto overviewSource = fileText(
+        sourceRoot / "editor" / "viewport" / "src" / "ViewportRenderWorldOverview.cpp");
+    if (overviewSource.find("overviewTriangleStride") != std::string::npos
+        || overviewSource.find("return coarsestLodIndices(primitive);") == std::string::npos) {
+        std::cerr << "Viewport HLOD must preserve complete simplified LOD topology\n";
         return EXIT_FAILURE;
     }
 

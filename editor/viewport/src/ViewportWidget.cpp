@@ -389,9 +389,17 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent* event)
 
 void ViewportWidget::resizeEvent(QResizeEvent* event)
 {
-    const bool hasExistingSurface = rendererSurfaceHandle_ != nullptr && rendererSurfaceAttempted_;
-    if (hasExistingSurface) {
+    const bool hasSurfaceHandle = rendererSurfaceHandle_ != nullptr;
+    const bool resizeStarting = hasSurfaceHandle
+        && !rendererSurfaceResizePending_
+        && rendererSurfaceAttempted_;
+    if (resizeStarting && renderer_ != nullptr) {
+        renderer_->releaseSurface(rendererSurfaceHandle_);
+    }
+
+    if (hasSurfaceHandle) {
         rendererSurfaceResizePending_ = true;
+        rendererSurfaceAttempted_ = false;
         rendererSurfaceReady_ = false;
         if (rendererSurfaceResizeTimer_ != nullptr) {
             rendererSurfaceResizeTimer_->start();

@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr bool kSampledOverviewHlodEnabled = true;
+constexpr bool kOverviewHlodEnabled = true;
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
@@ -82,10 +82,7 @@ constexpr bool kSampledOverviewHlodEnabled = true;
 
 [[nodiscard]] const std::vector<std::uint32_t>* overviewSourceIndices(const assets::MeshPrimitive& primitive) noexcept
 {
-    if (const auto* lod = coarsestLodIndices(primitive)) {
-        return lod;
-    }
-    return primitive.indices.empty() ? nullptr : &primitive.indices;
+    return coarsestLodIndices(primitive);
 }
 
 void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
@@ -123,8 +120,7 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
 void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
 {
     constexpr std::uint64_t kOverviewMinSourceTriangles = 64'000ULL;
-    constexpr std::uint64_t kOverviewMinTargetTriangles = 48'000ULL;
-    constexpr std::uint64_t kOverviewMaxTargetTriangles = 300'000ULL;
+    constexpr std::uint64_t kOverviewMaxTriangles = 500'000ULL;
     constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
 
     ViewportFrameBounds bounds;
@@ -149,7 +145,7 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
         record.sourceTriangleCount += instance.model->primitives[instance.primitiveIndex].indices.size() / 3U;
     }
     record.overviewDraws.clear();
-    if (!kSampledOverviewHlodEnabled) {
+    if (!kOverviewHlodEnabled) {
         return;
     }
     if (record.sourceTriangleCount < kOverviewMinSourceTriangles) {
@@ -180,14 +176,9 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
         }
         overviewCandidateTriangles += indices->size() / 3U;
     }
-    const auto overviewTargetTriangles = std::clamp<std::uint64_t>(
-        record.sourceTriangleCount / 4U,
-        kOverviewMinTargetTriangles,
-        kOverviewMaxTargetTriangles);
-    const auto overviewTriangleStride = std::max<std::uint64_t>(
-        1U,
-        (overviewCandidateTriangles + overviewTargetTriangles - 1U) / overviewTargetTriangles);
-    std::uint64_t overviewTriangleOrdinal = 0;
+    if (overviewCandidateTriangles == 0U || overviewCandidateTriangles > kOverviewMaxTriangles) {
+        return;
+    }
     for (const auto& instance : record.instances) {
         if (instance.primitiveIndex >= instance.model->primitives.size()) {
             continue;
@@ -215,9 +206,6 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
         overview->sourceTriangleCount += sourceTriangles;
         overviewSourceTriangles += sourceTriangles;
         for (std::size_t index = 2; index < indices->size(); index += 3U) {
-            if ((overviewTriangleOrdinal++ % overviewTriangleStride) != 0U) {
-                continue;
-            }
             const std::array<std::uint32_t, 3> triangle {{
                 (*indices)[index - 2U],
                 instance.flipsWinding ? (*indices)[index] : (*indices)[index - 1U],
@@ -272,7 +260,7 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
 void ViewportRenderWorld::rebuildOverviewRecords()
 {
     overviewRecords_.clear();
-    if (!kSampledOverviewHlodEnabled) {
+    if (!kOverviewHlodEnabled) {
         return;
     }
 
@@ -343,7 +331,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     ViewportFrameBounds& visibleBounds,
     std::uint64_t& visibleSourceTriangleCount) const
 {
-    if (!kSampledOverviewHlodEnabled) {
+    if (!kOverviewHlodEnabled) {
         return false;
     }
 
@@ -387,13 +375,6 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     if (!wantsOverview) {
         return false;
     }
-    const auto looksLikeBrokenTerrainProxy = record.sourceTriangleCount >= 10'000'000ULL
-        && record.overviewDraws.size() < 32U
-        && record.chunks.size() >= 64U;
-    if (looksLikeBrokenTerrainProxy) {
-        return false;
-    }
-
     bool emittedOverview = false;
     const auto model = record.instances.empty() ? std::shared_ptr<const assets::ModelAsset> {} : record.instances.front().model;
     if (model == nullptr) {

@@ -87,6 +87,12 @@ runtime cache replacement, or a full editor rewrite.
   over the coarse overview, and lowers the overview threshold so medium maps around the
   30 MB class can receive the same renderer-only relief that already helped the 400 MB
   terrain case.
+- HLOD fidelity correction: renderer overviews now copy complete meshoptimizer LOD index
+  buffers instead of selecting every Nth triangle. The old sampling left visible holes and
+  fragment-like terrain, while its large-terrain exception forced the 400 MB case back to
+  the expensive detailed path. Overview generation now requires a valid simplified LOD,
+  keeps complete triangle topology, applies a bounded 500k-triangle build budget, and can
+  remain enabled for large terrain without modifying the authored asset.
 
 ## Blocking Renderer Status
 
