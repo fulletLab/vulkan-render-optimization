@@ -2,6 +2,7 @@
 #include <projectunity/renderer/RenderBrdfLut.hpp>
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
 #include <projectunity/renderer/RenderEnvironmentMap.hpp>
+#include <projectunity/renderer/RenderShadowCache.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 
 #include <algorithm>
@@ -63,6 +64,32 @@ int main()
         || orderedDraws[3]->primitiveIndex != 50
         || orderedDraws[4]->primitiveIndex != 10) {
         return fail("Renderer mesh draw ordering did not keep opaque draws before back-to-front blended draws");
+    }
+
+    std::array<RenderMeshDraw, 1> shadowDraws {};
+    shadowDraws[0].modelAssetId = projectunity::assets::AssetId(17);
+    shadowDraws[0].primitiveIndex = 3;
+    shadowDraws[0].renderInstanceId = 99;
+    shadowDraws[0].sceneNodeId = 7;
+    shadowDraws[0].material = &opaqueMaterial;
+    RenderFrame shadowFrame;
+    shadowFrame.shadowsEnabled = true;
+    shadowFrame.shadowMode = RenderShadowMode::DirectionalCascades;
+    shadowFrame.shadowViewCount = 1;
+    shadowFrame.shadowCascadeCount = 1;
+    shadowFrame.meshDraws = shadowDraws;
+    const auto initialShadowSignature = renderShadowContentSignature(shadowFrame);
+    if (initialShadowSignature != renderShadowContentSignature(shadowFrame)) {
+        return fail("Renderer shadow content signature was not stable for an unchanged frame");
+    }
+    shadowDraws[0].modelMatrix.values[12] = 2.0F;
+    if (initialShadowSignature == renderShadowContentSignature(shadowFrame)) {
+        return fail("Renderer shadow content signature ignored a caster transform change");
+    }
+    shadowDraws[0].modelMatrix.values[12] = 0.0F;
+    shadowFrame.shadowViewProjection.values[0] = 0.5F;
+    if (initialShadowSignature == renderShadowContentSignature(shadowFrame)) {
+        return fail("Renderer shadow content signature ignored a shadow projection change");
     }
     std::array<RenderMeshDraw, 5> batchableDraws {};
     batchableDraws[0].modelAssetId = projectunity::assets::AssetId(7);

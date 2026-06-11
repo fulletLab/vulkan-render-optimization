@@ -34,8 +34,7 @@ void applyViewportShadowPolicy(
     int viewportHeight,
     ViewportRenderWorldStats& stats)
 {
-    constexpr std::size_t kLargeSceneDrawThreshold = 1024;
-    constexpr std::size_t kLargeSceneShadowBudget = 512;
+    constexpr std::size_t kShadowCasterBudget = 512;
     stats.shadowCandidateInstances = static_cast<std::uint64_t>(std::count_if(
         meshDraws.begin(),
         meshDraws.end(),
@@ -52,10 +51,6 @@ void applyViewportShadowPolicy(
                     && (draw.material == nullptr || draw.material->alphaMode != assets::MaterialAlphaMode::Blend);
             }));
     };
-    if (meshDraws.size() <= kLargeSceneDrawThreshold) {
-        return;
-    }
-
     struct Candidate {
         std::size_t index {0};
         float score {0.0F};
@@ -84,20 +79,13 @@ void applyViewportShadowPolicy(
             draw.sortDepth,
             camera.verticalFovRadians,
             viewportHeight);
-        if (!pinned
-            && (projectedRadius < 8.0F
-                || (draw.lodIndex >= 4U && projectedRadius < 96.0F)
-                || (draw.sortDepth > draw.worldBoundsRadius * 12.0F && projectedRadius < 80.0F))) {
-            draw.castsShadow = false;
-            continue;
-        }
         const auto lodBonus = draw.lodIndex == 0U ? 64.0F : 0.0F;
         const auto score = pinned
             ? std::numeric_limits<float>::max()
             : projectedRadius * 8.0F + draw.worldBoundsRadius * 0.5F + lodBonus;
         candidates.push_back({index, score, pinned});
     }
-    if (candidates.size() <= kLargeSceneShadowBudget) {
+    if (candidates.size() <= kShadowCasterBudget) {
         updateRejectedCount();
         return;
     }
@@ -112,7 +100,7 @@ void applyViewportShadowPolicy(
     std::size_t kept = 0;
     for (const auto& candidate : candidates) {
         auto& draw = meshDraws[candidate.index];
-        if (candidate.pinned || kept < kLargeSceneShadowBudget) {
+        if (candidate.pinned || kept < kShadowCasterBudget) {
             draw.castsShadow = true;
             if (!candidate.pinned) {
                 ++kept;

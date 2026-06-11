@@ -181,6 +181,7 @@ private:
     bool descriptorEnvironmentKeyValid_ {false};
     bool pointShadowCubeReadable_ {false};
     bool shadowMapValid_ {false};
+    std::uint64_t shadowContentSignature_ {0};
     VkCommandPool commandPool_ {VK_NULL_HANDLE};
     VkCommandBuffer commandBuffer_ {VK_NULL_HANDLE};
     VulkanGpuFrameProfiler gpuProfiler_;

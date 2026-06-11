@@ -83,6 +83,8 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " shadowInstancesSubmitted=" << stats.shadowInstancesSubmitted
         << " shadowTrianglesSubmitted=" << stats.shadowTrianglesSubmitted
         << " shadowGpuUs=" << stats.lastFrameShadowGpuTimeUs
+        << " shadowMapUpdated=" << (stats.lastFrameShadowMapUpdated ? "yes" : "no")
+        << " shadowCasterDrawsPresented=" << stats.shadowCasterDrawsPresented
         << " vkBindVertex=" << stats.vkBindVertex
         << " vkBindIndex=" << stats.vkBindIndex
         << " vkBindDescriptors=" << stats.vkBindDescriptors

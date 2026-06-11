@@ -3,6 +3,7 @@
 #include "VulkanMaterialTextureSet.hpp"
 
 #include <projectunity/renderer/RenderDrawOrdering.hpp>
+#include <projectunity/renderer/RenderShadowCache.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 
 #include <algorithm>
@@ -121,7 +122,12 @@ bool VulkanViewportTarget::recordShadowPass(
         lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;
     }
-    if (frame.shadowUpdateMode == RenderShadowUpdateMode::Frozen && shadowMapValid_) {
+    const auto contentSignature = renderShadowContentSignature(frame);
+    const auto reuseFrozenMap = frame.shadowUpdateMode == RenderShadowUpdateMode::Frozen && shadowMapValid_;
+    const auto reuseUnchangedLiveMap = frame.shadowUpdateMode == RenderShadowUpdateMode::Live
+        && shadowMapValid_
+        && shadowContentSignature_ == contentSignature;
+    if (reuseFrozenMap || reuseUnchangedLiveMap) {
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;
@@ -290,6 +296,7 @@ bool VulkanViewportTarget::recordShadowPass(
         }
     }
     shadowMapValid_ = true;
+    shadowContentSignature_ = contentSignature;
     lastFrameProfile_.shadowMapUpdated = true;
     gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
     lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);

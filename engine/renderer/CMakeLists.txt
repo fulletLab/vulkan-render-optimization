@@ -43,6 +43,7 @@ add_library(projectunity_renderer STATIC
     src/RenderBrdfLut.cpp
     src/RenderDrawOrdering.cpp
     src/RenderEnvironmentMap.cpp
+    src/RenderShadowCache.cpp
     src/RenderShadowSetup.cpp
     src/VulkanRenderer.cpp
     src/VulkanColorMesh.cpp
@@ -86,6 +87,7 @@ add_library(projectunity_renderer STATIC
     include/projectunity/renderer/RenderBrdfLut.hpp
     include/projectunity/renderer/RenderDrawOrdering.hpp
     include/projectunity/renderer/RenderEnvironmentMap.hpp
+    include/projectunity/renderer/RenderShadowCache.hpp
     include/projectunity/renderer/RenderShadowSetup.hpp
     include/projectunity/renderer/RendererTypes.hpp
     include/projectunity/renderer/VulkanRenderer.hpp

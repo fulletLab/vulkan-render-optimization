@@ -215,6 +215,7 @@ void VulkanViewportTarget::destroy() noexcept
     descriptorEnvironmentKeyValid_ = false;
     pointShadowCubeReadable_ = false;
     shadowMapValid_ = false;
+    shadowContentSignature_ = 0;
     if (descriptorPool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(context_.device, descriptorPool_, nullptr);
         descriptorPool_ = VK_NULL_HANDLE;
