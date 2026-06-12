@@ -265,8 +265,9 @@ struct VulkanRenderer::Impl {
             stats.lastFrameLargestRenderChunkInstanceCount = frame.largestRenderChunkInstanceCount;
             stats.lastFrameMaxRenderChunkExtent = frame.maxRenderChunkExtent;
             const auto visibleBeforeLod = frame.candidateTriangleCount - frame.culledTriangleCount;
-            stats.lastFrameVisibleTriangleCount = visibleBeforeLod > frame.lodTriangleReductionCount
-                ? visibleBeforeLod - frame.lodTriangleReductionCount
+            const auto triangleReduction = frame.lodTriangleReductionCount + frame.hlodTriangleReductionCount;
+            stats.lastFrameVisibleTriangleCount = visibleBeforeLod > triangleReduction
+                ? visibleBeforeLod - triangleReduction
                 : 0U;
             stats.lastFrameLightCount = static_cast<std::uint64_t>(frame.lights.size());
             stats.lastFrameShadowCasterCount = 0;

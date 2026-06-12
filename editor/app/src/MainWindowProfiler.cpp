@@ -153,28 +153,51 @@ void MainWindow::updateProfilerPanel()
     }
     const auto& stats = *statsSource;
     if (performanceStatus_ != nullptr) {
-        const auto gpuText = stats.lastFrameGpuTimestampsValid
+        const auto gpuFrameText = stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("GPU %1ms").arg(static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0, 0, 'f', 1)
             : QStringLiteral("GPU -");
-        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3/%4 | VKD %5 | BIND %6 | T %7 | CULL %8 | OCC %9/%10/%11 | SH %12 %13/%14 | RES %15 %16ms | CMD %17ms")
+        const auto gpuMeshText = stats.lastFrameGpuTimestampsValid
+            ? QStringLiteral("MGPU %1ms").arg(static_cast<double>(stats.lastFrameMeshGpuTimeUs) / 1000.0, 0, 'f', 1)
+            : QStringLiteral("MGPU -");
+        const auto gpuShadowText = stats.lastFrameGpuTimestampsValid
+            ? QStringLiteral("SGPU %1ms").arg(static_cast<double>(stats.lastFrameShadowGpuTimeUs) / 1000.0, 0, 'f', 1)
+            : QStringLiteral("SGPU -");
+        const auto cpuText = QStringLiteral("CPU %1ms").arg(static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0, 0, 'f', 1);
+        const auto worldText = QStringLiteral("WORLD %1ms").arg(static_cast<double>(stats.lastFrameRenderWorldBuildCpuTimeUs) / 1000.0, 0, 'f', 1);
+        const auto cmdText = QStringLiteral("CMD %1ms").arg(stats.commandRecordingMs, 0, 'f', 1);
+        const auto resText = QStringLiteral("RES %1ms").arg(stats.resourcePrepareMs, 0, 'f', 1);
+        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | %3 %4 %5 %6 | D %7/%8 B %9 | VKD %10 BIND %11 | T %12 SUB %13 | LOD %14 -%15 HLOD %16/%17 -%18 | OCC %19/%20/%21 | SH %22 %23/%24 | %25 %26")
             .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
             .arg(stats.FPS, 0, 'f', 1)
+            .arg(cpuText)
+            .arg(worldText)
+            .arg(cmdText)
+            .arg(resText)
             .arg(compactCounter(stats.lastFrameMeshDrawCount))
             .arg(compactCounter(stats.lastFrameCandidateMeshDrawCount))
+            .arg(compactCounter(stats.lastFrameMeshBatchCount))
             .arg(compactCounter(stats.vkDrawIndexed))
             .arg(compactCounter(stats.vkBindVertex + stats.vkBindIndex + stats.vkBindDescriptors))
             .arg(compactCounter(stats.lastFrameVisibleTriangleCount))
-            .arg(compactCounter(stats.lastFrameCulledMeshDrawCount))
+            .arg(compactCounter(stats.trianglesSubmitted))
+            .arg(compactCounter(stats.lastFrameLodMeshDrawCount))
+            .arg(compactCounter(stats.lastFrameLodTriangleReductionCount))
+            .arg(compactCounter(stats.lastFrameHlodMeshDrawCount))
+            .arg(compactCounter(stats.lastFrameHlodCandidateDrawCount))
+            .arg(compactCounter(stats.lastFrameHlodTriangleReductionCount))
             .arg(compactCounter(stats.lastFrameOcclusionTestedChunkCount))
             .arg(compactCounter(stats.lastFrameOcclusionRejectedChunkCount))
             .arg(compactCounter(stats.lastFrameOcclusionOccluderChunkCount))
             .arg(shadowUpdateModeName(stats.lastFrameShadowUpdateMode))
             .arg(compactCounter(stats.lastFrameShadowViewCount))
             .arg(compactCounter(stats.shadowBatchesSubmitted))
-            .arg(compactCounter(stats.resourcePrepared))
-            .arg(stats.resourcePrepareMs, 0, 'f', 1)
-            .arg(stats.commandRecordingMs, 0, 'f', 1));
-        performanceStatus_->setToolTip(gpuText);
+            .arg(gpuMeshText)
+            .arg(gpuShadowText));
+        performanceStatus_->setToolTip(QStringLiteral("%1 | editor %2ms | color %3us | cull %4")
+            .arg(gpuFrameText)
+            .arg(static_cast<double>(stats.lastFrameEditorBuildCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(static_cast<qulonglong>(stats.lastFrameColorRecordCpuTimeUs))
+            .arg(compactCounter(stats.lastFrameCulledMeshDrawCount)));
     }
     setTableValue(
         profilerTable_,

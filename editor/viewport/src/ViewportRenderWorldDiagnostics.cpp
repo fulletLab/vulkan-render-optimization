@@ -1,14 +1,31 @@
 #include "ViewportRenderWorldDiagnostics.hpp"
 
 #include <projectunity/core/Log.hpp>
+#include <projectunity/renderer/RendererTypes.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <sstream>
 
 namespace projectunity::editor {
 namespace {
+
+struct VisibleDrawLogRow {
+    bool overview {false};
+    std::uint64_t sceneNodeId {0};
+    std::uint64_t modelAssetId {0};
+    std::uint64_t chunkId {0};
+    std::uint64_t drawCount {0};
+    std::uint64_t triangleCount {0};
+    std::uint64_t lodDrawCount {0};
+    std::uint64_t behindCenterCount {0};
+    float nearestDepth {std::numeric_limits<float>::max()};
+    float radius {0.0F};
+    std::array<float, 3> center {0.0F, 0.0F, 0.0F};
+};
 
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
@@ -21,6 +38,20 @@ namespace {
     static_assert(sizeof(bits) == sizeof(value));
     std::memcpy(&bits, &value, sizeof(value));
     return bits;
+}
+
+[[nodiscard]] std::uint64_t renderDrawTriangleCount(const renderer::RenderMeshDraw& draw) noexcept
+{
+    if (draw.primitive == nullptr) {
+        return 0;
+    }
+    if (draw.lodIndex > 0U && draw.lodIndex - 1U < draw.primitive->lods.size()) {
+        const auto& lodIndices = draw.primitive->lods[draw.lodIndex - 1U].indices;
+        if (!lodIndices.empty()) {
+            return static_cast<std::uint64_t>(lodIndices.size() / 3U);
+        }
+    }
+    return static_cast<std::uint64_t>(draw.primitive->indices.size() / 3U);
 }
 
 } // namespace
@@ -101,6 +132,84 @@ void logRenderWorldChunkDiagnostics(
     }
     core::logInfo(core::LogCategory::Renderer, message.str());
     lastDebugSignature = signature;
+}
+
+void appendViewportVisibleDrawDiagnostics(
+    std::ostringstream& message,
+    const std::vector<renderer::RenderMeshDraw>& draws)
+{
+    if (draws.empty()) {
+        message << " visibleTop=[]";
+        return;
+    }
+    std::vector<VisibleDrawLogRow> rows;
+    rows.reserve(std::min<std::size_t>(draws.size(), 64U));
+    std::uint64_t overviewDraws = 0;
+    std::uint64_t meshDraws = 0;
+    std::uint64_t behindCenters = 0;
+    for (const auto& draw : draws) {
+        const auto modelId = draw.modelAssetId.isValid() ? draw.modelAssetId.value() : 0U;
+        const auto overview = !draw.castsShadow;
+        if (overview) {
+            ++overviewDraws;
+        } else {
+            ++meshDraws;
+        }
+        if (draw.sortDepth < 0.0F) {
+            ++behindCenters;
+        }
+        auto existing = std::find_if(rows.begin(), rows.end(), [&](const auto& row) {
+            return row.overview == overview && row.sceneNodeId == draw.sceneNodeId && row.modelAssetId == modelId;
+        });
+        if (existing == rows.end()) {
+            VisibleDrawLogRow row;
+            row.overview = overview;
+            row.sceneNodeId = draw.sceneNodeId;
+            row.modelAssetId = modelId;
+            row.chunkId = draw.renderChunkId;
+            row.nearestDepth = draw.sortDepth;
+            row.radius = draw.worldBoundsRadius;
+            row.center = draw.worldBoundsCenter;
+            existing = rows.insert(rows.end(), row);
+        }
+        ++existing->drawCount;
+        existing->triangleCount += renderDrawTriangleCount(draw);
+        existing->lodDrawCount += draw.lodIndex > 0U ? 1U : 0U;
+        existing->behindCenterCount += draw.sortDepth < 0.0F ? 1U : 0U;
+        existing->nearestDepth = std::min(existing->nearestDepth, draw.sortDepth);
+        if (draw.worldBoundsRadius > existing->radius) {
+            existing->radius = draw.worldBoundsRadius;
+            existing->center = draw.worldBoundsCenter;
+            existing->chunkId = draw.renderChunkId;
+        }
+    }
+    std::sort(rows.begin(), rows.end(), [](const auto& lhs, const auto& rhs) {
+        if (lhs.triangleCount != rhs.triangleCount) {
+            return lhs.triangleCount > rhs.triangleCount;
+        }
+        return lhs.drawCount > rhs.drawCount;
+    });
+    message << " visibleSummary mesh=" << meshDraws
+            << " overview=" << overviewDraws
+            << " behindCenters=" << behindCenters
+            << " visibleTop=";
+    const auto topCount = std::min<std::size_t>(rows.size(), 8U);
+    for (std::size_t index = 0; index < topCount; ++index) {
+        const auto& row = rows[index];
+        message << "[" << index
+                << " kind=" << (row.overview ? "overview" : "mesh")
+                << " node=" << row.sceneNodeId
+                << " model=" << row.modelAssetId
+                << " chunk=" << row.chunkId
+                << " draws=" << row.drawCount
+                << " tri=" << row.triangleCount
+                << " lod=" << row.lodDrawCount
+                << " behind=" << row.behindCenterCount
+                << " depth=" << row.nearestDepth
+                << " center=(" << row.center[0] << "," << row.center[1] << "," << row.center[2] << ")"
+                << " r=" << row.radius
+                << "]";
+    }
 }
 
 } // namespace projectunity::editor

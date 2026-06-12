@@ -1,6 +1,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
 #include "ViewportRenderWorld.hpp"
+#include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
@@ -433,6 +434,7 @@ bool ViewportWidget::renderRendererFrame()
                     << " rejectedTriangles=" << renderWorldFrame.stats.occlusionRejectedTriangleCount
                     << " meshDrawCandidates=" << renderWorldFrame.stats.candidateMeshDrawCount
                     << " culledDraws=" << renderWorldFrame.stats.culledMeshDrawCount;
+            appendViewportVisibleDrawDiagnostics(message, rendererMeshDraws_);
             core::logInfo(core::LogCategory::Renderer, message.str());
             std::cout << message.str() << '\n';
             lastCullingLogFrame_ = cullingLogFrameCounter_;
@@ -490,7 +492,7 @@ bool ViewportWidget::renderRendererFrame()
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
     frame.meshWireOverlayEnabled = mode_ == ViewportMode::Scene && meshWireOverlayEnabled_;
-    frame.selectedMeshWireOverlayEnabled = frame.meshWireOverlayEnabled && selectedEntityId_.isValid();
+    frame.selectedMeshWireOverlayEnabled = mode_ == ViewportMode::Scene && selectedEntityId_.isValid();
     frame.selectedMeshWireOverlaySceneNodeId = selectedEntityId_.isValid() ? selectedEntityId_.value() : 0U;
     rendererGizmoVertices_.clear();
     rendererGizmoIndices_.clear();
@@ -659,6 +661,35 @@ bool ViewportWidget::renderRendererFrame()
     std::string error;
     if (renderer_->renderSurfaceFrame(desc, frame, &error)) {
         lastRendererStats_ = renderer_->stats();
+        if (cullingLogFrameCounter_ == 1U || cullingLogFrameCounter_ % 60U == 0U) {
+            const auto& stats = *lastRendererStats_;
+            std::ostringstream message;
+            message << "Viewport render stats"
+                    << " fps=" << stats.FPS
+                    << " cpuMs=" << static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0
+                    << " worldMs=" << static_cast<double>(stats.lastFrameRenderWorldBuildCpuTimeUs) / 1000.0
+                    << " cmdMs=" << stats.commandRecordingMs
+                    << " resMs=" << stats.resourcePrepareMs
+                    << " gpuValid=" << (stats.lastFrameGpuTimestampsValid ? "yes" : "no")
+                    << " gpuMs=" << static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0
+                    << " meshGpuMs=" << static_cast<double>(stats.lastFrameMeshGpuTimeUs) / 1000.0
+                    << " shadowGpuMs=" << static_cast<double>(stats.lastFrameShadowGpuTimeUs) / 1000.0
+                    << " draws=" << stats.lastFrameMeshDrawCount << "/" << stats.lastFrameCandidateMeshDrawCount
+                    << " batches=" << stats.lastFrameMeshBatchCount
+                    << " vkDraw=" << stats.vkDrawIndexed
+                    << " binds=" << (stats.vkBindVertex + stats.vkBindIndex + stats.vkBindDescriptors)
+                    << " tris=" << stats.lastFrameVisibleTriangleCount
+                    << " submitted=" << stats.trianglesSubmitted
+                    << " lod=" << stats.lastFrameLodMeshDrawCount << "/" << stats.lastFrameLodTriangleReductionCount
+                    << " hlod=" << stats.lastFrameHlodMeshDrawCount << "/" << stats.lastFrameHlodCandidateDrawCount
+                    << "/" << stats.lastFrameHlodTriangleReductionCount
+                    << " occ=" << stats.lastFrameOcclusionTestedChunkCount << "/"
+                    << stats.lastFrameOcclusionRejectedChunkCount << "/"
+                    << stats.lastFrameOcclusionOccluderChunkCount
+                    << " shadow=" << stats.lastFrameShadowViewCount << "/" << stats.shadowBatchesSubmitted;
+            core::logInfo(core::LogCategory::Renderer, message.str());
+            std::cout << message.str() << '\n';
+        }
         gpuMeshFrameRendered_ = !rendererMeshDraws_.empty();
         return true;
     }

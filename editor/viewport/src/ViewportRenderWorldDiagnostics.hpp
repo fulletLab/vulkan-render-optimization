@@ -3,6 +3,7 @@
 #include "ViewportRenderWorld.hpp"
 
 #include <cstdint>
+#include <iosfwd>
 #include <vector>
 
 namespace projectunity::editor {
@@ -21,5 +22,9 @@ void logRenderWorldChunkDiagnostics(
     const ViewportRenderWorldStats& stats,
     const std::vector<ViewportRenderWorldChunkLogRow>& rows,
     std::uint64_t& lastDebugSignature);
+
+void appendViewportVisibleDrawDiagnostics(
+    std::ostringstream& message,
+    const std::vector<renderer::RenderMeshDraw>& draws);
 
 } // namespace projectunity::editor

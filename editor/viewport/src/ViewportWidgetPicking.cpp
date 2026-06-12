@@ -251,6 +251,37 @@ struct DeferredMeshPick {
     return distance;
 }
 
+[[nodiscard]] std::optional<float> rayBoundsDistance(
+    const ViewportRay& ray,
+    const assets::MeshBounds& bounds) noexcept
+{
+    auto nearDistance = 0.0F;
+    auto farDistance = std::numeric_limits<float>::max();
+    const auto testAxis = [&](float origin, float direction, float minimum, float maximum) {
+        constexpr auto epsilon = 0.0000001F;
+        if (std::fabs(direction) <= epsilon) {
+            return origin >= minimum && origin <= maximum;
+        }
+        auto axisNear = (minimum - origin) / direction;
+        auto axisFar = (maximum - origin) / direction;
+        if (axisNear > axisFar) {
+            std::swap(axisNear, axisFar);
+        }
+        nearDistance = std::max(nearDistance, axisNear);
+        farDistance = std::min(farDistance, axisFar);
+        return nearDistance <= farDistance;
+    };
+    if (!testAxis(ray.origin.x, ray.direction.x, bounds.minimum.x, bounds.maximum.x)
+        || !testAxis(ray.origin.y, ray.direction.y, bounds.minimum.y, bounds.maximum.y)
+        || !testAxis(ray.origin.z, ray.direction.z, bounds.minimum.z, bounds.maximum.z)) {
+        return std::nullopt;
+    }
+    if (!std::isfinite(nearDistance) || !std::isfinite(farDistance) || farDistance < 0.0F) {
+        return std::nullopt;
+    }
+    return nearDistance >= 0.0F ? nearDistance : farDistance;
+}
+
 [[nodiscard]] std::optional<float> rayTriangleDistance(
     const ViewportRay& ray,
     math::Vec3 a,
@@ -288,9 +319,11 @@ struct DeferredMeshPick {
     const assets::MeshPrimitive& primitive,
     const renderer::RenderMatrix4& matrix)
 {
-    const auto boundsCenter = transformPoint(matrix, primitive.bounds.center);
-    const auto boundsRadius = primitive.bounds.radius * maxScale(matrix);
-    return raySphereDistance(worldRay, boundsCenter, boundsRadius);
+    const auto localRay = inverseTransformRay(matrix, worldRay);
+    if (!localRay.has_value()) {
+        return std::nullopt;
+    }
+    return rayBoundsDistance(*localRay, primitive.bounds);
 }
 
 [[nodiscard]] std::optional<float> rayPrimitiveDistance(
