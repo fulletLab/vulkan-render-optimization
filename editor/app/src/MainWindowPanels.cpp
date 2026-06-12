@@ -111,8 +111,7 @@ void MainWindow::createToolbar()
 {
     auto* toolbar = addToolBar(QStringLiteral("Toolbar"));
     toolbar->setObjectName(QStringLiteral("MainToolbar"));
-    toolbar->setMovable(false);
-    auto* transformGroup = new QActionGroup(this);
+    toolbar->setMovable(false); auto* transformGroup = new QActionGroup(this);
     transformGroup->setExclusive(true);
     const std::array<std::pair<QString, ViewportTool>, 4> tools {{
         {QStringLiteral("Hand"), ViewportTool::Hand},

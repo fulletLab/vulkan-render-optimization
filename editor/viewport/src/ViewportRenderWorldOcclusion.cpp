@@ -9,6 +9,7 @@ namespace {
 
 constexpr float kMinimumOccluderArea = 0.018F;
 constexpr float kMaximumCandidateArea = 0.72F;
+constexpr float kNearCameraCandidateProtectionDepth = 8.0F;
 
 [[nodiscard]] bool finitePositive(float value) noexcept
 {
@@ -161,7 +162,9 @@ bool ViewportOcclusionBuffer::isOccluded(const ViewportWorldBounds& bounds) cons
 
     const auto depthBias = std::max(0.35F, bounds.radius * 0.08F);
     const auto requiredDepth = projected.nearDepth - depthBias;
-    if (!std::isfinite(requiredDepth) || requiredDepth <= camera_.nearPlane) {
+    if (!std::isfinite(requiredDepth)
+        || requiredDepth <= camera_.nearPlane
+        || projected.nearDepth <= std::max(kNearCameraCandidateProtectionDepth, bounds.radius * 2.5F)) {
         return false;
     }
 

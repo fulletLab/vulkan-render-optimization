@@ -121,6 +121,9 @@ int main()
     if (occlusion.isOccluded(testBounds({-0.5F, -0.5F, 2.8F}, {0.5F, 0.5F, 3.2F}))) {
         return fail("Viewport occlusion rejected a chunk in front of the occluder");
     }
+    if (occlusion.isOccluded(testBounds({-0.4F, -0.4F, 5.8F}, {0.4F, 0.4F, 6.2F}))) {
+        return fail("Viewport occlusion rejected near-camera content");
+    }
 
     projectunity::editor::ViewportOcclusionBuffer nearOcclusion(camera, 1080);
     if (nearOcclusion.addOccluder(testBounds({-3.0F, -3.0F, -0.2F}, {3.0F, 3.0F, 1.2F}))) {
