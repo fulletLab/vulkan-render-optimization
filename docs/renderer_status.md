@@ -4,7 +4,11 @@ Date: 2026-05-24
 
 ## Current State
 
-Status: COMPLETE
+Status: PARCIAL / under review
+
+The renderer path has substantial Phase 6 functionality, but it is not a closed
+phase while representative large-scene Vulkan visibility/performance issues remain
+under review.
 
 Phase 6.0.01 research notes for Vulkan optimization are recorded in
 `docs/phase6_0_01_vulkan_optimization_notes.md`. They are guidance for future
@@ -384,8 +388,8 @@ color path when a real viewport surface is available.
   point-light shadow selection, `cmake --build --preset dev-editor-local-qt` passed,
   `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 36.57
   seconds, and visible `projectunity_editor --smoke-test` passed with exit code 0.
-- Latest Phase 6 completion verification after cascaded directional shadows, point-light
-  cubemap shadows, and broad visual smoke: `cmake --build --preset dev-core` passed,
+- Latest Phase 6 completion-candidate verification after cascaded directional
+  shadows, point-light cubemap shadows, and broad visual smoke: `cmake --build --preset dev-core` passed,
   `ctest --preset dev-core --output-on-failure` passed 7/7, `cmake --build --preset
   dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure`
   passed 8/8, visible `projectunity_editor --smoke-test` passed, and visible

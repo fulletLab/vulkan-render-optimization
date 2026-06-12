@@ -101,7 +101,13 @@ runtime cache replacement, or a full editor rewrite.
 - Imported meshoptimizer LOD index buffers now store simplification error and are selected at runtime by screen-space error plus conservative projected-size fallback. This keeps full-resolution indices for nearby and selected objects, uses lower LODs when a primitive is distant or small on screen, and leaves imported source geometry/materials/textures unchanged.
 - Imported repeated primitive instances now build coarse spatial culling clusters in asset space. The Scene/Game viewport tests these cluster AABBs before expanding to per-primitive draws, so off-camera large assets can skip whole groups before mesh/material preparation and shadow submission.
 - The CPU/QPainter mesh bridge is a temporary fallback when Vulkan surface/frame rendering fails, including Qt offscreen tests. Empty-scene editor aids and transform-only entity markers now use the Vulkan color path when a real viewport surface is available.
-- Phase 6 completion was verified with the normal core/editor suites, visible editor smoke, and a broad Phase 6 visual smoke over the local verification GLB pack, including cascaded directional shadows, `LightsPunctualLamp.glb` point-light cubemap shadows, and `NodePerformanceTest.glb` large-scene counters.
+- A previous Phase 6 completion candidate was verified with the normal core/editor
+  suites, visible editor smoke, and a broad Phase 6 visual smoke over the local
+  verification GLB pack, including cascaded directional shadows,
+  `LightsPunctualLamp.glb` point-light cubemap shadows, and
+  `NodePerformanceTest.glb` large-scene counters. This is no longer a final
+  completion claim; status remains PARCIAL while representative external scenes
+  and current viewport performance/visibility issues are under review.
 
 ## Implemented
 
@@ -322,8 +328,8 @@ ctest --preset dev-editor-local-qt
   `ctest --preset dev-editor-local-qt --output-on-failure` passed 8/8 in 36.57
   seconds, and visible Windows `projectunity_editor --smoke-test` passed with exit
   code 0.
-- Latest Phase 6 completion check after cascaded directional shadows, point-light
-  cubemap shadows, and broad visual smoke: `cmake --build --preset dev-core` passed,
+- Latest Phase 6 completion-candidate check after cascaded directional shadows,
+  point-light cubemap shadows, and broad visual smoke: `cmake --build --preset dev-core` passed,
   `ctest --preset dev-core --output-on-failure` passed 7/7, `cmake --build --preset
   dev-editor-local-qt` passed, `ctest --preset dev-editor-local-qt --output-on-failure`
   passed 8/8, visible Windows `projectunity_editor --smoke-test` passed, and visible
