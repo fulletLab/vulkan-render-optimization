@@ -119,6 +119,9 @@ bool VulkanViewportTarget::recordShadowPass(
     gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowStart, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
     if (shadowViewCount == 0U || !hasShadowCaster) {
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        if (shadowViewCount == 0U) {
+            lastFrameProfile_.shadowGpuTimeUs = 0;
+        }
         lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;
     }

@@ -531,6 +531,9 @@ bool VulkanViewportTarget::recordFrameCommand(
 {
     lastFrameProfile_ = {};
     copyGpuTimes(lastFrameProfile_, gpuProfiler_.lastTimes());
+    if (!frame.shadowsEnabled) {
+        lastFrameProfile_.shadowGpuTimeUs = 0;
+    }
     if (imageIndex >= framebuffers_.size()) {
         if (errorMessage != nullptr) {
             *errorMessage = "Invalid Vulkan viewport image index";

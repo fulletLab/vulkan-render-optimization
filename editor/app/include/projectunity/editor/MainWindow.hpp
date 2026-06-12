@@ -107,6 +107,7 @@ private:
     void clearEnvironmentTexture();
     void resetLightingDefaults();
     void refreshEnvironmentTextureLabel();
+    void updateEditorSunFromControls();
 
     ads::CDockManager* dockManager_ {nullptr};
     QMenu* windowMenu_ {nullptr};
@@ -139,6 +140,12 @@ private:
     QDoubleSpinBox* groundColorG_ {nullptr};
     QDoubleSpinBox* groundColorB_ {nullptr};
     QDoubleSpinBox* environmentIntensity_ {nullptr};
+    QDoubleSpinBox* sunAzimuth_ {nullptr};
+    QDoubleSpinBox* sunElevation_ {nullptr};
+    QDoubleSpinBox* sunColorR_ {nullptr};
+    QDoubleSpinBox* sunColorG_ {nullptr};
+    QDoubleSpinBox* sunColorB_ {nullptr};
+    QDoubleSpinBox* sunIntensity_ {nullptr};
     QLineEdit* environmentTextureEdit_ {nullptr};
     QPushButton* useEnvironmentTextureButton_ {nullptr};
     QPushButton* clearEnvironmentTextureButton_ {nullptr};
@@ -152,7 +159,10 @@ private:
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
     renderer::RenderEnvironmentSettings environmentSettings_;
-    renderer::RenderShadowUpdateMode shadowUpdateMode_ {renderer::RenderShadowUpdateMode::Live};
+    renderer::RenderLight editorSunLight_;
+    float editorSunAzimuthDegrees_ {38.0F};
+    float editorSunElevationDegrees_ {55.0F};
+    renderer::RenderShadowUpdateMode shadowUpdateMode_ {renderer::RenderShadowUpdateMode::Off};
     std::shared_ptr<const assets::TextureAsset> environmentTexture_;
     assets::AssetId environmentTextureId_;
     scene::EntityId selectedEntityId_;

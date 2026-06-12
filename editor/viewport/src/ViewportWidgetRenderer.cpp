@@ -3,6 +3,7 @@
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportRendererOverlays.hpp"
+#include "ViewportShadowFocus.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
@@ -20,7 +21,6 @@
 #include <vector>
 namespace projectunity::editor {
 namespace {
-
 [[nodiscard]] std::uint64_t mixLogHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
     return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
@@ -188,12 +188,22 @@ struct ViewportCameraFrame {
 void ViewportWidget::setShadowUpdateMode(renderer::RenderShadowUpdateMode mode)
 {
     shadowUpdateMode_ = mode;
+    if (mode == renderer::RenderShadowUpdateMode::Off) {
+        frozenShadowSelection_.reset();
+    }
     update();
 }
 
 renderer::RenderShadowUpdateMode ViewportWidget::shadowUpdateMode() const noexcept
 {
     return shadowUpdateMode_;
+}
+
+void ViewportWidget::setEditorSunLight(renderer::RenderLight light)
+{
+    light.type = renderer::RenderLightType::Directional;
+    editorSunLight_ = light;
+    update();
 }
 
 bool ViewportWidget::ensureRendererSurface()
@@ -406,6 +416,9 @@ bool ViewportWidget::renderRendererFrame()
         frame.occlusionOccluderChunkCount = renderWorldFrame.stats.occlusionOccluderChunkCount;
         frame.occlusionRejectedInstanceCount = renderWorldFrame.stats.occlusionRejectedInstanceCount;
         frame.occlusionRejectedTriangleCount = renderWorldFrame.stats.occlusionRejectedTriangleCount;
+        if (renderWorldFrame.visibleBoundsValid) {
+            visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
+        }
         auto cullingSignature = mixLogHash(renderWorldFrame.stats.visibleRenderChunkCount, renderWorldFrame.stats.visibleRenderInstanceCount);
         cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedChunkCount);
         cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedInstanceCount);
@@ -440,13 +453,19 @@ bool ViewportWidget::renderRendererFrame()
             lastCullingLogFrame_ = cullingLogFrameCounter_;
             lastCullingLogSignature_ = cullingSignature;
         }
-        if (renderWorldFrame.visibleBoundsValid) {
-            visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
-        }
         renderWorldDebugChunks = renderWorldFrame.debugChunks;
     }
-    if (rendererLights_.empty()) {
-        rendererLights_.push_back({});
+    {
+        auto sunLight = editorSunLight_;
+        const auto sunDirection = safeNormalized(
+            {sunLight.direction[0], sunLight.direction[1], sunLight.direction[2]},
+            {0.35F, -0.82F, 0.45F});
+        sunLight.type = renderer::RenderLightType::Directional;
+        sunLight.direction = {sunDirection.x, sunDirection.y, sunDirection.z};
+        rendererLights_.insert(rendererLights_.begin(), sunLight);
+        if (rendererLights_.size() > renderer::kMaxFrameLights) {
+            rendererLights_.resize(renderer::kMaxFrameLights);
+        }
     }
     if (visibleBounds.valid) {
         const auto center = visibleBounds.center();
@@ -457,15 +476,30 @@ bool ViewportWidget::renderRendererFrame()
         frame.visibleBoundsRadius = std::max(camera_.distance, 1.0F);
     }
     frame.lights = std::span<const renderer::RenderLight>(rendererLights_);
-    const auto hasVisibleShadowCaster = std::any_of(
+    const auto shadowsRequested = shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off;
+    const auto hasVisibleShadowCaster = shadowsRequested && std::any_of(
         rendererMeshDraws_.begin(),
         rendererMeshDraws_.end(),
         [](const renderer::RenderMeshDraw& draw) {
             return draw.castsShadow
                 && !(draw.material != nullptr && draw.material->alphaMode == assets::MaterialAlphaMode::Blend);
         });
+    const auto shadowFocus = stableViewportShadowFocus(
+        mode_,
+        cameraFrame.eye,
+        cameraFrame.forward,
+        camera_.target,
+        camera_.distance,
+        cameraFrame.farPlane,
+        visibleBounds.valid,
+        visibleBounds.valid ? visibleBounds.radius() : 0.0F);
+    const std::array<float, 3> shadowFocusCenter {
+        shadowFocus.center.x,
+        shadowFocus.center.y,
+        shadowFocus.center.z,
+    };
     auto shadowSelection = hasVisibleShadowCaster
-        ? renderer::chooseShadowMap(frame.lights, frame.visibleBoundsCenter, frame.visibleBoundsRadius)
+        ? renderer::chooseShadowMap(frame.lights, shadowFocusCenter, shadowFocus.radius)
         : renderer::RenderShadowMapSelection {};
     if (shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Frozen) {
         if (frozenShadowSelection_.has_value()) {
@@ -508,6 +542,66 @@ bool ViewportWidget::renderRendererFrame()
         };
         detail::appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
         detail::appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
+        {
+            const auto sunDirection = safeNormalized(
+                {editorSunLight_.direction[0], editorSunLight_.direction[1], editorSunLight_.direction[2]},
+                {0.35F, -0.82F, 0.45F});
+            const auto anchor = camera_.target;
+            const auto rayLength = std::clamp(camera_.distance * 0.65F, 4.0F, 28.0F);
+            const auto headLength = std::clamp(rayLength * 0.12F, 0.55F, 2.2F);
+            const auto rayStart = anchor - sunDirection * rayLength;
+            constexpr std::array<float, 4> sunColor {1.0F, 0.82F, 0.22F, 0.95F};
+            detail::appendLineQuad(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                rayStart,
+                anchor,
+                sunColor,
+                2.2F,
+                forward,
+                right,
+                camera_.distance);
+            detail::appendLineQuad(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                anchor,
+                anchor - sunDirection * headLength + right * (headLength * 0.45F),
+                sunColor,
+                1.8F,
+                forward,
+                right,
+                camera_.distance);
+            detail::appendLineQuad(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                anchor,
+                anchor - sunDirection * headLength - right * (headLength * 0.45F),
+                sunColor,
+                1.8F,
+                forward,
+                right,
+                camera_.distance);
+            detail::appendLineQuad(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                rayStart - right * (headLength * 0.35F),
+                rayStart + right * (headLength * 0.35F),
+                sunColor,
+                1.6F,
+                forward,
+                right,
+                camera_.distance);
+            detail::appendLineQuad(
+                rendererGizmoVertices_,
+                rendererGizmoIndices_,
+                rayStart - up * (headLength * 0.35F),
+                rayStart + up * (headLength * 0.35F),
+                sunColor,
+                1.6F,
+                forward,
+                right,
+                camera_.distance);
+        }
         if (renderWorldDebugChunks.size() > 1U && renderWorldChunkBoundsDebugEnabled()) {
             for (const auto& chunk : renderWorldDebugChunks) {
                 const auto color = chunk.visible

@@ -45,6 +45,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportRendererCulling.hpp
     src/ViewportRendererOverlays.cpp
     src/ViewportRendererOverlays.hpp
+    src/ViewportShadowFocus.cpp
+    src/ViewportShadowFocus.hpp
     src/ViewportWidgetRenderer.cpp
     src/ViewportWidgetSelfTest.cpp
     include/projectunity/editor/IEditorDebugDrawBackend.hpp

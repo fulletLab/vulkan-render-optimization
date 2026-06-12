@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <utility>
 
@@ -109,6 +110,28 @@ void setSpinBoxesEnabled(const std::array<QDoubleSpinBox*, 9>& spinBoxes, bool e
             spinBox->setEnabled(enabled);
         }
     }
+}
+
+[[nodiscard]] renderer::RenderLight editorSunFromAngles(
+    float azimuthDegrees,
+    float elevationDegrees,
+    std::array<float, 3> color,
+    float intensity)
+{
+    constexpr float kDegreesToRadians = 0.01745329251994329577F;
+    const auto azimuth = azimuthDegrees * kDegreesToRadians;
+    const auto elevation = elevationDegrees * kDegreesToRadians;
+    const auto horizontal = std::cos(elevation);
+    renderer::RenderLight light;
+    light.type = renderer::RenderLightType::Directional;
+    light.direction = {
+        std::sin(azimuth) * horizontal,
+        -std::sin(elevation),
+        std::cos(azimuth) * horizontal,
+    };
+    light.color = color;
+    light.intensity = intensity;
+    return light;
 }
 
 } // namespace
@@ -583,7 +606,13 @@ void MainWindow::applyLightingSettings()
         || groundColorR_ == nullptr
         || groundColorG_ == nullptr
         || groundColorB_ == nullptr
-        || environmentIntensity_ == nullptr) {
+        || environmentIntensity_ == nullptr
+        || sunAzimuth_ == nullptr
+        || sunElevation_ == nullptr
+        || sunColorR_ == nullptr
+        || sunColorG_ == nullptr
+        || sunColorB_ == nullptr
+        || sunIntensity_ == nullptr) {
         return;
     }
 
@@ -598,6 +627,7 @@ void MainWindow::applyLightingSettings()
         static_cast<float>(groundColorB_->value()),
     };
     environmentSettings_.intensity = static_cast<float>(environmentIntensity_->value());
+    updateEditorSunFromControls();
     pushLightingSettingsToViewports();
     saveLightingSettings();
 }
@@ -616,12 +646,33 @@ void MainWindow::pushLightingSettingsToViewports()
     environmentSettings_.sourceTexture = environmentTexture_.get();
     if (sceneViewport_ != nullptr) {
         sceneViewport_->setEnvironmentSettings(environmentSettings_);
+        sceneViewport_->setEditorSunLight(editorSunLight_);
         sceneViewport_->setShadowUpdateMode(shadowUpdateMode_);
     }
     if (gameViewport_ != nullptr) {
         gameViewport_->setEnvironmentSettings(environmentSettings_);
+        gameViewport_->setEditorSunLight(editorSunLight_);
         gameViewport_->setShadowUpdateMode(shadowUpdateMode_);
     }
+}
+
+void MainWindow::updateEditorSunFromControls()
+{
+    if (sunAzimuth_ != nullptr) {
+        editorSunAzimuthDegrees_ = static_cast<float>(sunAzimuth_->value());
+    }
+    if (sunElevation_ != nullptr) {
+        editorSunElevationDegrees_ = static_cast<float>(sunElevation_->value());
+    }
+    const std::array<float, 3> color {
+        sunColorR_ == nullptr ? editorSunLight_.color[0] : static_cast<float>(sunColorR_->value()),
+        sunColorG_ == nullptr ? editorSunLight_.color[1] : static_cast<float>(sunColorG_->value()),
+        sunColorB_ == nullptr ? editorSunLight_.color[2] : static_cast<float>(sunColorB_->value()),
+    };
+    const auto intensity = sunIntensity_ == nullptr
+        ? editorSunLight_.intensity
+        : static_cast<float>(sunIntensity_->value());
+    editorSunLight_ = editorSunFromAngles(editorSunAzimuthDegrees_, editorSunElevationDegrees_, color, intensity);
 }
 
 void MainWindow::refreshViewports()

@@ -90,7 +90,7 @@ struct RendererStats {
     std::uint64_t lastFrameShadowViewCount {0};
     std::uint64_t lastFrameShadowBatchCount {0};
     std::uint64_t lastFrameShadowCulledBatchCount {0};
-    RenderShadowUpdateMode lastFrameShadowUpdateMode {RenderShadowUpdateMode::Live};
+    RenderShadowUpdateMode lastFrameShadowUpdateMode {RenderShadowUpdateMode::Off};
     bool lastFrameShadowMapUpdated {false};
     std::uint64_t lastFrameRenderCpuTimeUs {0};
     std::uint64_t averageRenderCpuTimeUs {0};
@@ -222,7 +222,7 @@ struct RenderFrame {
     RenderEnvironmentSettings environment;
     std::span<const RenderLight> lights;
     bool shadowsEnabled {false};
-    RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Live};
+    RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Off};
     std::uint32_t shadowLightIndex {0};
     std::uint32_t shadowViewCount {0};
     std::uint32_t shadowCascadeCount {0};

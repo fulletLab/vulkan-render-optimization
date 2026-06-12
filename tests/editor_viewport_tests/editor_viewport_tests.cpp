@@ -1,6 +1,7 @@
 #include "ViewportMeshLod.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldOcclusionPolicy.hpp"
+#include "ViewportShadowFocus.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
 
@@ -202,6 +203,32 @@ int main()
     };
     if (projectunity::editor::viewportChunkCanOcclude(sparseRecord, sparseChunk, 40.0F)) {
         return fail("Viewport occlusion accepted a sparse multi-instance rock field as a solid occluder");
+    }
+
+    const auto sceneShadowFocusForward = projectunity::editor::stableViewportShadowFocus(
+        projectunity::editor::ViewportMode::Scene,
+        {0.0F, 12.0F, -18.0F},
+        {0.0F, -0.2F, 1.0F},
+        {0.0F, 0.0F, 0.0F},
+        24.0F,
+        4000.0F,
+        true,
+        600.0F);
+    const auto sceneShadowFocusUp = projectunity::editor::stableViewportShadowFocus(
+        projectunity::editor::ViewportMode::Scene,
+        {0.0F, 12.0F, -18.0F},
+        {0.0F, 0.72F, 0.69F},
+        {0.0F, 0.0F, 0.0F},
+        24.0F,
+        4000.0F,
+        true,
+        600.0F);
+    if ((sceneShadowFocusForward.center - sceneShadowFocusUp.center).length() > 0.001F
+        || std::fabs(sceneShadowFocusForward.radius - sceneShadowFocusUp.radius) > 0.001F) {
+        return fail("Viewport shadow focus moved when only the Scene View pitch changed");
+    }
+    if (sceneShadowFocusForward.radius > 220.0F) {
+        return fail("Viewport shadow focus accepted an oversized visible bounds radius");
     }
 
     return EXIT_SUCCESS;

@@ -77,7 +77,7 @@ struct VulkanViewportFrameProfile {
     std::uint64_t shadowViewCount {0};
     std::uint64_t shadowBatchCount {0};
     std::uint64_t shadowCulledBatchCount {0};
-    RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Live};
+    RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Off};
     bool shadowMapUpdated {false};
     std::uint64_t resourcePrepared {0};
     std::uint64_t shadowCastersSubmitted {0};

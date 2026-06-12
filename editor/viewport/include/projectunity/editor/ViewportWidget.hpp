@@ -64,6 +64,7 @@ public:
     void setAssetManager(const assets::IAssetManager* assetManager);
     void setRenderer(renderer::IRenderer* renderer);
     void setEnvironmentSettings(renderer::RenderEnvironmentSettings settings);
+    void setEditorSunLight(renderer::RenderLight light);
     void setShadowUpdateMode(renderer::RenderShadowUpdateMode mode);
     [[nodiscard]] renderer::RenderShadowUpdateMode shadowUpdateMode() const noexcept;
     void setScene(scene::Scene* scene);
@@ -154,7 +155,8 @@ private:
     const assets::IAssetManager* assetManager_ {nullptr};
     renderer::IRenderer* renderer_ {nullptr};
     renderer::RenderEnvironmentSettings environmentSettings_;
-    renderer::RenderShadowUpdateMode shadowUpdateMode_ {renderer::RenderShadowUpdateMode::Live};
+    renderer::RenderLight editorSunLight_;
+    renderer::RenderShadowUpdateMode shadowUpdateMode_ {renderer::RenderShadowUpdateMode::Off};
     std::optional<renderer::RenderShadowMapSelection> frozenShadowSelection_;
     scene::Scene* scene_ {nullptr};
     scene::EntityId selectedEntityId_;

@@ -257,12 +257,10 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             || stats.totalMeshUploadCount == 0
             || stats.totalTextureUploadCount == 0
             || stats.totalStaticUploadBytes == 0
-            || stats.totalColorUploadBytes == 0
-            || stats.shadowFramesPresented == 0
-            || stats.shadowCasterDrawsPresented == 0)) {
+            || stats.totalColorUploadBytes == 0)) {
         appendPendingLogs();
         return fail(QStringLiteral(
-            "Imported textured mesh, gizmo, profiling stats, and shadow pass did not reach Vulkan: frames=%1 draws=%2 textured=%3 gizmos=%4 candidates=%5 triangles=%6 cpuUs=%7 meshes=%8 textures=%9 uploadBytes=%10 colorBytes=%11 shadows=%12 casters=%13 logs=%14")
+            "Imported textured mesh, gizmo, and profiling stats did not reach Vulkan: frames=%1 draws=%2 textured=%3 gizmos=%4 candidates=%5 triangles=%6 cpuUs=%7 meshes=%8 textures=%9 uploadBytes=%10 colorBytes=%11 shadows=%12 casters=%13 logs=%14")
             .arg(static_cast<qulonglong>(stats.viewportFramesPresented))
             .arg(static_cast<qulonglong>(stats.meshDrawsPresented))
             .arg(static_cast<qulonglong>(stats.texturedMeshDrawsPresented))
@@ -320,6 +318,12 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     if (skyColorR_ == nullptr
         || groundColorB_ == nullptr
         || environmentIntensity_ == nullptr
+        || sunAzimuth_ == nullptr
+        || sunElevation_ == nullptr
+        || sunColorR_ == nullptr
+        || sunColorG_ == nullptr
+        || sunColorB_ == nullptr
+        || sunIntensity_ == nullptr
         || shadowModeCombo_ == nullptr
         || shadowModeCombo_->count() != 3
         || resetLightingButton_ == nullptr) {
@@ -389,9 +393,9 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
         || environmentSettings_.skyColor != defaultEnvironment.skyColor
         || environmentSettings_.groundColor != defaultEnvironment.groundColor
         || environmentSettings_.intensity != defaultEnvironment.intensity
-        || shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Live
-        || sceneViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Live
-        || gameViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Live) {
+        || shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
+        || sceneViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Off
+        || gameViewport_->shadowUpdateMode() != renderer::RenderShadowUpdateMode::Off) {
         return fail(QStringLiteral("Lighting reset defaults did not restore procedural environment state"));
     }
 
