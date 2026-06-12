@@ -2,6 +2,7 @@
 
 #include <projectunity/assets/AssetManager.hpp>
 #include <projectunity/math/Vec3.hpp>
+#include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
 
@@ -94,6 +95,14 @@ public:
         int viewportHeight,
         std::vector<renderer::RenderMeshDraw>& meshDraws,
         std::vector<renderer::RenderLight>& lights);
+
+    void collectShadowCasters(
+        const renderer::RenderShadowMapSelection& shadowSelection,
+        const ViewportRenderWorldCamera& camera,
+        int viewportHeight,
+        scene::EntityId selectedEntityId,
+        std::vector<renderer::RenderMeshDraw>& shadowMeshDraws,
+        ViewportRenderWorldStats& stats) const;
 
 private:
     struct EntityRecord;

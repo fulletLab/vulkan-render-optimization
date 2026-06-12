@@ -82,6 +82,7 @@ add_library(projectunity_renderer STATIC
     src/VulkanViewportTarget.cpp
     src/VulkanViewportTargetDescriptors.cpp
     src/VulkanViewportTargetResources.cpp
+    src/VulkanViewportTargetShadowResources.cpp
     src/VulkanViewportTargetShadows.cpp
     src/VulkanViewportTarget.hpp
     ${PROJECTUNITY_RENDERER_SHADER_HEADERS}

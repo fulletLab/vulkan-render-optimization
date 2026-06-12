@@ -145,7 +145,7 @@ QWidget* MainWindow::createLightingPanel()
     connect(resetLightingButton_, &QPushButton::clicked, this, [this] {
         resetLightingDefaults();
     });
-    refreshEnvironmentTextureLabel();
+    updateLightingPanelControls();
     return panel;
 }
 

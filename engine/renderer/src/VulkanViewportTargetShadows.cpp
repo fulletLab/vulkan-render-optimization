@@ -111,7 +111,7 @@ bool VulkanViewportTarget::recordShadowPass(
     lastFrameProfile_.shadowUpdateMode = frame.shadowUpdateMode;
     lastFrameProfile_.shadowCandidateInstances = frame.shadowCandidateInstances;
     lastFrameProfile_.shadowPolicyRejectedInstances = frame.shadowPolicyRejectedInstances;
-    const auto hasShadowCaster = std::any_of(meshBatches_.begin(), meshBatches_.end(), [](const VulkanMeshDrawBatch& batch) {
+    const auto hasShadowCaster = std::any_of(shadowMeshBatches_.begin(), shadowMeshBatches_.end(), [](const VulkanMeshDrawBatch& batch) {
         return batch.draw != nullptr
             && batch.draw->castsShadow
             && !isTransparentMeshDraw(*batch.draw);
@@ -190,7 +190,7 @@ bool VulkanViewportTarget::recordShadowPass(
             commandBuffer_,
             shadowRenderArea(extent, viewIndex, viewCount));
         const auto& shadowViewProjection = shadowViewProjectionFor(frame, viewIndex);
-        for (const auto& batch : meshBatches_) {
+        for (const auto& batch : shadowMeshBatches_) {
             const auto& draw = *batch.draw;
             if (!draw.castsShadow || isTransparentMeshDraw(draw)) {
                 continue;
@@ -229,7 +229,7 @@ bool VulkanViewportTarget::recordShadowPass(
             push.materialExtras[3] = static_cast<float>(viewIndex);
             const VkDeviceSize vertexOffset = 0;
             const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
-            const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
+            const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, shadowMeshInstanceBuffer_.buffer()};
             const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
             vkCmdBindVertexBuffers(
                 commandBuffer_,

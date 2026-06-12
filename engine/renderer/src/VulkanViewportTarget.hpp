@@ -146,7 +146,16 @@ private:
     [[nodiscard]] bool buildMeshBatches(
         std::span<const RenderMeshDraw> draws,
         std::string* errorMessage);
+    [[nodiscard]] bool buildShadowMeshBatches(
+        std::span<const RenderMeshDraw> draws,
+        std::string* errorMessage);
     [[nodiscard]] bool prepareMeshBatchResources(
+        const RenderFrame& frame,
+        VulkanUploadContext& uploads,
+        VulkanMeshCache& meshCache,
+        VulkanTextureCache& textureCache,
+        std::string* errorMessage);
+    [[nodiscard]] bool prepareShadowMeshBatchResources(
         const RenderFrame& frame,
         VulkanUploadContext& uploads,
         VulkanMeshCache& meshCache,
@@ -169,9 +178,13 @@ private:
     std::unique_ptr<VulkanColorPipeline> colorPipeline_;
     VulkanFrameData frameData_;
     std::vector<const RenderMeshDraw*> orderedMeshDraws_;
+    std::vector<const RenderMeshDraw*> orderedShadowMeshDraws_;
     std::vector<VulkanGpuInstance> meshInstances_;
+    std::vector<VulkanGpuInstance> shadowMeshInstances_;
     std::vector<VulkanMeshDrawBatch> meshBatches_;
+    std::vector<VulkanMeshDrawBatch> shadowMeshBatches_;
     VulkanGpuBuffer meshInstanceBuffer_;
+    VulkanGpuBuffer shadowMeshInstanceBuffer_;
     VulkanViewportFrameProfile lastFrameProfile_;
     std::vector<VulkanColorMeshBuffers> colorMeshes_;
     std::vector<VkFramebuffer> framebuffers_;

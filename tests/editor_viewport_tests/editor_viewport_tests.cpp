@@ -1,9 +1,12 @@
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportShadowFocus.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
+#include <projectunity/renderer/RenderShadowSetup.hpp>
+#include <projectunity/scene/Scene.hpp>
 
 #include <cmath>
 #include <cstdlib>
@@ -64,6 +67,26 @@ struct TestOccluderRecord {
     std::vector<TestOccluderInstance> instances;
 };
 
+class TestAssetManager final : public projectunity::assets::IAssetManager {
+public:
+    std::shared_ptr<const projectunity::assets::ModelAsset> modelAsset;
+
+    [[nodiscard]] std::shared_ptr<const projectunity::assets::ModelAsset> model(projectunity::assets::AssetId id) const override
+    {
+        return modelAsset != nullptr && modelAsset->id == id ? modelAsset : nullptr;
+    }
+
+    [[nodiscard]] std::shared_ptr<const projectunity::assets::TextureAsset> texture(projectunity::assets::AssetId) const override
+    {
+        return nullptr;
+    }
+
+    [[nodiscard]] std::vector<projectunity::assets::AssetRecord> records() const override
+    {
+        return {};
+    }
+};
+
 std::shared_ptr<projectunity::assets::ModelAsset> testOccluderModel()
 {
     auto model = std::make_shared<projectunity::assets::ModelAsset>();
@@ -71,6 +94,22 @@ std::shared_ptr<projectunity::assets::ModelAsset> testOccluderModel()
     model->primitives.resize(1U);
     model->primitives.front().materialIndex = 0U;
     model->primitives.front().indices.resize(36'000U);
+    return model;
+}
+
+std::shared_ptr<projectunity::assets::ModelAsset> testShadowCasterModel()
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->id = projectunity::assets::AssetId(991);
+    model->materials.resize(1U);
+    projectunity::assets::MeshPrimitive primitive;
+    primitive.vertices.resize(3U);
+    primitive.indices = {0U, 1U, 2U};
+    primitive.bounds.minimum = {-1.0F, -1.0F, -1.0F};
+    primitive.bounds.maximum = {1.0F, 1.0F, 1.0F};
+    primitive.bounds.center = {0.0F, 0.0F, 0.0F};
+    primitive.bounds.radius = 1.8F;
+    model->primitives.push_back(std::move(primitive));
     return model;
 }
 
@@ -229,6 +268,47 @@ int main()
     }
     if (sceneShadowFocusForward.radius > 220.0F) {
         return fail("Viewport shadow focus accepted an oversized visible bounds radius");
+    }
+
+    TestAssetManager shadowAssets;
+    shadowAssets.modelAsset = testShadowCasterModel();
+    projectunity::scene::Scene shadowScene;
+    auto& offscreenCaster = shadowScene.createEntity("Offscreen Caster");
+    offscreenCaster.transform.position = {20.0F, 0.0F, 10.0F};
+    projectunity::scene::MeshRendererComponent meshRenderer;
+    meshRenderer.modelAssetId = shadowAssets.modelAsset->id;
+    offscreenCaster.meshRenderer = meshRenderer;
+    projectunity::editor::ViewportRenderWorld shadowWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> colorDraws;
+    std::vector<projectunity::renderer::RenderMeshDraw> shadowDraws;
+    std::vector<projectunity::renderer::RenderLight> sceneLights;
+    (void)shadowWorld.buildFrame(
+        &shadowScene,
+        &shadowAssets,
+        {},
+        camera,
+        {},
+        1080,
+        colorDraws,
+        sceneLights);
+    if (!colorDraws.empty()) {
+        return fail("Viewport color culling rendered an offscreen shadow caster");
+    }
+    projectunity::renderer::RenderLight sun;
+    sun.type = projectunity::renderer::RenderLightType::Directional;
+    sun.direction = {0.0F, -1.0F, 0.0F};
+    const std::array<projectunity::renderer::RenderLight, 1> sunLights {sun};
+    const auto shadowSelection = projectunity::renderer::chooseShadowMap(sunLights, {0.0F, 0.0F, 10.0F}, 40.0F);
+    projectunity::editor::ViewportRenderWorldStats shadowCasterStats;
+    shadowWorld.collectShadowCasters(
+        shadowSelection,
+        camera,
+        1080,
+        {},
+        shadowDraws,
+        shadowCasterStats);
+    if (shadowDraws.empty() || shadowCasterStats.shadowCandidateInstances == 0U) {
+        return fail("Viewport shadow caster collection ignored an offscreen caster inside the shadow volume");
     }
 
     return EXIT_SUCCESS;

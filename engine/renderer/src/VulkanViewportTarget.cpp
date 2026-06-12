@@ -257,8 +257,11 @@ void VulkanViewportTarget::destroy() noexcept
     }
     colorMeshes_.clear();
     meshInstanceBuffer_.destroy();
+    shadowMeshInstanceBuffer_.destroy();
     meshInstances_.clear();
+    shadowMeshInstances_.clear();
     meshBatches_.clear();
+    shadowMeshBatches_.clear();
     frameData_.destroy();
     colorPipeline_.reset();
     shadowPipeline_.reset();
@@ -551,11 +554,35 @@ bool VulkanViewportTarget::recordFrameCommand(
             return false;
         }
     }
+    if (frame.shadowsEnabled) {
+        for (const auto& draw : frame.shadowMeshDraws) {
+            if (draw.primitive == nullptr || !draw.modelAssetId.isValid()) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = "Vulkan shadow mesh draw has no imported primitive or asset ID";
+                }
+                return false;
+            }
+        }
+    }
     const auto prepareStart = std::chrono::steady_clock::now();
     if (!buildMeshBatches(frame.meshDraws, errorMessage)) {
         return false;
     }
+    if (frame.shadowsEnabled) {
+        if (!buildShadowMeshBatches(frame.shadowMeshDraws, errorMessage)) {
+            return false;
+        }
+    } else {
+        orderedShadowMeshDraws_.clear();
+        shadowMeshInstances_.clear();
+        shadowMeshBatches_.clear();
+        shadowMeshInstanceBuffer_.destroy();
+    }
     if (!prepareMeshBatchResources(frame, uploads, meshCache, textureCache, errorMessage)) {
+        return false;
+    }
+    if (frame.shadowsEnabled
+        && !prepareShadowMeshBatchResources(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
     colorMeshes_.clear();

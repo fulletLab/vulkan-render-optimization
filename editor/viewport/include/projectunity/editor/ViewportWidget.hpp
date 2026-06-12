@@ -188,6 +188,7 @@ private:
     std::uint64_t lastCullingLogSignature_ {0};
     std::optional<renderer::RendererStats> lastRendererStats_;
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
+    std::vector<renderer::RenderMeshDraw> rendererShadowMeshDraws_;
     std::vector<renderer::RenderLight> rendererLights_;
     std::vector<renderer::RenderColorVertex> rendererGizmoVertices_;
     std::vector<std::uint32_t> rendererGizmoIndices_;

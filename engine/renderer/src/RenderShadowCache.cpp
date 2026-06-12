@@ -51,7 +51,7 @@ std::uint64_t renderShadowContentSignature(const RenderFrame& frame) noexcept
         hash = mixHash(hash, floatBits(frame.shadowCascadeSplits[index]));
     }
 
-    for (const auto& draw : frame.meshDraws) {
+    for (const auto& draw : frame.shadowMeshDraws) {
         if (!draw.castsShadow || isTransparentMeshDraw(draw)) {
             continue;
         }

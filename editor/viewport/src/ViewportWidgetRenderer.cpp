@@ -265,6 +265,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.clearColor.alpha = 1.0F;
     frame.environment = environmentSettings_;
     rendererMeshDraws_.clear();
+    rendererShadowMeshDraws_.clear();
     rendererLights_.clear();
     bool hasMeshSceneContent = false;
     FrameBounds visibleBounds;
@@ -477,13 +478,6 @@ bool ViewportWidget::renderRendererFrame()
     }
     frame.lights = std::span<const renderer::RenderLight>(rendererLights_);
     const auto shadowsRequested = shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off;
-    const auto hasVisibleShadowCaster = shadowsRequested && std::any_of(
-        rendererMeshDraws_.begin(),
-        rendererMeshDraws_.end(),
-        [](const renderer::RenderMeshDraw& draw) {
-            return draw.castsShadow
-                && !(draw.material != nullptr && draw.material->alphaMode == assets::MaterialAlphaMode::Blend);
-        });
     const auto shadowFocus = stableViewportShadowFocus(
         mode_,
         cameraFrame.eye,
@@ -498,7 +492,7 @@ bool ViewportWidget::renderRendererFrame()
         shadowFocus.center.y,
         shadowFocus.center.z,
     };
-    auto shadowSelection = hasVisibleShadowCaster
+    auto shadowSelection = shadowsRequested
         ? renderer::chooseShadowMap(frame.lights, shadowFocusCenter, shadowFocus.radius)
         : renderer::RenderShadowMapSelection {};
     if (shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Frozen) {
@@ -510,9 +504,23 @@ bool ViewportWidget::renderRendererFrame()
     } else if (shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Live && shadowSelection.enabled) {
         frozenShadowSelection_ = shadowSelection;
     }
-    frame.shadowUpdateMode = shadowUpdateMode_;
+    ViewportRenderWorldStats shadowStats;
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
-        && hasVisibleShadowCaster
+        && shadowSelection.enabled
+        && renderWorld_ != nullptr) {
+        renderWorld_->collectShadowCasters(
+            shadowSelection,
+            {cameraFrame.eye, cameraFrame.right, cameraFrame.up, cameraFrame.forward, cameraFrame.verticalFovRadians, cameraFrame.aspectRatio, cameraFrame.nearPlane, cameraFrame.farPlane},
+            height(),
+            selectedEntityId_,
+            rendererShadowMeshDraws_,
+            shadowStats);
+    }
+    frame.shadowUpdateMode = shadowUpdateMode_;
+    frame.shadowCandidateInstances = shadowStats.shadowCandidateInstances;
+    frame.shadowPolicyRejectedInstances = shadowStats.shadowPolicyRejectedInstances;
+    if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
+        && !rendererShadowMeshDraws_.empty()
         && shadowSelection.enabled) {
         frame.shadowViewProjection = shadowSelection.viewProjection;
         frame.shadowViewProjections = shadowSelection.viewProjections;
@@ -524,6 +532,7 @@ bool ViewportWidget::renderRendererFrame()
         frame.shadowMode = shadowSelection.mode;
         frame.shadowsEnabled = true;
     }
+    frame.shadowMeshDraws = std::span<const renderer::RenderMeshDraw>(rendererShadowMeshDraws_);
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
     frame.meshWireOverlayEnabled = mode_ == ViewportMode::Scene && meshWireOverlayEnabled_;
     frame.selectedMeshWireOverlayEnabled = mode_ == ViewportMode::Scene && selectedEntityId_.isValid();
@@ -755,35 +764,6 @@ bool ViewportWidget::renderRendererFrame()
     std::string error;
     if (renderer_->renderSurfaceFrame(desc, frame, &error)) {
         lastRendererStats_ = renderer_->stats();
-        if (cullingLogFrameCounter_ == 1U || cullingLogFrameCounter_ % 60U == 0U) {
-            const auto& stats = *lastRendererStats_;
-            std::ostringstream message;
-            message << "Viewport render stats"
-                    << " fps=" << stats.FPS
-                    << " cpuMs=" << static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0
-                    << " worldMs=" << static_cast<double>(stats.lastFrameRenderWorldBuildCpuTimeUs) / 1000.0
-                    << " cmdMs=" << stats.commandRecordingMs
-                    << " resMs=" << stats.resourcePrepareMs
-                    << " gpuValid=" << (stats.lastFrameGpuTimestampsValid ? "yes" : "no")
-                    << " gpuMs=" << static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0
-                    << " meshGpuMs=" << static_cast<double>(stats.lastFrameMeshGpuTimeUs) / 1000.0
-                    << " shadowGpuMs=" << static_cast<double>(stats.lastFrameShadowGpuTimeUs) / 1000.0
-                    << " draws=" << stats.lastFrameMeshDrawCount << "/" << stats.lastFrameCandidateMeshDrawCount
-                    << " batches=" << stats.lastFrameMeshBatchCount
-                    << " vkDraw=" << stats.vkDrawIndexed
-                    << " binds=" << (stats.vkBindVertex + stats.vkBindIndex + stats.vkBindDescriptors)
-                    << " tris=" << stats.lastFrameVisibleTriangleCount
-                    << " submitted=" << stats.trianglesSubmitted
-                    << " lod=" << stats.lastFrameLodMeshDrawCount << "/" << stats.lastFrameLodTriangleReductionCount
-                    << " hlod=" << stats.lastFrameHlodMeshDrawCount << "/" << stats.lastFrameHlodCandidateDrawCount
-                    << "/" << stats.lastFrameHlodTriangleReductionCount
-                    << " occ=" << stats.lastFrameOcclusionTestedChunkCount << "/"
-                    << stats.lastFrameOcclusionRejectedChunkCount << "/"
-                    << stats.lastFrameOcclusionOccluderChunkCount
-                    << " shadow=" << stats.lastFrameShadowViewCount << "/" << stats.shadowBatchesSubmitted;
-            core::logInfo(core::LogCategory::Renderer, message.str());
-            std::cout << message.str() << '\n';
-        }
         gpuMeshFrameRendered_ = !rendererMeshDraws_.empty();
         return true;
     }

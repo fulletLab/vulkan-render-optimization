@@ -77,7 +77,7 @@ int main()
     shadowFrame.shadowMode = RenderShadowMode::DirectionalCascades;
     shadowFrame.shadowViewCount = 1;
     shadowFrame.shadowCascadeCount = 1;
-    shadowFrame.meshDraws = shadowDraws;
+    shadowFrame.shadowMeshDraws = shadowDraws;
     const auto initialShadowSignature = renderShadowContentSignature(shadowFrame);
     if (initialShadowSignature != renderShadowContentSignature(shadowFrame)) {
         return fail("Renderer shadow content signature was not stable for an unchanged frame");
