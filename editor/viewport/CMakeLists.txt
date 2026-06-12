@@ -20,6 +20,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportWidgetDraw.cpp
     src/ViewportWidgetPicking.cpp
     src/ViewportLabelGeometry.cpp
+    src/ViewportMeshWireOverlay.cpp
+    src/ViewportMeshWireOverlay.hpp
     src/ViewportMeshLod.cpp
     src/ViewportMeshLod.hpp
     src/ViewportRenderWorld.cpp

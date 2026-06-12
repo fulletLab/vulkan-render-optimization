@@ -196,6 +196,16 @@ TransformSpace ViewportWidget::transformSpace() const noexcept
     return transformSpace_;
 }
 
+void ViewportWidget::setMeshWireOverlayEnabled(bool enabled)
+{
+    if (meshWireOverlayEnabled_ != enabled) {
+        meshWireOverlayEnabled_ = enabled;
+        update();
+    }
+}
+
+bool ViewportWidget::meshWireOverlayEnabled() const noexcept { return meshWireOverlayEnabled_; }
+
 void ViewportWidget::focusSelected()
 {
     if (!selectedEntityId_.isValid()) {

@@ -26,4 +26,14 @@ void appendViewportLabel(
     std::string_view text,
     bool selected);
 
+void appendViewportScreenLabel(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const ViewportLabelCamera& camera,
+    float viewportWidthPixels,
+    float screenX,
+    float screenY,
+    std::string_view text,
+    bool selected);
+
 } // namespace projectunity::editor

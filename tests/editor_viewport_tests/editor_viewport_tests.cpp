@@ -1,11 +1,14 @@
 #include "ViewportMeshLod.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
+#include "ViewportRenderWorldOcclusionPolicy.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
 
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
+#include <vector>
 
 namespace {
 
@@ -36,6 +39,32 @@ projectunity::editor::ViewportWorldBounds testBounds(
     bounds.center = (minimum + maximum) * 0.5F;
     bounds.radius = (maximum - bounds.center).length();
     return projectunity::editor::transformViewportBounds({}, bounds);
+}
+
+struct TestOccluderInstance {
+    std::uint32_t primitiveIndex {0};
+    std::shared_ptr<const projectunity::assets::ModelAsset> model;
+    projectunity::editor::ViewportWorldBounds worldBounds;
+};
+
+struct TestOccluderChunk {
+    projectunity::editor::ViewportWorldBounds worldBounds;
+    std::vector<std::size_t> instanceIndices;
+    std::uint64_t triangleCount {0};
+};
+
+struct TestOccluderRecord {
+    std::vector<TestOccluderInstance> instances;
+};
+
+std::shared_ptr<const projectunity::assets::ModelAsset> testOccluderModel()
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->materials.resize(1U);
+    model->primitives.resize(1U);
+    model->primitives.front().materialIndex = 0U;
+    model->primitives.front().indices.resize(36'000U);
+    return model;
 }
 
 } // namespace
@@ -99,6 +128,43 @@ int main()
     }
     if (nearOcclusion.isOccluded(testBounds({-0.4F, -2.8F, 4.8F}, {0.4F, -2.0F, 5.2F}))) {
         return fail("Viewport near-plane occlusion rejected visible content below the camera");
+    }
+
+    const auto occluderModel = testOccluderModel();
+    TestOccluderRecord denseRecord;
+    denseRecord.instances = {
+        {0U, occluderModel, testBounds({-2.0F, -2.0F, 4.8F}, {0.0F, 0.0F, 5.2F})},
+        {0U, occluderModel, testBounds({0.0F, -2.0F, 4.8F}, {2.0F, 0.0F, 5.2F})},
+        {0U, occluderModel, testBounds({-2.0F, 0.0F, 4.8F}, {0.0F, 2.0F, 5.2F})},
+        {0U, occluderModel, testBounds({0.0F, 0.0F, 4.8F}, {2.0F, 2.0F, 5.2F})},
+    };
+    const TestOccluderChunk denseChunk {
+        testBounds({-2.0F, -2.0F, 4.8F}, {2.0F, 2.0F, 5.2F}),
+        {0U, 1U, 2U, 3U},
+        48'000U,
+    };
+    if (!projectunity::editor::viewportChunkCanOcclude(denseRecord, denseChunk, 20.0F)) {
+        return fail("Viewport occlusion rejected a dense multi-instance occluder");
+    }
+
+    TestOccluderRecord sparseRecord;
+    sparseRecord.instances = {
+        {0U, occluderModel, testBounds({-10.0F, -0.5F, 5.0F}, {-9.0F, 0.5F, 6.0F})},
+        {0U, occluderModel, testBounds({-4.0F, -0.5F, 5.0F}, {-3.0F, 0.5F, 6.0F})},
+        {0U, occluderModel, testBounds({3.0F, -0.5F, 5.0F}, {4.0F, 0.5F, 6.0F})},
+        {0U, occluderModel, testBounds({9.0F, -0.5F, 5.0F}, {10.0F, 0.5F, 6.0F})},
+        {0U, occluderModel, testBounds({-10.0F, -0.5F, 24.0F}, {-9.0F, 0.5F, 25.0F})},
+        {0U, occluderModel, testBounds({-4.0F, -0.5F, 24.0F}, {-3.0F, 0.5F, 25.0F})},
+        {0U, occluderModel, testBounds({3.0F, -0.5F, 24.0F}, {4.0F, 0.5F, 25.0F})},
+        {0U, occluderModel, testBounds({9.0F, -0.5F, 24.0F}, {10.0F, 0.5F, 25.0F})},
+    };
+    const TestOccluderChunk sparseChunk {
+        testBounds({-10.0F, -0.5F, 5.0F}, {10.0F, 0.5F, 25.0F}),
+        {0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U},
+        96'000U,
+    };
+    if (projectunity::editor::viewportChunkCanOcclude(sparseRecord, sparseChunk, 40.0F)) {
+        return fail("Viewport occlusion accepted a sparse multi-instance rock field as a solid occluder");
     }
 
     return EXIT_SUCCESS;

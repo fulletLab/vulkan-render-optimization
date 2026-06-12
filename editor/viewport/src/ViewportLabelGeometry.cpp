@@ -135,4 +135,74 @@ void appendViewportLabel(
     }
 }
 
+void appendViewportScreenLabel(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    const ViewportLabelCamera& camera,
+    float viewportWidthPixels,
+    float screenX,
+    float screenY,
+    std::string_view text,
+    bool selected)
+{
+    constexpr std::size_t kMaxLabelCharacters = 56;
+    constexpr float kHudDepth = 0.65F;
+    constexpr float kGlyphPixelScale = 2.0F;
+    if (text.empty() || camera.viewportHeightPixels <= 0.0F || viewportWidthPixels <= 0.0F) {
+        return;
+    }
+
+    const auto visibleCharacters = std::min(text.size(), kMaxLabelCharacters);
+    const auto viewportHeight = std::max(camera.viewportHeightPixels, 1.0F);
+    const auto viewportWidth = std::max(viewportWidthPixels, 1.0F);
+    const auto halfHeightWorld = std::tan(camera.verticalFovRadians * 0.5F) * kHudDepth;
+    const auto halfWidthWorld = halfHeightWorld * (viewportWidth / viewportHeight);
+    const auto worldPerPixel = (halfHeightWorld * 2.0F) / viewportHeight;
+    const auto pixelSize = worldPerPixel * kGlyphPixelScale;
+    const auto textWidth = static_cast<float>(visibleCharacters) * pixelSize * 6.0F;
+    const auto textHeight = pixelSize * 7.0F;
+    const auto padding = worldPerPixel * 4.0F;
+    const auto topLeft = camera.eye
+        + camera.forward * kHudDepth
+        - camera.right * halfWidthWorld
+        + camera.up * halfHeightWorld;
+    const auto origin = topLeft
+        + camera.right * (std::max(screenX, 0.0F) * worldPerPixel)
+        - camera.up * (std::max(screenY, 0.0F) * worldPerPixel);
+    const auto labelCenter = origin
+        + camera.right * (textWidth * 0.5F)
+        - camera.up * (textHeight * 0.5F);
+    appendBillboardQuad(
+        vertices,
+        indices,
+        labelCenter,
+        camera.right * (textWidth * 0.5F + padding),
+        camera.up * (textHeight * 0.5F + padding),
+        {0.018F, 0.021F, 0.028F, selected ? 0.80F : 0.64F});
+
+    const auto glyphColor = selected
+        ? std::array<float, 4> {1.0F, 0.76F, 0.22F, 0.98F}
+        : std::array<float, 4> {0.88F, 0.91F, 0.96F, 0.92F};
+    for (std::size_t characterIndex = 0; characterIndex < visibleCharacters; ++characterIndex) {
+        const auto rows = glyphRows(text[characterIndex]);
+        for (std::size_t row = 0; row < rows.size(); ++row) {
+            for (std::size_t column = 0; column < 5U; ++column) {
+                if ((rows[row] & (1U << (4U - column))) == 0U) {
+                    continue;
+                }
+                const auto center = origin
+                    + camera.right * ((static_cast<float>(characterIndex) * 6.0F + static_cast<float>(column) + 0.5F) * pixelSize)
+                    - camera.up * ((static_cast<float>(row) + 0.5F) * pixelSize);
+                appendBillboardQuad(
+                    vertices,
+                    indices,
+                    center,
+                    camera.right * (pixelSize * 0.42F),
+                    camera.up * (pixelSize * 0.42F),
+                    glyphColor);
+            }
+        }
+    }
+}
+
 } // namespace projectunity::editor

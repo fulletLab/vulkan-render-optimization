@@ -74,6 +74,8 @@ public:
     [[nodiscard]] ViewportTool tool() const noexcept;
     void setTransformSpace(TransformSpace space);
     [[nodiscard]] TransformSpace transformSpace() const noexcept;
+    void setMeshWireOverlayEnabled(bool enabled);
+    [[nodiscard]] bool meshWireOverlayEnabled() const noexcept;
     void focusSelected();
 
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
@@ -178,6 +180,7 @@ private:
     bool rendererSurfaceResizePending_ {false};
     QTimer* rendererSurfaceResizeTimer_ {nullptr};
     bool gpuMeshFrameRendered_ {false};
+    bool meshWireOverlayEnabled_ {false};
     std::uint64_t cullingLogFrameCounter_ {0};
     std::uint64_t lastCullingLogFrame_ {0};
     std::uint64_t lastCullingLogSignature_ {0};

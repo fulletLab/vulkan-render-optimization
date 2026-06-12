@@ -1,5 +1,6 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
+#include "ViewportMeshWireOverlay.hpp"
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include <projectunity/core/Log.hpp>
@@ -493,6 +494,14 @@ bool ViewportWidget::renderRendererFrame()
     rendererGizmoIndices_.clear();
     rendererColorMeshDraws_.clear();
     if (mode_ == ViewportMode::Scene) {
+        const ViewportLabelCamera labelCamera {
+            eye,
+            right,
+            up,
+            forward,
+            cameraFrame.verticalFovRadians,
+            static_cast<float>(std::max(height(), 1)),
+        };
         detail::appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
         detail::appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
         if (renderWorldDebugChunks.size() > 1U && renderWorldChunkBoundsDebugEnabled()) {
@@ -538,14 +547,6 @@ bool ViewportWidget::renderRendererFrame()
                     right,
                     camera_.distance);
             }
-            const ViewportLabelCamera labelCamera {
-                eye,
-                right,
-                up,
-                forward,
-                cameraFrame.verticalFovRadians,
-                static_cast<float>(std::max(height(), 1)),
-            };
             std::size_t labelsSubmitted = 0;
             const auto appendEntityOverlay = [&](const scene::Entity& entity) {
                 if (labelsSubmitted >= 128U) {
@@ -630,13 +631,6 @@ bool ViewportWidget::renderRendererFrame()
                 rendererGizmoIndices_.end(),
                 {gizmoVertexOffset + triangle.x, gizmoVertexOffset + triangle.y, gizmoVertexOffset + triangle.z});
         }
-        if (!rendererGizmoVertices_.empty() && !rendererGizmoIndices_.empty()) {
-            rendererColorMeshDraws_.push_back({
-                std::span<const renderer::RenderColorVertex>(rendererGizmoVertices_),
-                std::span<const std::uint32_t>(rendererGizmoIndices_),
-                viewProjection,
-            });
-        }
         if (selectedEntityId_.isValid()
             && rendererGizmoVertices_.size() == vertexCountBeforeGizmo
             && rendererGizmoIndices_.size() == indexCountBeforeGizmo) {
@@ -647,6 +641,24 @@ bool ViewportWidget::renderRendererFrame()
                     .arg(static_cast<qulonglong>(gizmo.triangles.size() * 3U))
                     .toStdString());
         }
+    }
+    if (mode_ == ViewportMode::Scene && (!rendererMeshDraws_.empty() || selectedEntityId_.isValid())) {
+        appendViewportMeshWireOverlay(
+            rendererGizmoVertices_,
+            rendererGizmoIndices_,
+            std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_),
+            selectedEntityId_,
+            meshWireOverlayEnabled_,
+            forward,
+            right,
+            camera_.distance);
+    }
+    if (!rendererGizmoVertices_.empty() && !rendererGizmoIndices_.empty()) {
+        rendererColorMeshDraws_.push_back({
+            std::span<const renderer::RenderColorVertex>(rendererGizmoVertices_),
+            std::span<const std::uint32_t>(rendererGizmoIndices_),
+            viewProjection,
+        });
     }
     frame.colorMeshDraws = std::span<const renderer::RenderColorMeshDraw>(rendererColorMeshDraws_);
     frame.editorBuildCpuTimeUs = elapsedUs(editorBuildStart);

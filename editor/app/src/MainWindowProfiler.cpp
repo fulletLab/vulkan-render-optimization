@@ -156,18 +156,25 @@ void MainWindow::updateProfilerPanel()
         const auto gpuText = stats.lastFrameGpuTimestampsValid
             ? QStringLiteral("GPU %1ms").arg(static_cast<double>(stats.lastFrameGpuTimeUs) / 1000.0, 0, 'f', 1)
             : QStringLiteral("GPU -");
-        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3 | B %4 | T %5 | S %6 %7/%8 | CPU %9ms | %10 | RES %11")
+        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | D %3/%4 | VKD %5 | BIND %6 | T %7 | CULL %8 | OCC %9/%10/%11 | SH %12 %13/%14 | RES %15 %16ms | CMD %17ms")
             .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
             .arg(stats.FPS, 0, 'f', 1)
             .arg(compactCounter(stats.lastFrameMeshDrawCount))
-            .arg(compactCounter(stats.lastFrameMeshBatchCount))
+            .arg(compactCounter(stats.lastFrameCandidateMeshDrawCount))
+            .arg(compactCounter(stats.vkDrawIndexed))
+            .arg(compactCounter(stats.vkBindVertex + stats.vkBindIndex + stats.vkBindDescriptors))
             .arg(compactCounter(stats.lastFrameVisibleTriangleCount))
+            .arg(compactCounter(stats.lastFrameCulledMeshDrawCount))
+            .arg(compactCounter(stats.lastFrameOcclusionTestedChunkCount))
+            .arg(compactCounter(stats.lastFrameOcclusionRejectedChunkCount))
+            .arg(compactCounter(stats.lastFrameOcclusionOccluderChunkCount))
             .arg(shadowUpdateModeName(stats.lastFrameShadowUpdateMode))
             .arg(compactCounter(stats.lastFrameShadowViewCount))
             .arg(compactCounter(stats.shadowBatchesSubmitted))
-            .arg(static_cast<double>(stats.lastFrameRenderCpuTimeUs) / 1000.0, 0, 'f', 1)
-            .arg(gpuText)
-            .arg(compactCounter(stats.resourcePrepared)));
+            .arg(compactCounter(stats.resourcePrepared))
+            .arg(stats.resourcePrepareMs, 0, 'f', 1)
+            .arg(stats.commandRecordingMs, 0, 'f', 1));
+        performanceStatus_->setToolTip(gpuText);
     }
     setTableValue(
         profilerTable_,

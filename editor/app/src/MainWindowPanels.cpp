@@ -112,17 +112,14 @@ void MainWindow::createToolbar()
     auto* toolbar = addToolBar(QStringLiteral("Toolbar"));
     toolbar->setObjectName(QStringLiteral("MainToolbar"));
     toolbar->setMovable(false);
-
     auto* transformGroup = new QActionGroup(this);
     transformGroup->setExclusive(true);
-
     const std::array<std::pair<QString, ViewportTool>, 4> tools {{
         {QStringLiteral("Hand"), ViewportTool::Hand},
         {QStringLiteral("Move"), ViewportTool::Move},
         {QStringLiteral("Rotate"), ViewportTool::Rotate},
         {QStringLiteral("Scale"), ViewportTool::Scale},
     }};
-
     for (const auto& [toolName, tool] : tools) {
         auto* action = toolbar->addAction(toolName);
         action->setCheckable(true);
@@ -135,9 +132,7 @@ void MainWindow::createToolbar()
         });
     }
     transformGroup->actions().at(1)->setChecked(true);
-
     toolbar->addSeparator();
-
     auto* spaceGroup = new QActionGroup(this);
     spaceGroup->setExclusive(true);
     auto* localAction = toolbar->addAction(QStringLiteral("Local"));
@@ -157,7 +152,14 @@ void MainWindow::createToolbar()
             sceneViewport_->setTransformSpace(TransformSpace::Global);
         }
     });
-
+    toolbar->addSeparator();
+    auto* wireAction = toolbar->addAction(QStringLiteral("Wire"));
+    wireAction->setCheckable(true);
+    connect(wireAction, &QAction::triggered, this, [this](bool enabled) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setMeshWireOverlayEnabled(enabled);
+        }
+    });
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Play"), this, [] {
         core::logInfo(core::LogCategory::Editor, "Play command invoked");

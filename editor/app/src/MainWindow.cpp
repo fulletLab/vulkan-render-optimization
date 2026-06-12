@@ -168,7 +168,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     performanceStatus_ = new QLabel(QStringLiteral("FPS -"));
     performanceStatus_->setObjectName(QStringLiteral("PerformanceStatus"));
-    performanceStatus_->setMinimumWidth(520);
+    performanceStatus_->setMinimumWidth(920);
     performanceStatus_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     statusBar()->addPermanentWidget(performanceStatus_, 1);
     statusBar()->showMessage(QStringLiteral("Ready"));

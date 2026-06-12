@@ -234,6 +234,9 @@ struct DeferredMeshPick {
     const auto oc = ray.origin - center;
     const auto b = math::dot(oc, ray.direction);
     const auto c = math::dot(oc, oc) - radius * radius;
+    if (c <= 0.0F) {
+        return 0.0F;
+    }
     const auto discriminant = b * b - c;
     if (discriminant < 0.0F || !std::isfinite(discriminant)) {
         return std::nullopt;
@@ -470,13 +473,13 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
         }
     }
     if (!deferredMeshPicks.empty()) {
-        constexpr std::size_t kMaxExactPrimitivePickTests = 512U;
         std::sort(deferredMeshPicks.begin(), deferredMeshPicks.end(), [](const DeferredMeshPick& lhs, const DeferredMeshPick& rhs) {
             return lhs.distance < rhs.distance;
         });
-        const auto exactCount = std::min(kMaxExactPrimitivePickTests, deferredMeshPicks.size());
-        for (std::size_t index = 0; index < exactCount; ++index) {
-            const auto& pick = deferredMeshPicks[index];
+        for (const auto& pick : deferredMeshPicks) {
+            if (meshPick.has_value() && pick.distance > meshPick->distance) {
+                break;
+            }
             if (pick.model == nullptr || pick.primitiveInstanceIndex >= pick.model->primitiveInstances.size()) {
                 continue;
             }
