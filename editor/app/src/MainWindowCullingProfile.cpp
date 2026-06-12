@@ -82,6 +82,11 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " occlusionTestedChunks=" << stats.lastFrameOcclusionTestedChunkCount
         << " occlusionRejectedChunks=" << stats.lastFrameOcclusionRejectedChunkCount
         << " occlusionOccluderChunks=" << stats.lastFrameOcclusionOccluderChunkCount
+        << " occlusionBackend=" << stats.lastFrameOcclusionBackend
+        << " occlusionOccluderTriangles=" << stats.lastFrameOcclusionOccluderTriangleCount
+        << " occlusionBuildMs=" << (static_cast<double>(stats.lastFrameOcclusionBuildCpuTimeUs) / 1000.0)
+        << " occlusionSelectedSkippedChunks=" << stats.lastFrameOcclusionSelectedSkippedChunkCount
+        << " occlusionOccluderSkippedChunks=" << stats.lastFrameOcclusionOccluderSkippedChunkCount
         << " occlusionRejectedInstances=" << stats.lastFrameOcclusionRejectedInstanceCount
         << " occlusionRejectedTriangles=" << stats.lastFrameOcclusionRejectedTriangleCount
         << " resourcePrepared=" << stats.resourcePrepared

@@ -261,6 +261,78 @@ function(projectunity_resolve_meshoptimizer out_target)
     set(${out_target} ProjectUnity::Meshoptimizer PARENT_SCOPE)
 endfunction()
 
+function(projectunity_resolve_masked_occlusion_culling out_target)
+    if(TARGET ProjectUnity::MaskedOcclusionCulling)
+        set(${out_target} ProjectUnity::MaskedOcclusionCulling PARENT_SCOPE)
+        return()
+    endif()
+
+    if(NOT PROJECTUNITY_FETCH_MASKED_OCCLUSION_CULLING)
+        message(FATAL_ERROR
+            "Intel MaskedOcclusionCulling was not resolved. Configure with "
+            "-DPROJECTUNITY_FETCH_MASKED_OCCLUSION_CULLING=ON or provide a "
+            "ProjectUnity::MaskedOcclusionCulling target before editor viewport configuration."
+        )
+    endif()
+
+    message(STATUS "Fetching Intel MaskedOcclusionCulling at 6cbbd7621cce670cf081a44272669e240300879e (Apache-2.0).")
+    FetchContent_Declare(masked_occlusion_culling
+        GIT_REPOSITORY https://github.com/GameTechDev/MaskedOcclusionCulling.git
+        GIT_TAG 6cbbd7621cce670cf081a44272669e240300879e
+    )
+    FetchContent_GetProperties(masked_occlusion_culling)
+    if(NOT masked_occlusion_culling_POPULATED)
+        if(POLICY CMP0169)
+            cmake_policy(PUSH)
+            cmake_policy(SET CMP0169 OLD)
+        endif()
+        FetchContent_Populate(masked_occlusion_culling)
+        if(POLICY CMP0169)
+            cmake_policy(POP)
+        endif()
+    endif()
+
+    set(_moc_sse_files
+        "${masked_occlusion_culling_SOURCE_DIR}/MaskedOcclusionCulling.cpp"
+    )
+    set(_moc_avx2_files
+        "${masked_occlusion_culling_SOURCE_DIR}/MaskedOcclusionCullingAVX2.cpp"
+        "${masked_occlusion_culling_SOURCE_DIR}/MaskedOcclusionCullingAVX512.cpp"
+    )
+
+    add_library(projectunity_masked_occlusion_culling STATIC
+        ${_moc_sse_files}
+        ${_moc_avx2_files}
+        "${masked_occlusion_culling_SOURCE_DIR}/MaskedOcclusionCulling.h"
+        "${masked_occlusion_culling_SOURCE_DIR}/CompilerSpecific.inl"
+        "${masked_occlusion_culling_SOURCE_DIR}/MaskedOcclusionCullingCommon.inl"
+    )
+    add_library(ProjectUnity::MaskedOcclusionCulling ALIAS projectunity_masked_occlusion_culling)
+
+    target_include_directories(projectunity_masked_occlusion_culling
+        SYSTEM PUBLIC
+            "${masked_occlusion_culling_SOURCE_DIR}"
+    )
+    target_compile_features(projectunity_masked_occlusion_culling PUBLIC cxx_std_20)
+    target_compile_definitions(projectunity_masked_occlusion_culling
+        PRIVATE
+            USE_AVX512=0
+            ENABLE_STATS=0
+            MOC_RECORDER_ENABLE=0
+    )
+
+    if(MSVC)
+        target_compile_options(projectunity_masked_occlusion_culling PRIVATE /W0 /EHsc)
+        set_source_files_properties(${_moc_avx2_files} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+    else()
+        target_compile_options(projectunity_masked_occlusion_culling PRIVATE -w)
+        set_source_files_properties(${_moc_sse_files} PROPERTIES COMPILE_FLAGS "-msse4.1")
+        set_source_files_properties(${_moc_avx2_files} PROPERTIES COMPILE_FLAGS "-mavx2 -mfma -msse4.1")
+    endif()
+
+    set(${out_target} ProjectUnity::MaskedOcclusionCulling PARENT_SCOPE)
+endfunction()
+
 function(projectunity_resolve_libktx out_target)
     if(TARGET ProjectUnity::LibKTX)
         set(${out_target} ProjectUnity::LibKTX PARENT_SCOPE)

@@ -1,5 +1,6 @@
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
+#include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 
 #include <algorithm>
@@ -532,6 +533,9 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         ++visibleChunkCount;
         const auto chunkIsOccluder = occluderChunkIds != nullptr
             && occluderChunkIds->find(chunk.renderChunkId) != occluderChunkIds->end();
+        if (chunkIsOccluder) {
+            ++stats.occlusionOccluderSkippedChunkCount;
+        }
         if (!chunkIsOccluder && occlusionBuffer != nullptr && occlusionBuffer->hasOccluders()) {
             ++stats.occlusionTestedChunkCount;
             if (occlusionBuffer->isOccluded(chunk.worldBounds)) {
@@ -540,6 +544,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
                 stats.occlusionRejectedTriangleCount += chunk.triangleCount;
                 continue;
             }
+            recordViewportOcclusionQueryResult(stats, occlusionBuffer->lastQueryResult());
         }
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
         visibleChunkTriangles += chunk.triangleCount;

@@ -38,6 +38,19 @@ projectunity::editor::ViewportWorldBounds testBounds(
     return projectunity::editor::transformViewportBounds({}, bounds);
 }
 
+projectunity::assets::MeshPrimitive mocOccluderPrimitive()
+{
+    projectunity::assets::MeshPrimitive primitive;
+    primitive.vertices = {
+        {{-2.0F, -2.0F, 5.0F}},
+        {{2.0F, -2.0F, 5.0F}},
+        {{2.0F, 2.0F, 5.0F}},
+        {{-2.0F, 2.0F, 5.0F}},
+    };
+    primitive.indices = {0U, 1U, 2U, 0U, 2U, 3U};
+    return primitive;
+}
+
 } // namespace
 
 int main()
@@ -79,12 +92,23 @@ int main()
         0.05F,
         100.0F,
     };
-    projectunity::editor::ViewportOcclusionBuffer occlusion(camera, 1080);
+    projectunity::editor::ViewportOcclusionBuffer defaultOcclusion(camera, 1080);
+    if (defaultOcclusion.backend() != projectunity::editor::ViewportOcclusionBackend::Coarse) {
+        return fail("Viewport automatic occlusion backend did not preserve the low-cost coarse default");
+    }
+
+    projectunity::editor::ViewportOcclusionBuffer occlusion(
+        camera,
+        1080,
+        projectunity::editor::ViewportOcclusionBackend::Coarse);
     if (!occlusion.addOccluder(testBounds({-2.0F, -2.0F, 4.8F}, {2.0F, 2.0F, 5.2F}))) {
         return fail("Viewport occlusion buffer did not accept a large opaque occluder");
     }
     if (!occlusion.isOccluded(testBounds({-0.5F, -0.5F, 9.8F}, {0.5F, 0.5F, 10.2F}))) {
         return fail("Viewport occlusion did not reject a fully covered chunk behind an occluder");
+    }
+    if (occlusion.isOccluded(testBounds({-0.35F, -0.35F, 5.7F}, {0.35F, 0.35F, 6.1F}))) {
+        return fail("Viewport occlusion rejected a close chunk behind an occluder");
     }
     if (occlusion.isOccluded(testBounds({1.6F, -0.5F, 9.8F}, {3.0F, 0.5F, 10.2F}))) {
         return fail("Viewport occlusion rejected a partially protruding chunk");
@@ -93,15 +117,36 @@ int main()
         return fail("Viewport occlusion rejected a chunk in front of the occluder");
     }
 
-    projectunity::editor::ViewportOcclusionBuffer nearOcclusion(camera, 1080);
-    if (!nearOcclusion.addOccluder(testBounds({-3.0F, -3.0F, -0.2F}, {3.0F, 3.0F, 1.2F}))) {
-        return fail("Viewport occlusion rejected an occluder crossing the near plane");
+    projectunity::editor::ViewportOcclusionBuffer nearOcclusion(
+        camera,
+        1080,
+        projectunity::editor::ViewportOcclusionBackend::Coarse);
+    if (nearOcclusion.addOccluder(testBounds({-3.0F, -3.0F, -0.2F}, {3.0F, 3.0F, 1.2F}))) {
+        return fail("Viewport occlusion accepted an occluder crossing the near plane");
     }
-    if (!nearOcclusion.isOccluded(testBounds({-0.4F, -0.4F, 4.8F}, {0.4F, 0.4F, 5.2F}))) {
-        return fail("Viewport near-plane occlusion did not reject a covered chunk behind the occluder");
+    if (nearOcclusion.isOccluded(testBounds({-0.4F, -0.4F, 4.8F}, {0.4F, 0.4F, 5.2F}))) {
+        return fail("Viewport near-plane occlusion rejected a chunk without a safe occluder");
     }
-    if (nearOcclusion.isOccluded(testBounds({2.2F, -0.4F, 4.8F}, {4.0F, 0.4F, 5.2F}))) {
-        return fail("Viewport near-plane occlusion rejected a protruding chunk");
+
+    projectunity::editor::ViewportOcclusionBuffer mocOcclusion(
+        camera,
+        1080,
+        projectunity::editor::ViewportOcclusionBackend::MaskedOcclusionCulling);
+    const auto mocPrimitive = mocOccluderPrimitive();
+    if (mocOcclusion.backend() != projectunity::editor::ViewportOcclusionBackend::MaskedOcclusionCulling) {
+        return fail("Viewport MOC backend did not initialize");
+    }
+    if (!mocOcclusion.addOccluderTriangles(mocPrimitive, {}, true)) {
+        return fail("Viewport MOC backend did not accept a real triangle occluder");
+    }
+    if (mocOcclusion.occluderTriangleCount() != 2U) {
+        return fail("Viewport MOC backend did not count submitted occluder triangles");
+    }
+    if (!mocOcclusion.isOccluded(testBounds({-0.35F, -0.35F, 9.8F}, {0.35F, 0.35F, 10.2F}))) {
+        return fail("Viewport MOC backend did not reject a covered chunk behind real triangles");
+    }
+    if (mocOcclusion.isOccluded(testBounds({4.4F, -0.5F, 9.8F}, {5.6F, 0.5F, 10.2F}))) {
+        return fail("Viewport MOC backend rejected a protruding chunk");
     }
 
     return EXIT_SUCCESS;

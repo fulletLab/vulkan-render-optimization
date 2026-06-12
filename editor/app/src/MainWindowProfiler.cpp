@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 80;
+constexpr int kProfilerRowCount = 83;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -27,6 +27,22 @@ constexpr int kProfilerRowCount = 80;
         return QStringLiteral("Off");
     }
     return QStringLiteral("Unknown");
+}
+
+[[nodiscard]] QString occlusionBackendName(std::uint64_t backend)
+{
+    switch (backend) {
+    case 0:
+        return QStringLiteral("Auto");
+    case 1:
+        return QStringLiteral("Off");
+    case 2:
+        return QStringLiteral("Coarse");
+    case 3:
+        return QStringLiteral("MOC");
+    default:
+        return QStringLiteral("Unknown");
+    }
 }
 
 void setTableValue(QTableWidget* table, int row, const QString& value)
@@ -105,6 +121,9 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("occlusionTestedChunks"),
         QStringLiteral("occlusionRejectedChunks"),
         QStringLiteral("occlusionOccluderChunks"),
+        QStringLiteral("occlusionBackend"),
+        QStringLiteral("occlusionOccluderTriangles"),
+        QStringLiteral("occlusionBuildMs"),
         QStringLiteral("occlusionRejectedInstances"),
         QStringLiteral("occlusionRejectedTriangles"),
     };
@@ -258,8 +277,15 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 75, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionTestedChunkCount)));
     setTableValue(profilerTable_, 76, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedChunkCount)));
     setTableValue(profilerTable_, 77, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionOccluderChunkCount)));
-    setTableValue(profilerTable_, 78, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedInstanceCount)));
-    setTableValue(profilerTable_, 79, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedTriangleCount)));
+    setTableValue(profilerTable_, 78, occlusionBackendName(stats.lastFrameOcclusionBackend));
+    setTableValue(profilerTable_, 79, compactCounter(stats.lastFrameOcclusionOccluderTriangleCount));
+    setTableValue(profilerTable_, 80, QStringLiteral("%1").arg(
+        static_cast<double>(stats.lastFrameOcclusionBuildCpuTimeUs) / 1000.0,
+        0,
+        'f',
+        3));
+    setTableValue(profilerTable_, 81, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedInstanceCount)));
+    setTableValue(profilerTable_, 82, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedTriangleCount)));
 }
 
 } // namespace projectunity::editor

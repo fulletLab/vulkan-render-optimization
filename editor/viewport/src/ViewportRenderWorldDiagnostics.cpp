@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <sstream>
 
 namespace projectunity::editor {
@@ -97,6 +98,56 @@ void logRenderWorldChunkDiagnostics(
                 << " inst=" << chunk.instanceCount
                 << " extent=" << chunk.maxExtent
                 << " vis=" << (chunk.visible ? "yes" : "no")
+                << "]";
+    }
+    struct ModelSummary {
+        std::uint64_t chunks {0};
+        std::uint64_t visible {0};
+        std::uint64_t selected {0};
+        std::uint64_t occluders {0};
+        std::uint64_t occlusionRejected {0};
+        std::uint64_t triangles {0};
+        std::uint64_t rejectedTriangles {0};
+    };
+    std::map<std::string, ModelSummary> modelSummaries;
+    for (const auto& row : rows) {
+        const auto modelName = row.modelName.empty() ? std::string {"<unknown>"} : row.modelName;
+        auto& summary = modelSummaries[modelName];
+        ++summary.chunks;
+        summary.triangles += row.triangleCount;
+        if (row.visible) {
+            ++summary.visible;
+        }
+        if (row.selected) {
+            ++summary.selected;
+        }
+        if (row.occluder) {
+            ++summary.occluders;
+        }
+        if (row.occlusionRejected) {
+            ++summary.occlusionRejected;
+            summary.rejectedTriangles += row.triangleCount;
+        }
+    }
+    std::vector<std::pair<std::string, ModelSummary>> sortedModels(
+        modelSummaries.begin(),
+        modelSummaries.end());
+    std::sort(sortedModels.begin(), sortedModels.end(), [](const auto& lhs, const auto& rhs) {
+        if (lhs.second.triangles != rhs.second.triangles) {
+            return lhs.second.triangles > rhs.second.triangles;
+        }
+        return lhs.second.chunks > rhs.second.chunks;
+    });
+    message << " models=";
+    const auto modelCount = std::min<std::size_t>(sortedModels.size(), 6U);
+    for (std::size_t index = 0; index < modelCount; ++index) {
+        const auto& [name, summary] = sortedModels[index];
+        message << "[" << name
+                << " chunks=" << summary.visible << "/" << summary.chunks
+                << " occRejected=" << summary.occlusionRejected
+                << " occluders=" << summary.occluders
+                << " selected=" << summary.selected
+                << " rejTri=" << summary.rejectedTriangles
                 << "]";
     }
     core::logInfo(core::LogCategory::Renderer, message.str());

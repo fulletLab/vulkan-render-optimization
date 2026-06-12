@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <type_traits>
 #include <unordered_set>
+#include <vector>
 
 namespace projectunity::editor {
 
@@ -39,6 +41,31 @@ template<typename Record, typename Chunk>
         }
     }
     return false;
+}
+
+inline void recordViewportOcclusionQueryResult(
+    ViewportRenderWorldStats& stats,
+    ViewportOcclusionQueryResult result) noexcept
+{
+    switch (result) {
+    case ViewportOcclusionQueryResult::ProjectionRejected:
+        ++stats.occlusionProjectionRejectedChunkCount;
+        break;
+    case ViewportOcclusionQueryResult::CandidateTooLarge:
+        ++stats.occlusionTooLargeChunkCount;
+        break;
+    case ViewportOcclusionQueryResult::InvalidDepth:
+        ++stats.occlusionInvalidDepthChunkCount;
+        break;
+    case ViewportOcclusionQueryResult::UncoveredCell:
+        ++stats.occlusionUncoveredChunkCount;
+        break;
+    case ViewportOcclusionQueryResult::DepthVisible:
+        ++stats.occlusionDepthVisibleChunkCount;
+        break;
+    default:
+        break;
+    }
 }
 
 template<typename Record, typename Chunk>
@@ -85,6 +112,21 @@ void buildViewportOcclusionBuffer(
     std::unordered_set<std::uint64_t>& occluderChunkIds,
     ViewportRenderWorldStats& stats)
 {
+    using RecordPointer = typename RecordRange::value_type;
+    using RecordType = std::remove_const_t<std::remove_pointer_t<RecordPointer>>;
+
+    struct Candidate {
+        const RecordType* record {nullptr};
+        const typename RecordType::Chunk* chunk {nullptr};
+        float depth {0.0F};
+    };
+
+    stats.occlusionBackend = static_cast<std::uint64_t>(occlusionBuffer.backend());
+    if (occlusionBuffer.backend() == ViewportOcclusionBackend::Off) {
+        return;
+    }
+
+    std::vector<Candidate> candidates;
     for (const auto* record : records) {
         if (record == nullptr) {
             continue;
@@ -105,10 +147,50 @@ void buildViewportOcclusionBuffer(
                     camera.farPlane)) {
                 continue;
             }
-            if (occlusionBuffer.addOccluder(chunk.worldBounds)) {
-                occluderChunkIds.insert(chunk.renderChunkId);
-                ++stats.occlusionOccluderChunkCount;
+            candidates.push_back({record, &chunk, math::dot(chunk.worldBounds.center - camera.eye, camera.forward)});
+        }
+    }
+
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& lhs, const Candidate& rhs) {
+        return lhs.depth < rhs.depth;
+    });
+
+    for (const auto& candidate : candidates) {
+        if (candidate.record == nullptr || candidate.chunk == nullptr) {
+            continue;
+        }
+
+        const auto& record = *candidate.record;
+        const auto& chunk = *candidate.chunk;
+        const auto beforeTriangles = occlusionBuffer.occluderTriangleCount();
+        auto added = false;
+        if (occlusionBuffer.backend() == ViewportOcclusionBackend::MaskedOcclusionCulling) {
+            for (const auto instanceIndex : chunk.instanceIndices) {
+                if (instanceIndex >= record.instances.size()) {
+                    continue;
+                }
+                const auto& instance = record.instances[instanceIndex];
+                if (instance.primitiveIndex >= instance.model->primitives.size()) {
+                    continue;
+                }
+                const auto& primitive = instance.model->primitives[instance.primitiveIndex];
+                if (primitive.materialIndex >= instance.model->materials.size()) {
+                    continue;
+                }
+                const auto& material = instance.model->materials[primitive.materialIndex];
+                added = occlusionBuffer.addOccluderTriangles(
+                    primitive,
+                    instance.modelMatrix,
+                    material.doubleSided || instance.flipsWinding) || added;
             }
+        } else {
+            added = occlusionBuffer.addOccluder(chunk.worldBounds);
+        }
+
+        if (added) {
+            occluderChunkIds.insert(chunk.renderChunkId);
+            ++stats.occlusionOccluderChunkCount;
+            stats.occlusionOccluderTriangleCount += occlusionBuffer.occluderTriangleCount() - beforeTriangles;
         }
     }
 }
@@ -131,12 +213,21 @@ template<typename Record, typename Chunk>
         selectedPrimitiveModel,
         selectedPrimitiveIndex);
     const auto chunkIsOccluder = occluderChunkIds.find(chunk.renderChunkId) != occluderChunkIds.end();
-    if (selectedChunk || chunkIsOccluder || !occlusionBuffer.hasOccluders()) {
+    if (selectedChunk) {
+        ++stats.occlusionSelectedSkippedChunkCount;
+        return false;
+    }
+    if (chunkIsOccluder) {
+        ++stats.occlusionOccluderSkippedChunkCount;
+        return false;
+    }
+    if (!occlusionBuffer.hasOccluders()) {
         return false;
     }
 
     ++stats.occlusionTestedChunkCount;
     if (!occlusionBuffer.isOccluded(chunk.worldBounds)) {
+        recordViewportOcclusionQueryResult(stats, occlusionBuffer.lastQueryResult());
         return false;
     }
     ++stats.occlusionRejectedChunkCount;
