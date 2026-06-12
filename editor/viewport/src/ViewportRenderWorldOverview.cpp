@@ -1,5 +1,6 @@
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
+#include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 
 #include <algorithm>
@@ -532,7 +533,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         ++visibleChunkCount;
         const auto chunkIsOccluder = occluderChunkIds != nullptr
             && occluderChunkIds->find(chunk.renderChunkId) != occluderChunkIds->end();
-        if (!chunkIsOccluder && occlusionBuffer != nullptr && occlusionBuffer->hasOccluders()) {
+        if (!chunkIsOccluder && occlusionBuffer != nullptr && occlusionBuffer->hasOccluders()
+            && viewportChunkHasOnlyOpaqueMaterials(record, chunk)) {
             ++stats.occlusionTestedChunkCount;
             if (occlusionBuffer->isOccluded(chunk.worldBounds)) {
                 ++stats.occlusionRejectedChunkCount;

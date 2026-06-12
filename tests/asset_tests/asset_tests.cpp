@@ -514,10 +514,16 @@ int main()
         return fail("imported GLB model data is incomplete");
     }
     const auto firstModelInstance = model.get();
-    const auto reimportResult = manager.importModel(glbPath);
+    std::vector<std::string> reimportStages;
+    const auto reimportResult = manager.importModel(glbPath, [&reimportStages](const AssetImportProgress& progress) {
+        reimportStages.push_back(progress.stage);
+    });
     const auto reimportedModel = manager.model(modelResult.record.id);
     if (!reimportResult.success || reimportedModel == nullptr || reimportedModel.get() == firstModelInstance) {
         return fail("reimporting a GLB did not refresh the active in-memory model instance");
+    }
+    if (std::find(reimportStages.begin(), reimportStages.end(), "FFULT model cache loaded") == reimportStages.end()) {
+        return fail("reimporting a GLB did not use the FFULT cooked model cache");
     }
     if (model->primitives.front().vertices.front().tangent.lengthSquared() <= 0.1F) {
         return fail("imported GLB tangent generation produced invalid data");
@@ -601,8 +607,43 @@ int main()
         return fail("imported PNG texture data is incomplete");
     }
 
+    const auto cookedModelPath = manager.cacheRoot() / (std::to_string(modelResult.record.id.value()) + ".ffult");
+    const auto cookedTexturePath = manager.cacheRoot() / (std::to_string(textureResult.record.id.value()) + ".ffult");
+    if (!std::filesystem::exists(cookedModelPath) || !std::filesystem::exists(cookedTexturePath)) {
+        return fail("FFULT cooked asset files were not written");
+    }
+    AssetManager ffultManager(root / "CookedCache" / "Assets");
+    const auto cookedModelResult = ffultManager.importAsset(cookedModelPath);
+    const auto cookedModel = ffultManager.model(cookedModelResult.record.id);
+    if (!cookedModelResult.success
+        || cookedModel == nullptr
+        || cookedModel->primitives.size() != model->primitives.size()
+        || cookedModel->primitiveInstances.size() != model->primitiveInstances.size()
+        || cookedModel->editorInstances.size() != model->editorInstances.size()
+        || cookedModel->materials.size() != model->materials.size()
+        || cookedModel->textures.size() != model->textures.size()
+        || cookedModel->lights.size() != model->lights.size()
+        || cookedModel->cameras.size() != model->cameras.size()
+        || cookedModel->primitives.front().vertices.size() != model->primitives.front().vertices.size()
+        || cookedModel->primitives.front().indices.size() != model->primitives.front().indices.size()
+        || cookedModel->materials.front().alphaMode != MaterialAlphaMode::Mask
+        || !cookedModel->materials.front().baseColorTexture.has_value()) {
+        std::cerr << cookedModelResult.error << '\n';
+        return fail("FFULT model import did not preserve cooked model data");
+    }
+    const auto cookedTextureResult = ffultManager.importAsset(cookedTexturePath);
+    const auto cookedTexture = ffultManager.texture(cookedTextureResult.record.id);
+    if (!cookedTextureResult.success
+        || cookedTexture == nullptr
+        || cookedTexture->width != texture->width
+        || cookedTexture->height != texture->height
+        || cookedTexture->rgba8 != texture->rgba8) {
+        std::cerr << cookedTextureResult.error << '\n';
+        return fail("FFULT texture import did not preserve cooked texture data");
+    }
+
     const auto cachePath = manager.cacheRoot() / modelResult.record.cacheFile;
-    if (!std::filesystem::exists(cachePath) || manager.records().size() != 2) {
+    if (!std::filesystem::exists(cachePath) || manager.records().size() != 2 || ffultManager.records().size() != 2) {
         return fail("asset cache records were not written");
     }
 

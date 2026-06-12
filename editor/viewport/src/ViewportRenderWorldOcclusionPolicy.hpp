@@ -101,7 +101,7 @@ template<typename Record, typename Chunk>
         }
         const auto& primitive = instance.model->primitives[instance.primitiveIndex];
         if (primitive.materialIndex >= instance.model->materials.size()
-            || instance.model->materials[primitive.materialIndex].alphaMode == assets::MaterialAlphaMode::Blend) {
+            || instance.model->materials[primitive.materialIndex].alphaMode != assets::MaterialAlphaMode::Opaque) {
             return false;
         }
     }
@@ -215,7 +215,8 @@ template<typename Record, typename Chunk>
         selectedPrimitiveModel,
         selectedPrimitiveIndex);
     const auto chunkIsOccluder = occluderChunkIds.find(chunk.renderChunkId) != occluderChunkIds.end();
-    if (selectedChunk || chunkIsOccluder || !occlusionBuffer.hasOccluders()) {
+    if (selectedChunk || chunkIsOccluder || !occlusionBuffer.hasOccluders()
+        || !viewportChunkHasOnlyOpaqueMaterials(record, chunk)) {
         return false;
     }
 

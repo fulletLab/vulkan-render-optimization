@@ -95,7 +95,7 @@ void MainWindow::importAsset()
         this,
         QStringLiteral("Import Asset"),
         QString(),
-        QStringLiteral("Models (*.glb *.gltf);;Textures (*.png *.jpg *.jpeg *.ktx *.ktx2)"));
+        QStringLiteral("ProjectUnity Assets (*.ffult);;Models (*.glb *.gltf);;Textures (*.png *.jpg *.jpeg *.ktx *.ktx2)"));
     if (!path.isEmpty()) {
         importAssetAsync(path);
     }

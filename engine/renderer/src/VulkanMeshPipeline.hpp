@@ -28,6 +28,7 @@ public:
     [[nodiscard]] VkPipeline doubleSidedPipeline() const noexcept;
     [[nodiscard]] VkPipeline transparentPipeline() const noexcept;
     [[nodiscard]] VkPipeline transparentDoubleSidedPipeline() const noexcept;
+    [[nodiscard]] VkPipeline wirePipeline() const noexcept;
     [[nodiscard]] VkPipelineLayout layout() const noexcept;
     [[nodiscard]] VkDescriptorSetLayout textureLayout() const noexcept;
     [[nodiscard]] VkFormat depthFormat() const noexcept;
@@ -48,6 +49,7 @@ private:
     VkPipeline doubleSidedPipeline_ {VK_NULL_HANDLE};
     VkPipeline transparentPipeline_ {VK_NULL_HANDLE};
     VkPipeline transparentDoubleSidedPipeline_ {VK_NULL_HANDLE};
+    VkPipeline wirePipeline_ {VK_NULL_HANDLE};
 };
 
 } // namespace projectunity::renderer

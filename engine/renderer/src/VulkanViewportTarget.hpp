@@ -29,10 +29,11 @@ struct VulkanViewportContext {
     VkQueue graphicsQueue {VK_NULL_HANDLE};
     VmaAllocator allocator {VK_NULL_HANDLE};
     std::uint32_t queueFamilyIndex {0};
+    bool geometryShaderSupported {false};
 
     [[nodiscard]] VulkanResourceContext resources() const noexcept
     {
-        return {physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex};
+        return {physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex, geometryShaderSupported};
     }
 };
 

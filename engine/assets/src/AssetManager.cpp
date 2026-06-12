@@ -1,5 +1,6 @@
 #include <projectunity/assets/AssetManager.hpp>
 #include "AssetImportUtils.hpp"
+#include "FfultAssetFormat.hpp"
 #include "GltfAttributeReader.hpp"
 #include "GltfEditorInstances.hpp"
 #include "GltfImageLoader.hpp"
@@ -716,6 +717,7 @@ AssetImportResult AssetManager::importModel(
     const AssetImportProgressCallback& progress)
 {
     std::string error;
+    if (detail::isFfultAssetExtension(sourcePath)) { return importFfultModel(sourcePath, progress); }
     reportProgress(progress, 5, "Reading model source");
     const auto bytes = readBytes(sourcePath, &error);
     if (bytes.empty()) {
@@ -723,16 +725,15 @@ AssetImportResult AssetManager::importModel(
         return {false, {}, std::move(error)};
     }
     reportProgress(progress, 12, "Source file loaded");
+    if (auto cached = tryImportFfultModelCache(sourcePath, makeId(bytes, AssetType::Model), progress); cached.has_value()) { return *cached; }
     auto imported = importGltfModel(sourcePath, bytes, progress, &error);
     if (imported.asset == nullptr) {
         core::logError(core::LogCategory::Assets, error);
         return {false, {}, std::move(error)};
     }
     reportProgress(progress, 92, "Writing asset cache");
-    if (!writeCacheRecord(imported.record, &error)) {
-        core::logError(core::LogCategory::Assets, error);
-        return {false, {}, std::move(error)};
-    }
+    if (!writeCacheRecord(imported.record, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
+    if (!writeFfultModelCache(*imported.asset, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
     {
         std::scoped_lock lock(mutex_);
         auto existing = std::find_if(models_.begin(), models_.end(), [&imported](const auto& model) {
@@ -754,6 +755,7 @@ AssetImportResult AssetManager::importTexture(
     const AssetImportProgressCallback& progress)
 {
     std::string error;
+    if (detail::isFfultAssetExtension(sourcePath)) { return importFfultTexture(sourcePath, progress); }
     reportProgress(progress, 5, "Reading texture source");
     const auto bytes = readBytes(sourcePath, &error);
     if (bytes.empty()) {
@@ -761,6 +763,7 @@ AssetImportResult AssetManager::importTexture(
         return {false, {}, std::move(error)};
     }
     reportProgress(progress, 30, "Decoding texture");
+    if (auto cached = tryImportFfultTextureCache(sourcePath, makeId(bytes, AssetType::Texture2D), progress); cached.has_value()) { return *cached; }
     auto textureAsset = std::make_shared<TextureAsset>(
         detail::isKtxTextureExtension(sourcePath)
             ? detail::importKtxTexture(sourcePath, bytes, &error)
@@ -776,10 +779,8 @@ AssetImportResult AssetManager::importTexture(
     record.sourceName = sourcePath.filename().string();
     record.cacheFile = std::to_string(record.id.value()) + ".asset.json";
     reportProgress(progress, 88, "Writing asset cache");
-    if (!writeCacheRecord(record, &error)) {
-        core::logError(core::LogCategory::Assets, error);
-        return {false, {}, std::move(error)};
-    }
+    if (!writeCacheRecord(record, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
+    if (!writeFfultTextureCache(*textureAsset, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
     {
         std::scoped_lock lock(mutex_);
         auto existing = std::find_if(textures_.begin(), textures_.end(), [&textureAsset](const auto& texture) {

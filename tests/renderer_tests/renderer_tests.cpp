@@ -349,6 +349,11 @@ int main()
     }
     error.clear();
     RenderFrame frame;
+    if (frame.meshWireOverlayEnabled
+        || frame.selectedMeshWireOverlayEnabled
+        || frame.selectedMeshWireOverlaySceneNodeId != 0U) {
+        return fail("Renderer mesh wire overlay defaults were not disabled");
+    }
     if (renderer->renderSurfaceFrame(invalidSurface, frame, &error)) {
         return fail("Renderer rendered an invalid viewport surface");
     }

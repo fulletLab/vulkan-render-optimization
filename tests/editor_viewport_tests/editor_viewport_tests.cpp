@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -45,19 +46,24 @@ struct TestOccluderInstance {
     std::uint32_t primitiveIndex {0};
     std::shared_ptr<const projectunity::assets::ModelAsset> model;
     projectunity::editor::ViewportWorldBounds worldBounds;
+    projectunity::scene::EntityId sceneNodeId;
+    projectunity::assets::AssetId modelAssetId;
+    std::uint32_t primitiveInstanceIndex {UINT32_MAX};
 };
 
 struct TestOccluderChunk {
     projectunity::editor::ViewportWorldBounds worldBounds;
     std::vector<std::size_t> instanceIndices;
     std::uint64_t triangleCount {0};
+    projectunity::scene::EntityId sceneNodeId;
+    std::uint64_t renderChunkId {0};
 };
 
 struct TestOccluderRecord {
     std::vector<TestOccluderInstance> instances;
 };
 
-std::shared_ptr<const projectunity::assets::ModelAsset> testOccluderModel()
+std::shared_ptr<projectunity::assets::ModelAsset> testOccluderModel()
 {
     auto model = std::make_shared<projectunity::assets::ModelAsset>();
     model->materials.resize(1U);
@@ -148,6 +154,34 @@ int main()
     };
     if (!projectunity::editor::viewportChunkCanOcclude(denseRecord, denseChunk, 20.0F)) {
         return fail("Viewport occlusion rejected a dense multi-instance occluder");
+    }
+    auto maskedOccluderModel = testOccluderModel();
+    maskedOccluderModel->materials.front().alphaMode = projectunity::assets::MaterialAlphaMode::Mask;
+    TestOccluderRecord maskedRecord;
+    maskedRecord.instances = {
+        {0U, maskedOccluderModel, testBounds({-2.0F, -2.0F, 4.8F}, {0.0F, 0.0F, 5.2F})},
+        {0U, maskedOccluderModel, testBounds({0.0F, -2.0F, 4.8F}, {2.0F, 0.0F, 5.2F})},
+        {0U, maskedOccluderModel, testBounds({-2.0F, 0.0F, 4.8F}, {0.0F, 2.0F, 5.2F})},
+        {0U, maskedOccluderModel, testBounds({0.0F, 0.0F, 4.8F}, {2.0F, 2.0F, 5.2F})},
+    };
+    if (projectunity::editor::viewportChunkCanOcclude(maskedRecord, denseChunk, 20.0F)) {
+        return fail("Viewport occlusion accepted an alpha-mask chunk as a solid occluder");
+    }
+    auto maskedCandidateChunk = denseChunk;
+    maskedCandidateChunk.worldBounds = testBounds({-0.5F, -0.5F, 9.8F}, {0.5F, 0.5F, 10.2F});
+    maskedCandidateChunk.renderChunkId = 99U;
+    projectunity::editor::ViewportRenderWorldStats maskedStats;
+    std::unordered_set<std::uint64_t> emptyOccluderIds;
+    if (projectunity::editor::viewportChunkRejectedByOcclusion(
+            maskedRecord,
+            maskedCandidateChunk,
+            {},
+            {},
+            0U,
+            occlusion,
+            emptyOccluderIds,
+            maskedStats)) {
+        return fail("Viewport occlusion rejected an alpha-mask chunk that must stay conservative");
     }
 
     TestOccluderRecord sparseRecord;

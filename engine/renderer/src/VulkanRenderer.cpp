@@ -126,6 +126,9 @@ struct VulkanRenderer::Impl {
         stats.gpuTimestampsSupported = queueFamilyIndex < families.size()
             && families[queueFamilyIndex].timestampValidBits > 0
             && properties.limits.timestampPeriod > 0.0F;
+        VkPhysicalDeviceFeatures supportedFeatures {};
+        vkGetPhysicalDeviceFeatures(physicalDevice, &supportedFeatures);
+        geometryShaderSupported = supportedFeatures.geometryShader == VK_TRUE;
     }
 
     void createDevice()
@@ -138,6 +141,7 @@ struct VulkanRenderer::Impl {
         queueInfo.pQueuePriorities = &queuePriority;
 
         VkPhysicalDeviceFeatures features {};
+        features.geometryShader = geometryShaderSupported ? VK_TRUE : VK_FALSE;
         VkDeviceCreateInfo createInfo {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.queueCreateInfoCount = 1;
@@ -354,12 +358,12 @@ struct VulkanRenderer::Impl {
 
     [[nodiscard]] VulkanViewportContext viewportContext() const noexcept
     {
-        return {instance, physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex};
+        return {instance, physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex, geometryShaderSupported};
     }
 
     [[nodiscard]] VulkanResourceContext resourceContext() const noexcept
     {
-        return {physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex};
+        return {physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex, geometryShaderSupported};
     }
 
     RendererConfig config;
@@ -376,6 +380,7 @@ struct VulkanRenderer::Impl {
     std::uint32_t queueFamilyIndex {0};
     bool validationEnabled {false};
     bool debugMarkersAvailable {false};
+    bool geometryShaderSupported {false};
     bool ready {false};
 };
 

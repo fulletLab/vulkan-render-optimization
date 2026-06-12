@@ -1,6 +1,5 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 #include "ViewportLabelGeometry.hpp"
-#include "ViewportMeshWireOverlay.hpp"
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include <projectunity/core/Log.hpp>
@@ -490,6 +489,9 @@ bool ViewportWidget::renderRendererFrame()
         frame.shadowsEnabled = true;
     }
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
+    frame.meshWireOverlayEnabled = mode_ == ViewportMode::Scene && meshWireOverlayEnabled_;
+    frame.selectedMeshWireOverlayEnabled = frame.meshWireOverlayEnabled && selectedEntityId_.isValid();
+    frame.selectedMeshWireOverlaySceneNodeId = selectedEntityId_.isValid() ? selectedEntityId_.value() : 0U;
     rendererGizmoVertices_.clear();
     rendererGizmoIndices_.clear();
     rendererColorMeshDraws_.clear();
@@ -641,17 +643,6 @@ bool ViewportWidget::renderRendererFrame()
                     .arg(static_cast<qulonglong>(gizmo.triangles.size() * 3U))
                     .toStdString());
         }
-    }
-    if (mode_ == ViewportMode::Scene && (!rendererMeshDraws_.empty() || selectedEntityId_.isValid())) {
-        appendViewportMeshWireOverlay(
-            rendererGizmoVertices_,
-            rendererGizmoIndices_,
-            std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_),
-            selectedEntityId_,
-            meshWireOverlayEnabled_,
-            forward,
-            right,
-            camera_.distance);
     }
     if (!rendererGizmoVertices_.empty() && !rendererGizmoIndices_.empty()) {
         rendererColorMeshDraws_.push_back({

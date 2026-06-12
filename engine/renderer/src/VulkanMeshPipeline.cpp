@@ -2,6 +2,8 @@
 
 #include "TexturedMeshFragmentSpv.hpp"
 #include "TexturedMeshVertexSpv.hpp"
+#include "TexturedMeshWireFragmentSpv.hpp"
+#include "TexturedMeshWireGeometrySpv.hpp"
 
 #include <array>
 #include <cstddef>
@@ -67,6 +69,11 @@ VkPipeline VulkanMeshPipeline::transparentPipeline() const noexcept
 VkPipeline VulkanMeshPipeline::transparentDoubleSidedPipeline() const noexcept
 {
     return transparentDoubleSidedPipeline_;
+}
+
+VkPipeline VulkanMeshPipeline::wirePipeline() const noexcept
+{
+    return wirePipeline_;
 }
 
 VkPipelineLayout VulkanMeshPipeline::layout() const noexcept
@@ -177,6 +184,12 @@ void VulkanMeshPipeline::createPipeline()
 {
     const auto vertexModule = createShaderModule(context_.device, shaders::kTexturedMeshVertexSpirv);
     const auto fragmentModule = createShaderModule(context_.device, shaders::kTexturedMeshFragmentSpirv);
+    const auto wireGeometryModule = context_.geometryShaderSupported
+        ? createShaderModule(context_.device, shaders::kTexturedMeshWireGeometrySpirv)
+        : VK_NULL_HANDLE;
+    const auto wireFragmentModule = context_.geometryShaderSupported
+        ? createShaderModule(context_.device, shaders::kTexturedMeshWireFragmentSpirv)
+        : VK_NULL_HANDLE;
     try {
         std::array<VkPipelineShaderStageCreateInfo, 2> stages {};
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -299,10 +312,41 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentDoubleSidedPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent double-sided mesh graphics pipeline");
         }
+        if (wireGeometryModule != VK_NULL_HANDLE && wireFragmentModule != VK_NULL_HANDLE) {
+            std::array<VkPipelineShaderStageCreateInfo, 3> wireStages {stages[0], {}, {}};
+            wireStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            wireStages[1].stage = VK_SHADER_STAGE_GEOMETRY_BIT;
+            wireStages[1].module = wireGeometryModule;
+            wireStages[1].pName = "main";
+            wireStages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            wireStages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+            wireStages[2].module = wireFragmentModule;
+            wireStages[2].pName = "main";
+            info.stageCount = static_cast<std::uint32_t>(wireStages.size());
+            info.pStages = wireStages.data();
+            raster.cullMode = VK_CULL_MODE_NONE;
+            depth.depthWriteEnable = VK_FALSE;
+            depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+            if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &wirePipeline_) != VK_SUCCESS) {
+                throw std::runtime_error("Failed to create Vulkan mesh wire graphics pipeline");
+            }
+        }
     } catch (...) {
+        if (wireFragmentModule != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(context_.device, wireFragmentModule, nullptr);
+        }
+        if (wireGeometryModule != VK_NULL_HANDLE) {
+            vkDestroyShaderModule(context_.device, wireGeometryModule, nullptr);
+        }
         vkDestroyShaderModule(context_.device, fragmentModule, nullptr);
         vkDestroyShaderModule(context_.device, vertexModule, nullptr);
         throw;
+    }
+    if (wireFragmentModule != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(context_.device, wireFragmentModule, nullptr);
+    }
+    if (wireGeometryModule != VK_NULL_HANDLE) {
+        vkDestroyShaderModule(context_.device, wireGeometryModule, nullptr);
     }
     vkDestroyShaderModule(context_.device, fragmentModule, nullptr);
     vkDestroyShaderModule(context_.device, vertexModule, nullptr);
@@ -310,6 +354,10 @@ void VulkanMeshPipeline::createPipeline()
 
 void VulkanMeshPipeline::destroy() noexcept
 {
+    if (wirePipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, wirePipeline_, nullptr);
+        wirePipeline_ = VK_NULL_HANDLE;
+    }
     if (transparentDoubleSidedPipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, transparentDoubleSidedPipeline_, nullptr);
         transparentDoubleSidedPipeline_ = VK_NULL_HANDLE;

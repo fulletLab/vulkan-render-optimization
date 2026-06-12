@@ -14,6 +14,7 @@ struct VulkanResourceContext {
     VkQueue graphicsQueue {VK_NULL_HANDLE};
     VmaAllocator allocator {VK_NULL_HANDLE};
     std::uint32_t queueFamilyIndex {0};
+    bool geometryShaderSupported {false};
 };
 
 } // namespace projectunity::renderer

@@ -303,6 +303,29 @@ public:
     [[nodiscard]] const std::filesystem::path& cacheRoot() const noexcept;
 
 private:
+    [[nodiscard]] AssetImportResult importFfultAsset(
+        const std::filesystem::path& sourcePath,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] AssetImportResult importFfultModel(
+        const std::filesystem::path& sourcePath,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] AssetImportResult importFfultTexture(
+        const std::filesystem::path& sourcePath,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] std::optional<AssetImportResult> tryImportFfultModelCache(
+        const std::filesystem::path& sourcePath,
+        AssetId sourceId,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] std::optional<AssetImportResult> tryImportFfultTextureCache(
+        const std::filesystem::path& sourcePath,
+        AssetId sourceId,
+        const AssetImportProgressCallback& progress);
+    [[nodiscard]] bool writeFfultModelCache(
+        const ModelAsset& asset,
+        std::string* errorMessage) const;
+    [[nodiscard]] bool writeFfultTextureCache(
+        const TextureAsset& asset,
+        std::string* errorMessage) const;
     [[nodiscard]] bool writeCacheRecord(const AssetRecord& record, std::string* errorMessage) const;
     void storeRecord(const AssetRecord& record);
 

@@ -46,6 +46,28 @@ void copyGpuTimes(VulkanViewportFrameProfile& profile, const VulkanGpuFrameTimes
     profile.meshGpuTimeUs = times.meshGpuTimeUs;
     profile.colorGpuTimeUs = times.colorGpuTimeUs;
 }
+
+void applyMeshMaterialPush(VulkanDrawPushConstants& push, const RenderMeshDraw& draw) noexcept
+{
+    push.modelMatrix = draw.modelMatrix.values;
+    if (draw.material == nullptr) {
+        return;
+    }
+    push.baseColor = draw.material->baseColor;
+    push.pbrFactors = {
+        draw.material->metallicFactor,
+        draw.material->roughnessFactor,
+        draw.material->normalScale,
+        static_cast<float>(draw.material->alphaMode),
+    };
+    push.emissiveColor = {
+        draw.material->emissiveColor[0],
+        draw.material->emissiveColor[1],
+        draw.material->emissiveColor[2],
+        draw.material->alphaCutoff,
+    };
+    push.materialExtras[0] = draw.material->occlusionStrength;
+}
 } // namespace
 VulkanViewportTarget::VulkanViewportTarget(VulkanViewportContext context, ViewportRenderSurfaceDesc desc)
     : context_(context)
@@ -588,6 +610,43 @@ bool VulkanViewportTarget::recordFrameCommand(
     vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
     VkPipeline activeMeshPipeline = VK_NULL_HANDLE;
+    const auto drawMeshInstances = [&](
+        const VulkanMeshDrawBatch& batch,
+        VkPipeline drawPipeline,
+        const VulkanDrawPushConstants& push,
+        std::uint32_t firstInstance,
+        std::uint32_t instanceCount) -> bool {
+        if (instanceCount == 0U) {
+            return true;
+        }
+        const auto* mesh = batch.mesh;
+        const auto descriptor = batch.materialDescriptor;
+        if (mesh == nullptr || descriptor == VK_NULL_HANDLE) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "Vulkan mesh batch is missing prepared resources";
+            }
+            return false;
+        }
+        if (drawPipeline != activeMeshPipeline) {
+            vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
+            activeMeshPipeline = drawPipeline;
+        }
+        const VkDeviceSize vertexOffset = 0;
+        const auto instanceOffset = static_cast<VkDeviceSize>(firstInstance) * sizeof(VulkanGpuInstance);
+        const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
+        const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
+        vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
+        ++lastFrameProfile_.vkBindVertex;
+        vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
+        ++lastFrameProfile_.vkBindIndex;
+        vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->layout(), 0, 1, &descriptor, 0, nullptr);
+        ++lastFrameProfile_.vkBindDescriptors;
+        vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
+        vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, instanceCount, 0, 0, 0);
+        ++lastFrameProfile_.vkDrawIndexed;
+        lastFrameProfile_.trianglesSubmitted += static_cast<std::uint64_t>(mesh->indexCount / 3U) * instanceCount;
+        return true;
+    };
     {
         const auto passStart = std::chrono::steady_clock::now();
         VulkanScopedLabel meshLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Mesh Pass", {0.12F, 0.75F, 0.38F, 1.0F});
@@ -599,38 +658,55 @@ bool VulkanViewportTarget::recordFrameCommand(
             const auto drawPipeline = isTransparentMeshDraw(draw)
                 ? (noCull ? meshPipeline_->transparentDoubleSidedPipeline() : meshPipeline_->transparentPipeline())
                 : (noCull ? meshPipeline_->doubleSidedPipeline() : meshPipeline_->pipeline());
-            if (drawPipeline != activeMeshPipeline) {
-                vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
-                activeMeshPipeline = drawPipeline;
-            }
-            const auto* mesh = batch.mesh;
-            const auto descriptor = batch.materialDescriptor;
-            if (mesh == nullptr || descriptor == VK_NULL_HANDLE) {
+            VulkanDrawPushConstants push;
+            applyMeshMaterialPush(push, draw);
+            if (!drawMeshInstances(batch, drawPipeline, push, batch.firstInstance, batch.instanceCount)) {
                 vkCmdEndRenderPass(commandBuffer_);
                 return false;
             }
-            VulkanDrawPushConstants push;
-            push.modelMatrix = draw.modelMatrix.values;
-            if (draw.material != nullptr) {
-                push.baseColor = draw.material->baseColor;
-                push.pbrFactors = {draw.material->metallicFactor, draw.material->roughnessFactor, draw.material->normalScale, static_cast<float>(draw.material->alphaMode)};
-                push.emissiveColor = {draw.material->emissiveColor[0], draw.material->emissiveColor[1], draw.material->emissiveColor[2], draw.material->alphaCutoff};
-                push.materialExtras[0] = draw.material->occlusionStrength;
+        }
+        const auto wirePipeline = meshPipeline_->wirePipeline();
+        if (wirePipeline != VK_NULL_HANDLE
+            && (frame.meshWireOverlayEnabled || frame.selectedMeshWireOverlayEnabled)) {
+            VulkanScopedLabel wireLabel(
+                beginDebugLabel_,
+                endDebugLabel_,
+                commandBuffer_,
+                "ProjectUnity Mesh Wire Pass",
+                {1.0F, 0.78F, 0.10F, 1.0F});
+            constexpr std::array<float, 4> kVisibleWireColor {0.22F, 0.78F, 1.0F, 0.24F};
+            constexpr std::array<float, 4> kSelectedWireColor {1.0F, 0.80F, 0.08F, 0.92F};
+            for (const auto& batch : meshBatches_) {
+                const auto& draw = *batch.draw;
+                VulkanDrawPushConstants push;
+                applyMeshMaterialPush(push, draw);
+                if (frame.meshWireOverlayEnabled) {
+                    push.baseColor = kVisibleWireColor;
+                    if (!drawMeshInstances(batch, wirePipeline, push, batch.firstInstance, batch.instanceCount)) {
+                        vkCmdEndRenderPass(commandBuffer_);
+                        return false;
+                    }
+                }
+                if (!frame.selectedMeshWireOverlayEnabled) {
+                    continue;
+                }
+                push.baseColor = kSelectedWireColor;
+                for (std::uint32_t offset = 0; offset < batch.instanceCount; ++offset) {
+                    const auto instanceIndex = batch.firstInstance + offset;
+                    if (instanceIndex >= orderedMeshDraws_.size()) {
+                        continue;
+                    }
+                    const auto* instanceDraw = orderedMeshDraws_[instanceIndex];
+                    if (instanceDraw == nullptr
+                        || instanceDraw->sceneNodeId != frame.selectedMeshWireOverlaySceneNodeId) {
+                        continue;
+                    }
+                    if (!drawMeshInstances(batch, wirePipeline, push, instanceIndex, 1U)) {
+                        vkCmdEndRenderPass(commandBuffer_);
+                        return false;
+                    }
+                }
             }
-            const VkDeviceSize vertexOffset = 0;
-            const VkDeviceSize instanceOffset = static_cast<VkDeviceSize>(batch.firstInstance) * sizeof(VulkanGpuInstance);
-            const std::array<VkBuffer, 2> vertexBuffers {mesh->vertices, meshInstanceBuffer_.buffer()};
-            const std::array<VkDeviceSize, 2> vertexOffsets {vertexOffset, instanceOffset};
-            vkCmdBindVertexBuffers(commandBuffer_, 0, static_cast<std::uint32_t>(vertexBuffers.size()), vertexBuffers.data(), vertexOffsets.data());
-            ++lastFrameProfile_.vkBindVertex;
-            vkCmdBindIndexBuffer(commandBuffer_, mesh->indices.buffer(), 0, VK_INDEX_TYPE_UINT32);
-            ++lastFrameProfile_.vkBindIndex;
-            vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->layout(), 0, 1, &descriptor, 0, nullptr);
-            ++lastFrameProfile_.vkBindDescriptors;
-            vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
-            vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, batch.instanceCount, 0, 0, 0);
-            ++lastFrameProfile_.vkDrawIndexed;
-            lastFrameProfile_.trianglesSubmitted += static_cast<std::uint64_t>(mesh->indexCount / 3U) * batch.instanceCount;
         }
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::MeshEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.meshRecordCpuTimeUs = elapsedUs(passStart);

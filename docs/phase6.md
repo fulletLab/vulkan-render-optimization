@@ -11,6 +11,8 @@ Phase 6 covers:
 - Imported tangent generation through MikkTSpace.
 - Imported mesh optimization and offline simplification LOD data through meshoptimizer.
 - Asset cache metadata and Project Browser visibility.
+- ProjectUnity `.ffult` cooked asset cache/import for already-processed model and
+  texture data.
 - Imported textured mesh visibility in the editor viewport.
 
 ## Status
@@ -113,6 +115,13 @@ runtime cache replacement, or a full editor rewrite.
 
 - `engine/assets` module with `IAssetManager`, `AssetManager`, model/texture/material CPU data, asset records, and cache metadata writes.
 - Stable model and texture asset IDs derived from source/content bytes instead of persisted absolute local paths.
+- ProjectUnity `.ffult` cooked asset v1 for model and texture payloads. Source
+  imports still use the existing validated decoders/cookers, then write an
+  internal binary `.ffult` cache that preserves vertices, indices, LODs, bounds,
+  primitive instances, editor instances, clusters, materials, embedded textures,
+  lights, cameras, texture sampler state, RGBA/HDR fallback data, and explicit
+  GPU mip payloads. Reimports use the matching `.ffult` cache when the source
+  hash matches, and the editor import dialog accepts `.ffult` directly.
 - Texture import for PNG/JPG/HDR through stb image. HDR sources preserve floating-point RGBA radiance data plus an RGBA8 preview/fallback.
 - Texture import for KTX1/KTX2 2D GPU payloads. The internal parser preserves RGBA8, BC, ETC2 RGBA8, and ASTC explicit mip levels; when `PROJECTUNITY_ENABLE_LIBKTX` is enabled, libktx imports KTX2 supercompressed assets, transcodes Basis/UASTC to BC7 GPU mip payloads plus RGBA8 fallback data when possible, and preserves uploadable Zstd explicit mips for supported VkFormats.
 - License check for this dependency: KTX-Software/libktx is fetched at `v4.4.2` and the upstream license is Apache-2.0, so it is acceptable for the current non-GPL dependency policy.

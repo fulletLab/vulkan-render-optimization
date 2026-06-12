@@ -22,6 +22,9 @@ add_library(projectunity_assets STATIC
     src/AssetCache.cpp
     src/AssetImport.cpp
     src/AssetManager.cpp
+    src/AssetManagerFfult.cpp
+    src/FfultAssetFormat.cpp
+    src/FfultAssetFormat.hpp
     src/GltfAttributeReader.cpp
     src/GltfAttributeReader.hpp
     src/GltfEditorInstances.cpp

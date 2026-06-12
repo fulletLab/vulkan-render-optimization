@@ -32,6 +32,12 @@ profiling counters, and large-scene optimization work are integrated, but the
 phase still needs Release validation on representative external scenes before it
 can close. Current review items:
 
+- `.ffult` cooked ProjectUnity asset v1 is integrated for models/textures: GLB,
+  glTF, PNG/JPG/HDR, and KTX/KTX2 sources can be imported into engine asset data,
+  cached as `.ffult`, and imported back without reparsing the original source.
+  Reimports use the matching `.ffult` cache when the source hash matches. This
+  is a foundation for the runtime asset pipeline, not final proof of the
+  expected large-scene performance win.
 - Close-camera visual parity: no occlusion popping, no unintended asset
   degradation, and selected/near objects remain full fidelity.
 - Final visible-list control: culled or occluded objects must not reach resource

@@ -1,5 +1,8 @@
 #include <projectunity/assets/AssetManager.hpp>
 
+#include "AssetImportUtils.hpp"
+#include "FfultAssetFormat.hpp"
+
 #include <projectunity/core/Log.hpp>
 
 #include <algorithm>
@@ -50,6 +53,9 @@ AssetImportResult AssetManager::importAsset(
     const auto extension = lowerExtension(sourcePath);
     if (extension == ".glb" || extension == ".gltf") {
         return importModel(sourcePath, progress);
+    }
+    if (extension == ".ffult") {
+        return importFfultAsset(sourcePath, progress);
     }
     if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".ktx" || extension == ".ktx2") {
         return importTexture(sourcePath, progress);
