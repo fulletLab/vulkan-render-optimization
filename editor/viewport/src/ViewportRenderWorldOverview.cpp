@@ -1,4 +1,5 @@
 #include "ViewportRenderWorld.hpp"
+#include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 
 #include <algorithm>
@@ -498,6 +499,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     const ViewportRenderWorldCamera& camera,
     const renderer::RenderMatrix4& viewProjection,
     int viewportHeight,
+    const ViewportOcclusionBuffer* occlusionBuffer,
+    const std::unordered_set<std::uint64_t>* occluderChunkIds,
     bool countVisibleChunks,
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     ViewportRenderWorldStats& stats,
@@ -527,6 +530,17 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             continue;
         }
         ++visibleChunkCount;
+        const auto chunkIsOccluder = occluderChunkIds != nullptr
+            && occluderChunkIds->find(chunk.renderChunkId) != occluderChunkIds->end();
+        if (!chunkIsOccluder && occlusionBuffer != nullptr && occlusionBuffer->hasOccluders()) {
+            ++stats.occlusionTestedChunkCount;
+            if (occlusionBuffer->isOccluded(chunk.worldBounds)) {
+                ++stats.occlusionRejectedChunkCount;
+                stats.occlusionRejectedInstanceCount += static_cast<std::uint64_t>(chunk.instanceIndices.size());
+                stats.occlusionRejectedTriangleCount += chunk.triangleCount;
+                continue;
+            }
+        }
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
         visibleChunkTriangles += chunk.triangleCount;
         visibleChunks.push_back(&chunk);

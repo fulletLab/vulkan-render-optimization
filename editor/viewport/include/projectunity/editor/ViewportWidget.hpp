@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <cstdint>
 #include <vector>
 
 #include <QPoint>
@@ -177,6 +178,9 @@ private:
     bool rendererSurfaceResizePending_ {false};
     QTimer* rendererSurfaceResizeTimer_ {nullptr};
     bool gpuMeshFrameRendered_ {false};
+    std::uint64_t cullingLogFrameCounter_ {0};
+    std::uint64_t lastCullingLogFrame_ {0};
+    std::uint64_t lastCullingLogSignature_ {0};
     std::optional<renderer::RendererStats> lastRendererStats_;
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
     std::vector<renderer::RenderLight> rendererLights_;

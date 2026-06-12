@@ -243,6 +243,11 @@ struct VulkanRenderer::Impl {
             stats.lastFrameHlodMeshDrawCount = frame.hlodMeshDrawCount;
             stats.lastFrameHlodCandidateDrawCount = frame.hlodCandidateDrawCount;
             stats.lastFrameHlodTriangleReductionCount = frame.hlodTriangleReductionCount;
+            stats.lastFrameOcclusionTestedChunkCount = frame.occlusionTestedChunkCount;
+            stats.lastFrameOcclusionRejectedChunkCount = frame.occlusionRejectedChunkCount;
+            stats.lastFrameOcclusionOccluderChunkCount = frame.occlusionOccluderChunkCount;
+            stats.lastFrameOcclusionRejectedInstanceCount = frame.occlusionRejectedInstanceCount;
+            stats.lastFrameOcclusionRejectedTriangleCount = frame.occlusionRejectedTriangleCount;
             stats.lastFrameSceneNodeCount = frame.sceneNodeCount;
             stats.lastFrameRenderChunkCount = frame.renderChunkCount;
             stats.lastFrameVisibleRenderChunkCount = frame.visibleRenderChunkCount;

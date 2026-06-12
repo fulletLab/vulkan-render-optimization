@@ -53,6 +53,11 @@ struct RendererStats {
     std::uint64_t lastFrameHlodMeshDrawCount {0};
     std::uint64_t lastFrameHlodCandidateDrawCount {0};
     std::uint64_t lastFrameHlodTriangleReductionCount {0};
+    std::uint64_t lastFrameOcclusionTestedChunkCount {0};
+    std::uint64_t lastFrameOcclusionRejectedChunkCount {0};
+    std::uint64_t lastFrameOcclusionOccluderChunkCount {0};
+    std::uint64_t lastFrameOcclusionRejectedInstanceCount {0};
+    std::uint64_t lastFrameOcclusionRejectedTriangleCount {0};
     std::uint64_t lastFrameSceneNodeCount {0};
     std::uint64_t lastFrameRenderChunkCount {0};
     std::uint64_t lastFrameVisibleRenderChunkCount {0};
@@ -232,6 +237,11 @@ struct RenderFrame {
     std::uint64_t hlodMeshDrawCount {0};
     std::uint64_t hlodCandidateDrawCount {0};
     std::uint64_t hlodTriangleReductionCount {0};
+    std::uint64_t occlusionTestedChunkCount {0};
+    std::uint64_t occlusionRejectedChunkCount {0};
+    std::uint64_t occlusionOccluderChunkCount {0};
+    std::uint64_t occlusionRejectedInstanceCount {0};
+    std::uint64_t occlusionRejectedTriangleCount {0};
     std::uint64_t sceneNodeCount {0};
     std::uint64_t renderChunkCount {0};
     std::uint64_t visibleRenderChunkCount {0};

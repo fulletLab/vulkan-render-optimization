@@ -29,8 +29,12 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportRenderWorldDiagnostics.cpp
     src/ViewportRenderWorldDiagnostics.hpp
     src/ViewportRenderWorldOverview.cpp
+    src/ViewportRenderWorldOcclusion.cpp
+    src/ViewportRenderWorldOcclusion.hpp
+    src/ViewportRenderWorldOcclusionPolicy.hpp
     src/ViewportRenderWorldProxy.hpp
     src/ViewportRenderWorldRecord.hpp
+    src/ViewportRenderWorldRecordStats.hpp
     src/ViewportRenderWorldSelection.cpp
     src/ViewportRenderWorldSelection.hpp
     src/ViewportRenderWorldShadowPolicy.cpp

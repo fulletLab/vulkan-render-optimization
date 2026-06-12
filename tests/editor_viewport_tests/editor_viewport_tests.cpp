@@ -1,4 +1,5 @@
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldOcclusion.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
 
@@ -23,6 +24,18 @@ projectunity::assets::MeshPrimitive testPrimitive()
     primitive.lods.push_back({std::vector<std::uint32_t>(750U), 0.05F});
     primitive.lods.push_back({std::vector<std::uint32_t>(300U), 0.20F});
     return primitive;
+}
+
+projectunity::editor::ViewportWorldBounds testBounds(
+    projectunity::math::Vec3 minimum,
+    projectunity::math::Vec3 maximum)
+{
+    projectunity::assets::MeshBounds bounds;
+    bounds.minimum = minimum;
+    bounds.maximum = maximum;
+    bounds.center = (minimum + maximum) * 0.5F;
+    bounds.radius = (maximum - bounds.center).length();
+    return projectunity::editor::transformViewportBounds({}, bounds);
 }
 
 } // namespace
@@ -54,6 +67,41 @@ int main()
     if (indexCountForViewportLod(primitive, 2U) != 750U
         || indexCountForViewportLod(primitive, 99U) != primitive.indices.size()) {
         return fail("Viewport LOD index count lookup returned the wrong index buffer size");
+    }
+
+    const projectunity::editor::ViewportRenderWorldCamera camera {
+        {0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        1.57079637F,
+        1.0F,
+        0.05F,
+        100.0F,
+    };
+    projectunity::editor::ViewportOcclusionBuffer occlusion(camera, 1080);
+    if (!occlusion.addOccluder(testBounds({-2.0F, -2.0F, 4.8F}, {2.0F, 2.0F, 5.2F}))) {
+        return fail("Viewport occlusion buffer did not accept a large opaque occluder");
+    }
+    if (!occlusion.isOccluded(testBounds({-0.5F, -0.5F, 9.8F}, {0.5F, 0.5F, 10.2F}))) {
+        return fail("Viewport occlusion did not reject a fully covered chunk behind an occluder");
+    }
+    if (occlusion.isOccluded(testBounds({1.6F, -0.5F, 9.8F}, {3.0F, 0.5F, 10.2F}))) {
+        return fail("Viewport occlusion rejected a partially protruding chunk");
+    }
+    if (occlusion.isOccluded(testBounds({-0.5F, -0.5F, 2.8F}, {0.5F, 0.5F, 3.2F}))) {
+        return fail("Viewport occlusion rejected a chunk in front of the occluder");
+    }
+
+    projectunity::editor::ViewportOcclusionBuffer nearOcclusion(camera, 1080);
+    if (!nearOcclusion.addOccluder(testBounds({-3.0F, -3.0F, -0.2F}, {3.0F, 3.0F, 1.2F}))) {
+        return fail("Viewport occlusion rejected an occluder crossing the near plane");
+    }
+    if (!nearOcclusion.isOccluded(testBounds({-0.4F, -0.4F, 4.8F}, {0.4F, 0.4F, 5.2F}))) {
+        return fail("Viewport near-plane occlusion did not reject a covered chunk behind the occluder");
+    }
+    if (nearOcclusion.isOccluded(testBounds({2.2F, -0.4F, 4.8F}, {4.0F, 0.4F, 5.2F}))) {
+        return fail("Viewport near-plane occlusion rejected a protruding chunk");
     }
 
     return EXIT_SUCCESS;

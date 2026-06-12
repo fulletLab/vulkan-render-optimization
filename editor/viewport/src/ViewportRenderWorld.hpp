@@ -10,11 +10,13 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace projectunity::editor {
 
 struct ViewportFrameBounds;
+class ViewportOcclusionBuffer;
 class ViewportSceneEntityLookup;
 
 struct ViewportRenderWorldCamera {
@@ -45,6 +47,11 @@ struct ViewportRenderWorldStats {
     std::uint64_t hlodMeshDrawCount {0};
     std::uint64_t hlodCandidateDrawCount {0};
     std::uint64_t hlodTriangleReductionCount {0};
+    std::uint64_t occlusionTestedChunkCount {0};
+    std::uint64_t occlusionRejectedChunkCount {0};
+    std::uint64_t occlusionOccluderChunkCount {0};
+    std::uint64_t occlusionRejectedInstanceCount {0};
+    std::uint64_t occlusionRejectedTriangleCount {0};
     std::uint64_t shadowCandidateInstances {0};
     std::uint64_t shadowPolicyRejectedInstances {0};
     std::uint64_t largeRenderChunkCount {0};
@@ -107,6 +114,8 @@ private:
         const ViewportRenderWorldCamera& camera,
         const renderer::RenderMatrix4& viewProjection,
         int viewportHeight,
+        const ViewportOcclusionBuffer* occlusionBuffer,
+        const std::unordered_set<std::uint64_t>* occluderChunkIds,
         bool countVisibleChunks,
         std::vector<renderer::RenderMeshDraw>& meshDraws,
         ViewportRenderWorldStats& stats,

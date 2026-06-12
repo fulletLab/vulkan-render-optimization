@@ -49,6 +49,11 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " objectsConsidered=" << stats.objectsConsidered
         << " passedFrustum=" << stats.passedFrustum
         << " visibleBatches=" << stats.visibleBatches
+        << " occlusionTestedChunks=" << stats.lastFrameOcclusionTestedChunkCount
+        << " occlusionRejectedChunks=" << stats.lastFrameOcclusionRejectedChunkCount
+        << " occlusionOccluderChunks=" << stats.lastFrameOcclusionOccluderChunkCount
+        << " occlusionRejectedInstances=" << stats.lastFrameOcclusionRejectedInstanceCount
+        << " occlusionRejectedTriangles=" << stats.lastFrameOcclusionRejectedTriangleCount
         << " resourcePrepared=" << stats.resourcePrepared
         << " resourcePrepareMs=" << stats.resourcePrepareMs
         << " shadowCastersSubmitted=" << stats.shadowCastersSubmitted

@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 75;
+constexpr int kProfilerRowCount = 80;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -102,6 +102,11 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("shadowBatchesSubmitted"),
         QStringLiteral("shadowInstancesSubmitted"),
         QStringLiteral("shadowTrianglesSubmitted"),
+        QStringLiteral("occlusionTestedChunks"),
+        QStringLiteral("occlusionRejectedChunks"),
+        QStringLiteral("occlusionOccluderChunks"),
+        QStringLiteral("occlusionRejectedInstances"),
+        QStringLiteral("occlusionRejectedTriangles"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -250,6 +255,11 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 72, QString::number(static_cast<qulonglong>(stats.shadowBatchesSubmitted)));
     setTableValue(profilerTable_, 73, QString::number(static_cast<qulonglong>(stats.shadowInstancesSubmitted)));
     setTableValue(profilerTable_, 74, QString::number(static_cast<qulonglong>(stats.shadowTrianglesSubmitted)));
+    setTableValue(profilerTable_, 75, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionTestedChunkCount)));
+    setTableValue(profilerTable_, 76, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedChunkCount)));
+    setTableValue(profilerTable_, 77, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionOccluderChunkCount)));
+    setTableValue(profilerTable_, 78, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedInstanceCount)));
+    setTableValue(profilerTable_, 79, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedTriangleCount)));
 }
 
 } // namespace projectunity::editor

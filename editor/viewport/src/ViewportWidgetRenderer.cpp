@@ -12,11 +12,19 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
+#include <iostream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 namespace projectunity::editor {
 namespace {
+
+[[nodiscard]] std::uint64_t mixLogHash(std::uint64_t seed, std::uint64_t value) noexcept
+{
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+}
+
 [[nodiscard]] bool renderWorldChunkBoundsDebugEnabled() noexcept
 {
 #if defined(_WIN32)
@@ -169,6 +177,11 @@ struct ViewportCameraFrame {
     float farPlane {4000.0F};
 };
 
+[[nodiscard]] const char* viewportModeName(ViewportMode mode) noexcept
+{
+    return mode == ViewportMode::Game ? "Game" : "Scene";
+}
+
 } // namespace
 
 void ViewportWidget::setShadowUpdateMode(renderer::RenderShadowUpdateMode mode)
@@ -252,6 +265,7 @@ bool ViewportWidget::renderRendererFrame()
         camera_.verticalFovRadians,
         aspectRatio(),
     };
+    const char* cameraSource = mode_ == ViewportMode::Game ? "game-editor-fallback" : "scene-editor-camera";
     if (mode_ == ViewportMode::Game && scene_ != nullptr) {
         bool cameraFromSceneEntity = false;
         for (const auto& entity : scene_->entities()) {
@@ -285,6 +299,7 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.nearPlane = imported.nearPlane;
             cameraFrame.farPlane = imported.farPlane;
             cameraFromSceneEntity = true;
+            cameraSource = "game-scene-camera";
             break;
         }
         if (!cameraFromSceneEntity && assetManager_ != nullptr) {
@@ -321,6 +336,7 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.aspectRatio = imported->aspectRatio > 0.0F ? imported->aspectRatio : aspectRatio();
             cameraFrame.nearPlane = imported->nearPlane;
             cameraFrame.farPlane = imported->farPlane;
+            cameraSource = "game-imported-camera";
             break;
         }
         }
@@ -384,6 +400,44 @@ bool ViewportWidget::renderRendererFrame()
         frame.hlodMeshDrawCount = renderWorldFrame.stats.hlodMeshDrawCount;
         frame.hlodCandidateDrawCount = renderWorldFrame.stats.hlodCandidateDrawCount;
         frame.hlodTriangleReductionCount = renderWorldFrame.stats.hlodTriangleReductionCount;
+        frame.occlusionTestedChunkCount = renderWorldFrame.stats.occlusionTestedChunkCount;
+        frame.occlusionRejectedChunkCount = renderWorldFrame.stats.occlusionRejectedChunkCount;
+        frame.occlusionOccluderChunkCount = renderWorldFrame.stats.occlusionOccluderChunkCount;
+        frame.occlusionRejectedInstanceCount = renderWorldFrame.stats.occlusionRejectedInstanceCount;
+        frame.occlusionRejectedTriangleCount = renderWorldFrame.stats.occlusionRejectedTriangleCount;
+        auto cullingSignature = mixLogHash(renderWorldFrame.stats.visibleRenderChunkCount, renderWorldFrame.stats.visibleRenderInstanceCount);
+        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedChunkCount);
+        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedInstanceCount);
+        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.culledMeshDrawCount);
+        cullingSignature = mixLogHash(cullingSignature, static_cast<std::uint64_t>(mode_));
+        ++cullingLogFrameCounter_;
+        const auto framesSinceLog = cullingLogFrameCounter_ - lastCullingLogFrame_;
+        const auto signatureChanged = cullingSignature != lastCullingLogSignature_;
+        if (cullingLogFrameCounter_ == 1U || cullingLogFrameCounter_ % 60U == 0U || (signatureChanged && framesSinceLog >= 15U)) {
+            std::ostringstream message;
+            message << "Viewport culling mode=" << viewportModeName(mode_)
+                    << " camera=" << cameraSource
+                    << " eye=(" << eye.x << "," << eye.y << "," << eye.z << ")"
+                    << " forward=(" << forward.x << "," << forward.y << "," << forward.z << ")"
+                    << " fov=" << cameraFrame.verticalFovRadians
+                    << " aspect=" << cameraFrame.aspectRatio
+                    << " near=" << cameraFrame.nearPlane
+                    << " far=" << cameraFrame.farPlane
+                    << " chunks=" << renderWorldFrame.stats.visibleRenderChunkCount << "/" << renderWorldFrame.stats.renderChunkCount
+                    << " instances=" << renderWorldFrame.stats.visibleRenderInstanceCount << "/" << renderWorldFrame.stats.renderInstanceCount
+                    << " occlusion tested/rejected/occluders="
+                    << renderWorldFrame.stats.occlusionTestedChunkCount << "/"
+                    << renderWorldFrame.stats.occlusionRejectedChunkCount << "/"
+                    << renderWorldFrame.stats.occlusionOccluderChunkCount
+                    << " rejectedInstances=" << renderWorldFrame.stats.occlusionRejectedInstanceCount
+                    << " rejectedTriangles=" << renderWorldFrame.stats.occlusionRejectedTriangleCount
+                    << " meshDrawCandidates=" << renderWorldFrame.stats.candidateMeshDrawCount
+                    << " culledDraws=" << renderWorldFrame.stats.culledMeshDrawCount;
+            core::logInfo(core::LogCategory::Renderer, message.str());
+            std::cout << message.str() << '\n';
+            lastCullingLogFrame_ = cullingLogFrameCounter_;
+            lastCullingLogSignature_ = cullingSignature;
+        }
         if (renderWorldFrame.visibleBoundsValid) {
             visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }

@@ -14,6 +14,8 @@
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace projectunity::editor {
 namespace {
@@ -77,6 +79,11 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " hlodDraws=" << stats.lastFrameHlodMeshDrawCount
         << " hlodCandidates=" << stats.lastFrameHlodCandidateDrawCount
         << " hlodTriangleReduction=" << stats.lastFrameHlodTriangleReductionCount
+        << " occlusionTestedChunks=" << stats.lastFrameOcclusionTestedChunkCount
+        << " occlusionRejectedChunks=" << stats.lastFrameOcclusionRejectedChunkCount
+        << " occlusionOccluderChunks=" << stats.lastFrameOcclusionOccluderChunkCount
+        << " occlusionRejectedInstances=" << stats.lastFrameOcclusionRejectedInstanceCount
+        << " occlusionRejectedTriangles=" << stats.lastFrameOcclusionRejectedTriangleCount
         << " resourcePrepared=" << stats.resourcePrepared
         << " resourcePrepareMs=" << stats.resourcePrepareMs
         << " shadowCastersSubmitted=" << stats.shadowCastersSubmitted
@@ -109,6 +116,16 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
 [[nodiscard]] bool shouldAllowSmallProfileAsset() noexcept
 {
     return qEnvironmentVariableIntValue("PROJECTUNITY_CULLING_PROFILE_ALLOW_SMALL") != 0;
+}
+
+[[nodiscard]] int profileDuplicateCount() noexcept
+{
+    bool ok = false;
+    const auto requested = qEnvironmentVariableIntValue("PROJECTUNITY_CULLING_PROFILE_DUPLICATES", &ok);
+    if (!ok) {
+        return 2;
+    }
+    return std::clamp(requested, 0, 12);
 }
 
 } // namespace
@@ -144,6 +161,12 @@ bool MainWindow::runPhase6CullingProfile(QString* errorMessage)
         return fail(QStringLiteral("Phase 6 culling profile asset is %1 MB, expected the 400MB map. Set PROJECTUNITY_CULLING_PROFILE_ALLOW_SMALL=1 only for harness smoke.")
             .arg(static_cast<qulonglong>(assetSizeBytes / (1024ULL * 1024ULL))));
     }
+    const auto profileLabel = assetSizeBytes < 300ULL * 1024ULL * 1024ULL
+        ? std::string {"profile asset"}
+        : std::string {"400MB duplicated map"};
+    const auto profileCounterLabel = [&profileLabel](const char* suffix) {
+        return profileLabel + suffix;
+    };
 
     newScene();
     const auto imported = importAssetFromPath(pathToQString(assetPath), true);
@@ -158,26 +181,31 @@ bool MainWindow::runPhase6CullingProfile(QString* errorMessage)
         return fail(QStringLiteral("Phase 6 culling profile could not resolve imported map bounds"));
     }
 
-    auto* copyA = scene_.duplicateEntity(rootId);
-    const auto copyAId = copyA == nullptr ? scene::EntityId {} : copyA->id;
-    auto* copyB = scene_.duplicateEntity(rootId);
-    const auto copyBId = copyB == nullptr ? scene::EntityId {} : copyB->id;
-    root = scene_.findEntity(rootId);
-    copyA = scene_.findEntity(copyAId);
-    copyB = scene_.findEntity(copyBId);
-    if (root == nullptr || copyA == nullptr || copyB == nullptr) {
-        return fail(QStringLiteral("Phase 6 culling profile failed to duplicate the imported map twice"));
+    const auto duplicateCount = profileDuplicateCount();
+    std::vector<scene::EntityId> profiledEntityIds;
+    profiledEntityIds.reserve(static_cast<std::size_t>(duplicateCount + 1));
+    profiledEntityIds.push_back(rootId);
+    for (int duplicateIndex = 0; duplicateIndex < duplicateCount; ++duplicateIndex) {
+        auto* copy = scene_.duplicateEntity(rootId);
+        if (copy == nullptr) {
+            return fail(QStringLiteral("Phase 6 culling profile failed to duplicate the imported map"));
+        }
+        profiledEntityIds.push_back(copy->id);
     }
     const auto spacing = std::max({bounds->extent.x, bounds->radius * 1.35F, 8.0F});
-    auto transform = root->transform;
-    transform.position.x -= spacing;
-    (void)scene_.setTransform(rootId, transform);
-    transform = copyA->transform;
-    transform.position.x += spacing;
-    (void)scene_.setTransform(copyA->id, transform);
-    transform = copyB->transform;
-    transform.position.x += spacing * 3.0F;
-    (void)scene_.setTransform(copyB->id, transform);
+    const auto assetCount = static_cast<int>(profiledEntityIds.size());
+    math::Vec3 averagePosition {};
+    for (int index = 0; index < assetCount; ++index) {
+        auto* entity = scene_.findEntity(profiledEntityIds[static_cast<std::size_t>(index)]);
+        if (entity == nullptr) {
+            return fail(QStringLiteral("Phase 6 culling profile lost a duplicated entity"));
+        }
+        auto transform = entity->transform;
+        transform.position.x += (static_cast<float>(index) - static_cast<float>(assetCount - 1) * 0.5F) * spacing;
+        averagePosition += transform.position;
+        (void)scene_.setTransform(entity->id, transform);
+    }
+    averagePosition = averagePosition / static_cast<float>(std::max(assetCount, 1));
     rebuildHierarchy();
     clearSelection();
     refreshViewports();
@@ -203,27 +231,32 @@ bool MainWindow::runPhase6CullingProfile(QString* errorMessage)
         return false;
     };
 
-    const auto center = bounds->center + root->transform.position + math::Vec3 {spacing * 2.0F, 0.0F, 0.0F};
-    const auto profileRadius = bounds->radius + spacing * 2.4F;
+    const auto center = bounds->center + averagePosition;
+    const auto profileRadius = bounds->radius + spacing * std::max(1.0F, static_cast<float>(assetCount - 1) * 0.55F);
     sceneViewport_->setCameraForTesting(center, std::clamp(profileRadius * 1.4F, 20.0F, 480.0F), 0.65F, -0.35F);
     if (!waitForStaticUploadsIdle()) {
         return fail(QStringLiteral("Phase 6 culling profile static uploads did not become idle before measurement"));
     }
     const auto facingStats = renderFrames();
-    printFrameCounters("400MB duplicated map facing map", facingStats);
+    printFrameCounters(profileCounterLabel(" facing map").c_str(), facingStats);
 
     sceneViewport_->setCameraForTesting(center + math::Vec3 {profileRadius * 0.72F, 0.0F, 0.0F}, std::clamp(profileRadius * 1.4F, 20.0F, 480.0F), 0.65F, -0.35F);
     const auto partialStats = renderFrames();
-    printFrameCounters("400MB duplicated map partially facing map", partialStats);
+    printFrameCounters(profileCounterLabel(" partially facing map").c_str(), partialStats);
 
     sceneViewport_->setCameraForTesting(center, std::clamp(profileRadius * 0.22F, 4.0F, 80.0F), 0.65F, -0.18F);
     const auto closeStats = renderFrames();
-    printFrameCounters("400MB duplicated map close dense view", closeStats);
+    printFrameCounters(profileCounterLabel(" close dense view").c_str(), closeStats);
+
+    const auto sideCenter = center - math::Vec3 {spacing * static_cast<float>(assetCount - 1) * 0.45F, 0.0F, 0.0F};
+    sceneViewport_->setCameraForTesting(sideCenter, std::clamp(bounds->radius * 0.18F, 2.0F, 48.0F), 1.57079637F, -0.12F);
+    const auto closeSideStats = renderFrames();
+    printFrameCounters(profileCounterLabel(" close side view").c_str(), closeSideStats);
 
     const auto emptyTarget = center + math::Vec3 {0.0F, profileRadius * 3.0F + 5000.0F, profileRadius * 3.0F + 5000.0F};
     sceneViewport_->setCameraForTesting(emptyTarget, 480.0F, 0.65F, -0.35F);
     const auto emptyStats = renderFrames();
-    printFrameCounters("400MB duplicated map facing empty space", emptyStats);
+    printFrameCounters(profileCounterLabel(" facing empty space").c_str(), emptyStats);
 
     if (facingStats.lastFrameMeshDrawCount == 0 || facingStats.trianglesSubmitted == 0) {
         return fail(QStringLiteral("Phase 6 culling profile did not render the duplicated map while facing it"));

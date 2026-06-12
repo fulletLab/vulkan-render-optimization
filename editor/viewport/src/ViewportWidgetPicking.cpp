@@ -1,11 +1,17 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 
+#include "ViewportRenderWorldProxy.hpp"
+
+#include <projectunity/core/Log.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <iostream>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <vector>
 
 namespace projectunity::editor {
@@ -154,10 +160,30 @@ namespace {
     return ViewportRay {*localOrigin, *localEnd - *localOrigin};
 }
 
+enum class PickSource {
+    MeshExact,
+    Marker,
+    ShapeFallback,
+};
+
+[[nodiscard]] const char* pickSourceName(PickSource source) noexcept
+{
+    switch (source) {
+    case PickSource::MeshExact:
+        return "mesh-triangle-exact";
+    case PickSource::Marker:
+        return "screen-marker";
+    case PickSource::ShapeFallback:
+        return "non-mesh-shape";
+    }
+    return "unknown";
+}
+
 struct PickCandidate {
     scene::EntityId id;
     float priority {0.0F};
     float distance {0.0F};
+    PickSource source {PickSource::MeshExact};
 };
 
 struct DeferredMeshPick {
@@ -342,11 +368,32 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
     const auto ray = screenPointToRay(point);
     std::optional<PickCandidate> meshPick;
     std::vector<DeferredMeshPick> deferredMeshPicks;
-    const auto tryCandidate = [&](scene::EntityId id, std::optional<float> distance) {
+    std::uint64_t meshBroadCandidates = 0;
+    std::uint64_t meshExactTests = 0;
+    std::uint64_t meshExactHits = 0;
+    const auto logPick = [&](const std::optional<PickCandidate>& pick) {
+        std::ostringstream message;
+        message << "Viewport pick point=(" << point.x() << "," << point.y() << ")"
+                << " rayEye=(" << ray.origin.x << "," << ray.origin.y << "," << ray.origin.z << ")"
+                << " rayDir=(" << ray.direction.x << "," << ray.direction.y << "," << ray.direction.z << ")"
+                << " meshBroad=" << meshBroadCandidates
+                << " exactTests=" << meshExactTests
+                << " exactHits=" << meshExactHits;
+        if (pick.has_value()) {
+            message << " result=" << pick->id.value()
+                    << " source=" << pickSourceName(pick->source)
+                    << " distance=" << pick->distance;
+        } else {
+            message << " result=none";
+        }
+        core::logInfo(core::LogCategory::Editor, message.str());
+        std::cout << message.str() << '\n';
+    };
+    const auto tryCandidate = [&](scene::EntityId id, std::optional<float> distance, PickSource source) {
         if (!distance.has_value()) {
             return;
         }
-        const PickCandidate candidate {id, 0.0F, *distance};
+        const PickCandidate candidate {id, 0.0F, *distance, source};
         if (!meshPick.has_value() || betterPick(candidate, *meshPick)) {
             meshPick = candidate;
         }
@@ -363,6 +410,7 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
         if (!distance.has_value()) {
             return;
         }
+        ++meshBroadCandidates;
         deferredMeshPicks.push_back({id, &model, instanceIndex, matrix, *distance});
     };
 
@@ -379,11 +427,13 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
 
             const auto entityMatrix = modelMatrix(entity, *worldPosition);
             if (entity.meshRenderer->editorInstanceIndex.has_value()) {
-                const auto index = *entity.meshRenderer->editorInstanceIndex;
-                if (index < model->editorInstances.size()) {
-                    tryCandidate(
-                        entity.id,
-                        rayEditorInstanceBoundsDistance(ray, model->editorInstances[index], entityMatrix));
+                const auto instanceIndex = primitiveInstanceIndexForProxy(*model, *entity.meshRenderer);
+                if (instanceIndex.has_value() && *instanceIndex < model->primitiveInstances.size()) {
+                    const auto& instance = model->primitiveInstances[*instanceIndex];
+                    const auto instanceMatrix = multiply(
+                        multiply(entityMatrix, translationMatrix(instance.bounds.center * -1.0F)),
+                        renderMatrix(instance.transform));
+                    deferInstanceCandidate(entity.id, *model, *instanceIndex, instanceMatrix);
                 }
                 continue;
             }
@@ -408,13 +458,19 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
                 }
             } else {
                 for (const auto& primitive : model->primitives) {
-                    tryCandidate(entity.id, rayPrimitiveDistance(ray, primitive, entityMatrix));
+                    ++meshBroadCandidates;
+                    ++meshExactTests;
+                    const auto distance = rayPrimitiveDistance(ray, primitive, entityMatrix);
+                    if (distance.has_value()) {
+                        ++meshExactHits;
+                    }
+                    tryCandidate(entity.id, distance, PickSource::MeshExact);
                 }
             }
         }
     }
     if (!deferredMeshPicks.empty()) {
-        constexpr std::size_t kMaxExactPrimitivePickTests = 48U;
+        constexpr std::size_t kMaxExactPrimitivePickTests = 512U;
         std::sort(deferredMeshPicks.begin(), deferredMeshPicks.end(), [](const DeferredMeshPick& lhs, const DeferredMeshPick& rhs) {
             return lhs.distance < rhs.distance;
         });
@@ -424,12 +480,16 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             if (pick.model == nullptr || pick.primitiveInstanceIndex >= pick.model->primitiveInstances.size()) {
                 continue;
             }
-            tryCandidate(
-                pick.id,
-                rayInstanceDistance(ray, *pick.model, pick.model->primitiveInstances[pick.primitiveInstanceIndex], pick.matrix));
+            ++meshExactTests;
+            const auto distance = rayInstanceDistance(ray, *pick.model, pick.model->primitiveInstances[pick.primitiveInstanceIndex], pick.matrix);
+            if (distance.has_value()) {
+                ++meshExactHits;
+            }
+            tryCandidate(pick.id, distance, PickSource::MeshExact);
         }
     }
     if (meshPick.has_value()) {
+        logPick(meshPick);
         return meshPick->id;
     }
 
@@ -441,6 +501,9 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
         }
         const auto projected = projectPoint(*position);
         if (!projected.visible) {
+            continue;
+        }
+        if (entity.meshRenderer.has_value()) {
             continue;
         }
 
@@ -469,20 +532,21 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             continue;
         }
 
-        const PickCandidate candidate {entity.id, priority, distance};
+        const PickCandidate candidate {entity.id, priority, distance, PickSource::Marker};
         if (!markerPick.has_value() || betterPick(candidate, *markerPick)) {
             markerPick = candidate;
         }
     }
     if (markerPick.has_value()) {
+        logPick(markerPick);
         return markerPick->id;
     }
 
     float closestShapeDistance = std::numeric_limits<float>::max();
-    std::optional<scene::EntityId> closestShapeEntity;
+    std::optional<PickCandidate> closestShapePick;
 
     for (const auto& entity : scene_->entities()) {
-        if (isAggregateMesh(entity)) {
+        if (entity.meshRenderer.has_value()) {
             continue;
         }
         const auto position = entityWorldPosition(entity.id);
@@ -507,11 +571,12 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
 
         if (distance >= 0.0F && distance < closestShapeDistance) {
             closestShapeDistance = distance;
-            closestShapeEntity = entity.id;
+            closestShapePick = PickCandidate {entity.id, 2.0F, distance, PickSource::ShapeFallback};
         }
     }
 
-    return closestShapeEntity;
+    logPick(closestShapePick);
+    return closestShapePick.has_value() ? std::optional<scene::EntityId> {closestShapePick->id} : std::nullopt;
 }
 
 float ViewportWidget::entityPickRadius(const scene::Entity& entity) const

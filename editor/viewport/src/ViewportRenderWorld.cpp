@@ -3,8 +3,11 @@
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportMeshLod.hpp"
 #include "ViewportRenderWorldBudget.hpp"
+#include "ViewportRenderWorldOcclusion.hpp"
+#include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportRenderWorldProxy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
+#include "ViewportRenderWorldRecordStats.hpp"
 #include "ViewportRenderWorldSelection.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
 #include "ViewportRendererCulling.hpp"
@@ -535,36 +538,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         }
     }
     ViewportFrameBounds allChunkBounds;
-    for (const auto* record : orderedRecords_) {
-        if (record == nullptr) {
-            continue;
-        }
-        result.hasMeshSceneContent = result.hasMeshSceneContent || record->hasMeshSceneContent;
-        result.stats.renderInstanceCount += record->instances.size();
-        result.stats.renderChunkCount += record->chunks.size();
-        result.stats.hlodCandidateDrawCount += record->overviewDraws.size();
-        for (const auto& chunk : record->chunks) {
-            result.stats.hlodCandidateDrawCount += chunk.overviewDraws.size();
-        }
-        for (const auto& instance : record->instances) {
-            if (instance.primitiveIndex >= instance.model->primitives.size()) {
-                continue;
-            }
-            result.stats.candidateMeshDrawCount += 1U;
-            result.stats.candidateTriangleCount += instance.model->primitives[instance.primitiveIndex].indices.size() / 3U;
-        }
-        for (const auto& chunk : record->chunks) {
-            allChunkBounds.includeSphere(chunk.worldBounds.center, chunk.worldBounds.radius);
-            const auto extent = renderWorldChunkMaxExtent(chunk.worldBounds.corners);
-            result.stats.maxRenderChunkExtent = std::max(result.stats.maxRenderChunkExtent, extent);
-            result.stats.largestRenderChunkTriangleCount = std::max(
-                result.stats.largestRenderChunkTriangleCount,
-                chunk.triangleCount);
-            result.stats.largestRenderChunkInstanceCount = std::max<std::uint64_t>(
-                result.stats.largestRenderChunkInstanceCount,
-                chunk.instanceIndices.size());
-        }
-    }
+    accumulateViewportRenderWorldRecordStats(orderedRecords_, result, allChunkBounds);
     for (const auto& overviewRecord : overviewRecords_) {
         if (overviewRecord != nullptr) {
             result.stats.hlodCandidateDrawCount += overviewRecord->overviewDraws.size();
@@ -590,6 +564,16 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     }
 
     std::vector<const EntityRecord::Chunk*> visibleChunks;
+    ViewportOcclusionBuffer occlusionBuffer(camera, viewportHeight);
+    std::unordered_set<std::uint64_t> occluderChunkIds;
+    occluderChunkIds.reserve(result.stats.renderChunkCount);
+    buildViewportOcclusionBuffer(
+        orderedRecords_,
+        camera,
+        sceneExtent,
+        occlusionBuffer,
+        occluderChunkIds,
+        result.stats);
     std::unordered_set<std::uint64_t> overviewCoveredModels;
 
     for (const auto& overviewRecord : overviewRecords_) {
@@ -603,6 +587,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 camera,
                 viewProjection,
                 viewportHeight,
+                &occlusionBuffer,
+                &occluderChunkIds,
                 true,
                 meshDraws,
                 result.stats,
@@ -661,6 +647,17 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             if (!chunkVisible) {
                 continue;
             }
+            if (viewportChunkRejectedByOcclusion(
+                *record,
+                chunk,
+                selectedEntityId,
+                selectedPrimitiveModel,
+                selectedPrimitiveIndex,
+                occlusionBuffer,
+                occluderChunkIds,
+                result.stats)) {
+                continue;
+            }
             ++result.stats.visibleRenderChunkCount;
             visibleChunks.push_back(&chunk);
         }
@@ -676,6 +673,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 camera,
                 viewProjection,
                 viewportHeight,
+                &occlusionBuffer,
+                &occluderChunkIds,
                 false,
                 meshDraws,
                 result.stats,
