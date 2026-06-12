@@ -53,6 +53,7 @@ bool ViewportOcclusionBuffer::projectBounds(
             if (!allowNearClippedBounds) {
                 return false;
             }
+            projected.nearClipped = true;
             depth = clippedNearPlane;
         }
 
@@ -108,7 +109,9 @@ std::size_t ViewportOcclusionBuffer::cellIndex(int x, int y) const noexcept
 bool ViewportOcclusionBuffer::addOccluder(const ViewportWorldBounds& bounds) noexcept
 {
     ProjectedBounds projected;
-    if (!projectBounds(bounds, projected, true) || projected.normalizedArea < kMinimumOccluderArea) {
+    if (!projectBounds(bounds, projected, true)
+        || projected.nearClipped
+        || projected.normalizedArea < kMinimumOccluderArea) {
         return false;
     }
 

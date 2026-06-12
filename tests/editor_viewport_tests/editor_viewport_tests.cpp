@@ -94,14 +94,11 @@ int main()
     }
 
     projectunity::editor::ViewportOcclusionBuffer nearOcclusion(camera, 1080);
-    if (!nearOcclusion.addOccluder(testBounds({-3.0F, -3.0F, -0.2F}, {3.0F, 3.0F, 1.2F}))) {
-        return fail("Viewport occlusion rejected an occluder crossing the near plane");
+    if (nearOcclusion.addOccluder(testBounds({-3.0F, -3.0F, -0.2F}, {3.0F, 3.0F, 1.2F}))) {
+        return fail("Viewport occlusion accepted an occluder crossing the near plane");
     }
-    if (!nearOcclusion.isOccluded(testBounds({-0.4F, -0.4F, 4.8F}, {0.4F, 0.4F, 5.2F}))) {
-        return fail("Viewport near-plane occlusion did not reject a covered chunk behind the occluder");
-    }
-    if (nearOcclusion.isOccluded(testBounds({2.2F, -0.4F, 4.8F}, {4.0F, 0.4F, 5.2F}))) {
-        return fail("Viewport near-plane occlusion rejected a protruding chunk");
+    if (nearOcclusion.isOccluded(testBounds({-0.4F, -2.8F, 4.8F}, {0.4F, -2.0F, 5.2F}))) {
+        return fail("Viewport near-plane occlusion rejected visible content below the camera");
     }
 
     return EXIT_SUCCESS;

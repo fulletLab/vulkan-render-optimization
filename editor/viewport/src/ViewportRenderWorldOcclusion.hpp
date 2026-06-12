@@ -25,6 +25,7 @@ private:
         float nearDepth {0.0F};
         float farDepth {0.0F};
         float normalizedArea {0.0F};
+        bool nearClipped {false};
     };
 
     [[nodiscard]] bool projectBounds(
