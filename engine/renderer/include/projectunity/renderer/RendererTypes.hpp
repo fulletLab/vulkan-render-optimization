@@ -56,11 +56,6 @@ struct RendererStats {
     std::uint64_t lastFrameOcclusionTestedChunkCount {0};
     std::uint64_t lastFrameOcclusionRejectedChunkCount {0};
     std::uint64_t lastFrameOcclusionOccluderChunkCount {0};
-    std::uint64_t lastFrameOcclusionBackend {0};
-    std::uint64_t lastFrameOcclusionOccluderTriangleCount {0};
-    std::uint64_t lastFrameOcclusionBuildCpuTimeUs {0};
-    std::uint64_t lastFrameOcclusionSelectedSkippedChunkCount {0};
-    std::uint64_t lastFrameOcclusionOccluderSkippedChunkCount {0};
     std::uint64_t lastFrameOcclusionRejectedInstanceCount {0};
     std::uint64_t lastFrameOcclusionRejectedTriangleCount {0};
     std::uint64_t lastFrameSceneNodeCount {0};
@@ -245,11 +240,6 @@ struct RenderFrame {
     std::uint64_t occlusionTestedChunkCount {0};
     std::uint64_t occlusionRejectedChunkCount {0};
     std::uint64_t occlusionOccluderChunkCount {0};
-    std::uint64_t occlusionBackend {0};
-    std::uint64_t occlusionOccluderTriangleCount {0};
-    std::uint64_t occlusionBuildCpuTimeUs {0};
-    std::uint64_t occlusionSelectedSkippedChunkCount {0};
-    std::uint64_t occlusionOccluderSkippedChunkCount {0};
     std::uint64_t occlusionRejectedInstanceCount {0};
     std::uint64_t occlusionRejectedTriangleCount {0};
     std::uint64_t sceneNodeCount {0};

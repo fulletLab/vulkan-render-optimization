@@ -50,18 +50,8 @@ struct ViewportRenderWorldStats {
     std::uint64_t occlusionTestedChunkCount {0};
     std::uint64_t occlusionRejectedChunkCount {0};
     std::uint64_t occlusionOccluderChunkCount {0};
-    std::uint64_t occlusionBackend {0};
-    std::uint64_t occlusionOccluderTriangleCount {0};
-    std::uint64_t occlusionBuildCpuTimeUs {0};
-    std::uint64_t occlusionSelectedSkippedChunkCount {0};
-    std::uint64_t occlusionOccluderSkippedChunkCount {0};
     std::uint64_t occlusionRejectedInstanceCount {0};
     std::uint64_t occlusionRejectedTriangleCount {0};
-    std::uint64_t occlusionProjectionRejectedChunkCount {0};
-    std::uint64_t occlusionTooLargeChunkCount {0};
-    std::uint64_t occlusionInvalidDepthChunkCount {0};
-    std::uint64_t occlusionUncoveredChunkCount {0};
-    std::uint64_t occlusionDepthVisibleChunkCount {0};
     std::uint64_t shadowCandidateInstances {0};
     std::uint64_t shadowPolicyRejectedInstances {0};
     std::uint64_t largeRenderChunkCount {0};

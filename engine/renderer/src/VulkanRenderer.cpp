@@ -246,11 +246,6 @@ struct VulkanRenderer::Impl {
             stats.lastFrameOcclusionTestedChunkCount = frame.occlusionTestedChunkCount;
             stats.lastFrameOcclusionRejectedChunkCount = frame.occlusionRejectedChunkCount;
             stats.lastFrameOcclusionOccluderChunkCount = frame.occlusionOccluderChunkCount;
-            stats.lastFrameOcclusionBackend = frame.occlusionBackend;
-            stats.lastFrameOcclusionOccluderTriangleCount = frame.occlusionOccluderTriangleCount;
-            stats.lastFrameOcclusionBuildCpuTimeUs = frame.occlusionBuildCpuTimeUs;
-            stats.lastFrameOcclusionSelectedSkippedChunkCount = frame.occlusionSelectedSkippedChunkCount;
-            stats.lastFrameOcclusionOccluderSkippedChunkCount = frame.occlusionOccluderSkippedChunkCount;
             stats.lastFrameOcclusionRejectedInstanceCount = frame.occlusionRejectedInstanceCount;
             stats.lastFrameOcclusionRejectedTriangleCount = frame.occlusionRejectedTriangleCount;
             stats.lastFrameSceneNodeCount = frame.sceneNodeCount;
@@ -302,11 +297,7 @@ struct VulkanRenderer::Impl {
             stats.trianglesSubmitted = profile.trianglesSubmitted;
             stats.commandRecordingMs = static_cast<double>(profile.commandRecordCpuTimeUs) / 1000.0;
             stats.resourcePrepareMs = static_cast<double>(profile.resourcePrepareCpuTimeUs) / 1000.0;
-            const auto totalFrameCpuTimeUs = static_cast<std::uint64_t>(std::max<std::int64_t>(frameElapsedUs, 0))
-                + frame.editorBuildCpuTimeUs;
-            stats.FPS = totalFrameCpuTimeUs > 0U
-                ? 1'000'000.0 / static_cast<double>(totalFrameCpuTimeUs)
-                : 0.0;
+            stats.FPS = frameElapsedUs > 0 ? 1'000'000.0 / static_cast<double>(frameElapsedUs) : 0.0;
             stats.gpuTimestampsSupported = profile.gpuTimestampsSupported;
             stats.lastFrameGpuTimestampsValid = profile.gpuTimestampsValid;
             stats.lastFrameGpuTimeUs = profile.frameGpuTimeUs;

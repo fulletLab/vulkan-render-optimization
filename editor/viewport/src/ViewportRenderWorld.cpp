@@ -15,7 +15,6 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -568,7 +567,6 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     ViewportOcclusionBuffer occlusionBuffer(camera, viewportHeight);
     std::unordered_set<std::uint64_t> occluderChunkIds;
     occluderChunkIds.reserve(result.stats.renderChunkCount);
-    const auto occlusionBuildStart = std::chrono::steady_clock::now();
     buildViewportOcclusionBuffer(
         orderedRecords_,
         camera,
@@ -576,10 +574,6 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         occlusionBuffer,
         occluderChunkIds,
         result.stats);
-    result.stats.occlusionBuildCpuTimeUs = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - occlusionBuildStart)
-            .count());
     std::unordered_set<std::uint64_t> overviewCoveredModels;
 
     for (const auto& overviewRecord : overviewRecords_) {
@@ -621,23 +615,23 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             if (largeChunk) {
                 ++result.stats.largeRenderChunkCount;
             }
-            const auto chunkSelected = collectChunkDebug
-                && viewportChunkContainsSelected(*record, chunk, selectedEntityId, selectedPrimitiveModel, selectedPrimitiveIndex);
-            const auto chunkIsOccluder = collectChunkDebug && occluderChunkIds.find(chunk.renderChunkId) != occluderChunkIds.end();
-            const auto chunkVisible = viewportBoundsVisible(chunk.worldBounds, camera.eye, camera.right, camera.up, camera.forward, camera.verticalFovRadians, camera.aspectRatio, camera.nearPlane, camera.farPlane);
-            auto chunkDebugRowIndex = std::numeric_limits<std::size_t>::max();
+            const auto chunkVisible = viewportBoundsVisible(
+                    chunk.worldBounds,
+                    camera.eye,
+                    camera.right,
+                    camera.up,
+                    camera.forward,
+                    camera.verticalFovRadians,
+                    camera.aspectRatio,
+                    camera.nearPlane,
+                    camera.farPlane);
             if (collectChunkDebug) {
-                chunkDebugRowIndex = chunkDebugRows.size();
                 chunkDebugRows.push_back({
-                    viewportRenderWorldChunkModelName(*record, chunk),
                     chunk.renderChunkId,
                     chunk.triangleCount,
                     static_cast<std::uint64_t>(chunk.instanceIndices.size()),
                     chunkExtent,
                     chunkVisible,
-                    chunkSelected,
-                    chunkIsOccluder,
-                    false,
                 });
                 if (result.debugChunks.size() < 512U) {
                     result.debugChunks.push_back({
@@ -662,9 +656,6 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 occlusionBuffer,
                 occluderChunkIds,
                 result.stats)) {
-                if (collectChunkDebug && chunkDebugRowIndex < chunkDebugRows.size()) {
-                    chunkDebugRows[chunkDebugRowIndex].occlusionRejected = true;
-                }
                 continue;
             }
             ++result.stats.visibleRenderChunkCount;

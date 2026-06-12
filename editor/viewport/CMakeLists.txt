@@ -11,7 +11,6 @@ endif()
 
 projectunity_resolve_tinygizmo(PROJECTUNITY_TINYGIZMO_TARGET)
 projectunity_resolve_im3d(PROJECTUNITY_IM3D_TARGET)
-projectunity_resolve_masked_occlusion_culling(PROJECTUNITY_MASKED_OCCLUSION_CULLING_TARGET)
 
 add_library(projectunity_editor_viewport STATIC
     src/Im3dDebugDrawBackend.cpp
@@ -67,7 +66,6 @@ target_link_libraries(projectunity_editor_viewport
         ProjectUnity::Renderer
         ProjectUnity::Scene
         ${PROJECTUNITY_IM3D_TARGET}
-        ${PROJECTUNITY_MASKED_OCCLUSION_CULLING_TARGET}
         ${PROJECTUNITY_TINYGIZMO_TARGET}
         Qt6::Widgets
 )

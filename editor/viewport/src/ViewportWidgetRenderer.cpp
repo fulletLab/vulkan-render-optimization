@@ -403,21 +403,11 @@ bool ViewportWidget::renderRendererFrame()
         frame.occlusionTestedChunkCount = renderWorldFrame.stats.occlusionTestedChunkCount;
         frame.occlusionRejectedChunkCount = renderWorldFrame.stats.occlusionRejectedChunkCount;
         frame.occlusionOccluderChunkCount = renderWorldFrame.stats.occlusionOccluderChunkCount;
-        frame.occlusionBackend = renderWorldFrame.stats.occlusionBackend;
-        frame.occlusionOccluderTriangleCount = renderWorldFrame.stats.occlusionOccluderTriangleCount;
-        frame.occlusionBuildCpuTimeUs = renderWorldFrame.stats.occlusionBuildCpuTimeUs;
-        frame.occlusionSelectedSkippedChunkCount = renderWorldFrame.stats.occlusionSelectedSkippedChunkCount;
-        frame.occlusionOccluderSkippedChunkCount = renderWorldFrame.stats.occlusionOccluderSkippedChunkCount;
         frame.occlusionRejectedInstanceCount = renderWorldFrame.stats.occlusionRejectedInstanceCount;
         frame.occlusionRejectedTriangleCount = renderWorldFrame.stats.occlusionRejectedTriangleCount;
         auto cullingSignature = mixLogHash(renderWorldFrame.stats.visibleRenderChunkCount, renderWorldFrame.stats.visibleRenderInstanceCount);
         cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedChunkCount);
         cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedInstanceCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionSelectedSkippedChunkCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionOccluderSkippedChunkCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionBackend);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionOccluderTriangleCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionBuildCpuTimeUs / 1000U);
         cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.culledMeshDrawCount);
         cullingSignature = mixLogHash(cullingSignature, static_cast<std::uint64_t>(mode_));
         ++cullingLogFrameCounter_;
@@ -439,21 +429,8 @@ bool ViewportWidget::renderRendererFrame()
                     << renderWorldFrame.stats.occlusionTestedChunkCount << "/"
                     << renderWorldFrame.stats.occlusionRejectedChunkCount << "/"
                     << renderWorldFrame.stats.occlusionOccluderChunkCount
-                    << " occlusionBackend=" << renderWorldFrame.stats.occlusionBackend
-                    << " occluderTriangles=" << renderWorldFrame.stats.occlusionOccluderTriangleCount
-                    << " occlusionBuildMs="
-                    << (static_cast<double>(renderWorldFrame.stats.occlusionBuildCpuTimeUs) / 1000.0)
-                    << " occlusionSkip selected/occluder="
-                    << renderWorldFrame.stats.occlusionSelectedSkippedChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionOccluderSkippedChunkCount
                     << " rejectedInstances=" << renderWorldFrame.stats.occlusionRejectedInstanceCount
                     << " rejectedTriangles=" << renderWorldFrame.stats.occlusionRejectedTriangleCount
-                    << " occlusionMiss projection/tooLarge/invalidDepth/uncovered/depthVisible="
-                    << renderWorldFrame.stats.occlusionProjectionRejectedChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionTooLargeChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionInvalidDepthChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionUncoveredChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionDepthVisibleChunkCount
                     << " meshDrawCandidates=" << renderWorldFrame.stats.candidateMeshDrawCount
                     << " culledDraws=" << renderWorldFrame.stats.culledMeshDrawCount;
             core::logInfo(core::LogCategory::Renderer, message.str());
