@@ -49,8 +49,7 @@ std::uint32_t selectViewportMeshLod(
         || primitive.indices.empty()
         || primitive.bounds.radius <= 0.0F
         || !std::isfinite(primitive.bounds.radius)
-        || !validProjectionInputs(boundsRadius, depth, verticalFovRadians, viewportHeight)
-        || depth <= boundsRadius) {
+        || !validProjectionInputs(boundsRadius, depth, verticalFovRadians, viewportHeight)) {
         return 0U;
     }
 

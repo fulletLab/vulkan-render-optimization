@@ -18,11 +18,11 @@ namespace projectunity::editor {
 namespace {
 
 constexpr bool kOverviewHlodEnabled = true;
-constexpr std::uint64_t kOverviewMinSourceTriangles = 64'000ULL;
+constexpr std::uint64_t kOverviewMinSourceTriangles = 32'000ULL;
 constexpr std::uint64_t kOverviewMaxSourceTriangles = 8'000'000ULL;
 constexpr std::uint64_t kOverviewMaxTriangles = 2'000'000ULL;
-constexpr std::uint64_t kOverviewMinVisibleInstanceReferences = 512ULL;
-constexpr std::uint64_t kOverviewMinVisibleTriangles = 250'000ULL;
+constexpr std::uint64_t kOverviewMinVisibleInstanceReferences = 128ULL;
+constexpr std::uint64_t kOverviewMinVisibleTriangles = 32'000ULL;
 constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
 
 struct CachedOverviewDraw {
@@ -133,9 +133,17 @@ struct CachedOverviewModel {
     return best;
 }
 
-[[nodiscard]] const std::vector<std::uint32_t>* overviewSourceIndices(const assets::MeshPrimitive& primitive) noexcept
+[[nodiscard]] const std::vector<std::uint32_t>* overviewSimplifiedSourceIndices(const assets::MeshPrimitive& primitive) noexcept
 {
     return coarsestLodIndices(primitive);
+}
+
+[[nodiscard]] const std::vector<std::uint32_t>* overviewSourceIndices(const assets::MeshPrimitive& primitive) noexcept
+{
+    if (const auto* lodIndices = overviewSimplifiedSourceIndices(primitive)) {
+        return lodIndices;
+    }
+    return primitive.indices.empty() ? nullptr : &primitive.indices;
 }
 
 [[nodiscard]] std::uint64_t sourceTriangleCountForInstances(
@@ -208,6 +216,32 @@ struct CachedOverviewModel {
     const auto maxProjectedRadius = heavyDecorativeCluster
         ? static_cast<float>(viewportHeight) * 1.75F
         : static_cast<float>(viewportHeight) * 0.90F;
+    return projectedRadius <= maxProjectedRadius;
+}
+
+[[nodiscard]] bool clusterOverviewScreenEligible(
+    const ViewportWorldBounds& worldBounds,
+    const ViewportRenderWorldCamera& camera,
+    int viewportHeight) noexcept
+{
+    if (viewportHeight <= 0 || worldBounds.radius <= 0.0F) {
+        return false;
+    }
+    const auto depth = math::dot(worldBounds.center - camera.eye, camera.forward);
+    if (!std::isfinite(depth) || depth <= std::max(camera.nearPlane, worldBounds.radius * 1.5F)) {
+        return false;
+    }
+    const auto projectedRadius = projectedRadiusPixels(
+        worldBounds.radius,
+        depth,
+        camera.verticalFovRadians,
+        viewportHeight);
+    if (projectedRadius <= 0.0F) {
+        return false;
+    }
+    const auto maxProjectedRadius = std::min(
+        static_cast<float>(viewportHeight) * 0.35F,
+        320.0F);
     return projectedRadius <= maxProjectedRadius;
 }
 
@@ -506,7 +540,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     ViewportRenderWorldStats& stats,
     ViewportFrameBounds& visibleBounds,
-    std::uint64_t& visibleSourceTriangleCount) const
+    std::uint64_t& visibleSourceTriangleCount,
+    std::unordered_set<std::uint64_t>* overviewCoveredChunkIds) const
 {
     if (!kOverviewHlodEnabled) {
         return false;
@@ -633,24 +668,22 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     if (!enoughVisibleWork) {
         return false;
     }
-    const auto allVisibleChunksHaveOverview = std::all_of(
-        visibleChunks.begin(),
-        visibleChunks.end(),
-        [](const EntityRecord::Chunk* chunk) {
-            return chunk != nullptr && !chunk->overviewDraws.empty();
-        });
-    if (!allVisibleChunksHaveOverview) {
-        return false;
-    }
     for (const auto* chunk : visibleChunks) {
         if (chunk == nullptr || chunk->overviewDraws.empty()) {
+            continue;
+        }
+        if (overviewCoveredChunkIds != nullptr
+            && !clusterOverviewScreenEligible(chunk->worldBounds, camera, viewportHeight)) {
             continue;
         }
         for (const auto& overview : chunk->overviewDraws) {
             emitOverview(overview, chunk->renderChunkId);
         }
+        if (overviewCoveredChunkIds != nullptr) {
+            overviewCoveredChunkIds->insert(chunk->renderChunkId);
+        }
     }
-    return emittedOverview;
+    return overviewCoveredChunkIds == nullptr && emittedOverview;
 }
 
 } // namespace projectunity::editor

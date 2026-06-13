@@ -22,7 +22,7 @@ void rebuildSimplificationLods(MeshPrimitive& primitive)
 {
     primitive.lods.clear();
     const auto sourceTriangles = primitive.indices.size() / 3U;
-    if (primitive.vertices.empty() || sourceTriangles < 64U) {
+    if (primitive.vertices.empty() || sourceTriangles < 12U) {
         return;
     }
     const auto simplifyScale = meshopt_simplifyScale(

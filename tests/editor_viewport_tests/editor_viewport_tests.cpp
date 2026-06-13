@@ -8,11 +8,13 @@
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <projectunity/scene/Scene.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -140,6 +142,85 @@ std::shared_ptr<projectunity::assets::ModelAsset> testRuntimeProxyModel()
     return model;
 }
 
+std::shared_ptr<projectunity::assets::ModelAsset> testNoLodRockFieldModel()
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->id = projectunity::assets::AssetId(1774);
+    model->materials.resize(1U);
+    projectunity::assets::MeshPrimitive primitive;
+    primitive.materialIndex = 0U;
+    primitive.bounds.minimum = {-0.5F, -0.5F, -0.5F};
+    primitive.bounds.maximum = {0.5F, 0.5F, 0.5F};
+    primitive.bounds.center = {0.0F, 0.0F, 0.0F};
+    primitive.bounds.radius = 0.8661F;
+    for (std::uint32_t triangle = 0; triangle < 120U; ++triangle) {
+        const auto base = static_cast<std::uint32_t>(primitive.vertices.size());
+        const auto offset = static_cast<float>(triangle % 8U) * 0.02F;
+        primitive.vertices.push_back({{-0.35F + offset, -0.25F, -0.35F}});
+        primitive.vertices.push_back({{0.35F, -0.25F + offset, -0.25F}});
+        primitive.vertices.push_back({{-0.25F, 0.35F, 0.35F - offset}});
+        primitive.indices.push_back(base);
+        primitive.indices.push_back(base + 1U);
+        primitive.indices.push_back(base + 2U);
+    }
+    model->primitives.push_back(std::move(primitive));
+    for (std::uint32_t index = 0; index < 640U; ++index) {
+        projectunity::assets::MeshPrimitiveInstance instance;
+        instance.primitiveIndex = 0U;
+        instance.transform[12] = -39.0F + static_cast<float>(index % 40U) * 2.0F;
+        instance.transform[13] = 0.0F;
+        instance.transform[14] = 80.0F + static_cast<float>(index / 40U) * 2.0F;
+        instance.bounds = model->primitives.front().bounds;
+        model->primitiveInstances.push_back(instance);
+    }
+    for (std::uint32_t clusterY = 0; clusterY < 4U; ++clusterY) {
+        for (std::uint32_t clusterX = 0; clusterX < 8U; ++clusterX) {
+            projectunity::assets::MeshPrimitiveCluster cluster;
+            auto initialized = false;
+            for (std::uint32_t localY = 0; localY < 4U; ++localY) {
+                for (std::uint32_t localX = 0; localX < 5U; ++localX) {
+                    const auto column = clusterX * 5U + localX;
+                    const auto row = clusterY * 4U + localY;
+                    const auto instanceIndex = row * 40U + column;
+                    if (instanceIndex >= model->primitiveInstances.size()) {
+                        continue;
+                    }
+                    cluster.primitiveInstanceIndices.push_back(instanceIndex);
+                    const auto& instance = model->primitiveInstances[instanceIndex];
+                    const auto offset = projectunity::math::Vec3 {
+                        instance.transform[12],
+                        instance.transform[13],
+                        instance.transform[14],
+                    };
+                    const projectunity::assets::MeshBounds bounds {
+                        model->primitives.front().bounds.minimum + offset,
+                        model->primitives.front().bounds.maximum + offset,
+                        model->primitives.front().bounds.center + offset,
+                        model->primitives.front().bounds.radius,
+                    };
+                    if (!initialized) {
+                        cluster.bounds = bounds;
+                        initialized = true;
+                    } else {
+                        cluster.bounds.minimum.x = std::min(cluster.bounds.minimum.x, bounds.minimum.x);
+                        cluster.bounds.minimum.y = std::min(cluster.bounds.minimum.y, bounds.minimum.y);
+                        cluster.bounds.minimum.z = std::min(cluster.bounds.minimum.z, bounds.minimum.z);
+                        cluster.bounds.maximum.x = std::max(cluster.bounds.maximum.x, bounds.maximum.x);
+                        cluster.bounds.maximum.y = std::max(cluster.bounds.maximum.y, bounds.maximum.y);
+                        cluster.bounds.maximum.z = std::max(cluster.bounds.maximum.z, bounds.maximum.z);
+                    }
+                }
+            }
+            if (!cluster.primitiveInstanceIndices.empty()) {
+                cluster.bounds.center = (cluster.bounds.minimum + cluster.bounds.maximum) * 0.5F;
+                cluster.bounds.radius = (cluster.bounds.maximum - cluster.bounds.center).length();
+                model->primitiveClusters.push_back(std::move(cluster));
+            }
+        }
+    }
+    return model;
+}
+
 } // namespace
 
 int main()
@@ -163,8 +244,8 @@ int main()
     if (selectViewportMeshLod(primitive, 20.0F, 500.0F, fov, viewportHeight, true) != 0U) {
         return fail("Viewport LOD changed a force-full-resolution mesh");
     }
-    if (selectViewportMeshLod(primitive, 20.0F, 20.0F, fov, viewportHeight, false) != 0U) {
-        return fail("Viewport LOD simplified a mesh while the camera intersected its bounds");
+    if (selectViewportMeshLod(primitive, 20.0F, 5.0F, fov, viewportHeight, false) != 0U) {
+        return fail("Viewport LOD simplified a mesh at a very close screen size");
     }
     if (indexCountForViewportLod(primitive, 2U) != 750U
         || indexCountForViewportLod(primitive, 99U) != primitive.indices.size()) {
@@ -219,6 +300,64 @@ int main()
     if (std::fabs(runtimeProxyDraws.front().worldBoundsCenter[0] - 5.0F) > 0.001F
         || std::fabs(runtimeProxyDraws.front().worldBoundsCenter[2] - 10.0F) > 0.001F) {
         return fail("Runtime snapshot ignored the moved primitive proxy transform");
+    }
+
+    TestAssetManager noLodRockFieldAssets;
+    noLodRockFieldAssets.modelAsset = testNoLodRockFieldModel();
+    projectunity::scene::Scene noLodRockFieldScene;
+    auto& noLodRockFieldRoot = noLodRockFieldScene.createEntity("No LOD Rock Field");
+    projectunity::scene::MeshRendererComponent noLodRockFieldRenderer;
+    noLodRockFieldRenderer.modelAssetId = noLodRockFieldAssets.modelAsset->id;
+    noLodRockFieldRoot.meshRenderer = noLodRockFieldRenderer;
+    auto overviewCamera = camera;
+    overviewCamera.eye = {0.0F, 0.0F, -160.0F};
+    overviewCamera.farPlane = 4000.0F;
+    projectunity::editor::ViewportRenderWorld noLodRockFieldWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> noLodRockFieldDraws;
+    std::vector<projectunity::renderer::RenderLight> noLodRockFieldLights;
+    const auto noLodRockFieldFrame = noLodRockFieldWorld.buildFrame(
+        &noLodRockFieldScene,
+        &noLodRockFieldAssets,
+        {},
+        overviewCamera,
+        {},
+        1080,
+        false,
+        noLodRockFieldDraws,
+        noLodRockFieldLights);
+    if (noLodRockFieldFrame.stats.hlodMeshDrawCount == 0U || noLodRockFieldDraws.size() > 8U) {
+        std::cerr << "noLodRockFieldDraws=" << noLodRockFieldDraws.size()
+                  << " hlod=" << noLodRockFieldFrame.stats.hlodMeshDrawCount << '\n';
+        return fail("Viewport overview did not merge a distant no-LOD rock field");
+    }
+    if ((noLodRockFieldDraws.front().primitiveIndex & 0x80000000U) == 0U) {
+        return fail("Viewport overview did not tag the no-LOD rock field as HLOD");
+    }
+    overviewCamera.eye = {0.0F, 0.0F, 65.0F};
+    projectunity::editor::ViewportRenderWorld mixedRockFieldWorld;
+    noLodRockFieldDraws.clear();
+    noLodRockFieldLights.clear();
+    (void)mixedRockFieldWorld.buildFrame(
+        &noLodRockFieldScene,
+        &noLodRockFieldAssets,
+        {},
+        overviewCamera,
+        {},
+        1080,
+        false,
+        noLodRockFieldDraws,
+        noLodRockFieldLights);
+    auto hasMixedHlod = false;
+    auto hasMixedDirect = false;
+    for (const auto& draw : noLodRockFieldDraws) {
+        if ((draw.primitiveIndex & 0x80000000U) != 0U) {
+            hasMixedHlod = true;
+        } else {
+            hasMixedDirect = true;
+        }
+    }
+    if (!hasMixedHlod || !hasMixedDirect) {
+        return fail("Viewport overview did not mix far cluster HLOD with nearby direct rock draws");
     }
 
     projectunity::editor::ViewportOcclusionBuffer occlusion(camera, 1080);

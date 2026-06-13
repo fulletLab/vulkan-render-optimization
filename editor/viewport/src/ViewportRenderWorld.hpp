@@ -134,7 +134,8 @@ private:
         std::vector<renderer::RenderMeshDraw>& meshDraws,
         ViewportRenderWorldStats& stats,
         ViewportFrameBounds& visibleBounds,
-        std::uint64_t& visibleSourceTriangleCount) const;
+        std::uint64_t& visibleSourceTriangleCount,
+        std::unordered_set<std::uint64_t>* overviewCoveredChunkIds = nullptr) const;
 
     const scene::Scene* scene_ {nullptr};
     const assets::IAssetManager* assetManager_ {nullptr};

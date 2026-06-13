@@ -2,6 +2,8 @@
 
 #include "ViewportRendererOverlays.hpp"
 
+#include <projectunity/core/Log.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -20,6 +22,53 @@ enum class ShadowDebugState : std::uint8_t {
 };
 
 constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
+
+[[nodiscard]] std::uint64_t mixLogHash(std::uint64_t seed, std::uint64_t value) noexcept
+{
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+}
+
+struct LabelProjectionDebug {
+    float dotDepth {0.0F};
+    float screenX {0.0F};
+    float screenY {0.0F};
+    bool inFront {false};
+    bool visible {false};
+    bool labelDepthAccepted {false};
+};
+
+[[nodiscard]] LabelProjectionDebug projectLabelDebug(
+    const ViewportLabelCamera& camera,
+    float viewportWidthPixels,
+    math::Vec3 anchor) noexcept
+{
+    LabelProjectionDebug result;
+    const auto toAnchor = anchor - camera.eye;
+    result.dotDepth = math::dot(toAnchor, camera.forward);
+    result.inFront = std::isfinite(result.dotDepth) && result.dotDepth > 0.05F;
+    result.labelDepthAccepted = result.inFront && result.dotDepth <= 320.0F;
+    const auto tangent = std::tan(camera.verticalFovRadians * 0.5F);
+    const auto viewportHeight = std::max(camera.viewportHeightPixels, 1.0F);
+    const auto viewportWidth = std::max(viewportWidthPixels, 1.0F);
+    if (!result.inFront || !std::isfinite(tangent) || tangent <= 0.0F) {
+        return result;
+    }
+    const auto halfHeight = tangent * result.dotDepth;
+    const auto halfWidth = halfHeight * (viewportWidth / viewportHeight);
+    if (!std::isfinite(halfHeight) || !std::isfinite(halfWidth) || halfHeight <= 0.0F || halfWidth <= 0.0F) {
+        return result;
+    }
+    const auto localX = math::dot(toAnchor, camera.right);
+    const auto localY = math::dot(toAnchor, camera.up);
+    const auto ndcX = localX / halfWidth;
+    const auto ndcY = localY / halfHeight;
+    result.screenX = (ndcX * 0.5F + 0.5F) * viewportWidth;
+    result.screenY = (0.5F - ndcY * 0.5F) * viewportHeight;
+    result.visible = std::isfinite(ndcX) && std::isfinite(ndcY)
+        && ndcX >= -1.0F && ndcX <= 1.0F
+        && ndcY >= -1.0F && ndcY <= 1.0F;
+    return result;
+}
 
 [[nodiscard]] bool isOverviewDraw(const renderer::RenderMeshDraw& draw) noexcept
 {
@@ -167,6 +216,35 @@ void appendViewportDrawDebugOverlay(
     }
 
     if (lodDebugEnabled) {
+        std::uint64_t hlodDraws = 0;
+        std::uint64_t l0Draws = 0;
+        std::uint64_t l1Draws = 0;
+        std::uint64_t l2PlusDraws = 0;
+        std::uint64_t hlodTriangles = 0;
+        std::uint64_t l0Triangles = 0;
+        std::uint64_t l1Triangles = 0;
+        std::uint64_t l2PlusTriangles = 0;
+        for (const auto& row : rows) {
+            const auto& draw = *row.draw;
+            if (isOverviewDraw(draw)) {
+                ++hlodDraws;
+                hlodTriangles += row.selectedTriangles;
+            } else if (draw.lodIndex == 0U) {
+                ++l0Draws;
+                l0Triangles += row.selectedTriangles;
+            } else if (draw.lodIndex == 1U) {
+                ++l1Draws;
+                l1Triangles += row.selectedTriangles;
+            } else {
+                ++l2PlusDraws;
+                l2PlusTriangles += row.selectedTriangles;
+            }
+        }
+        std::ostringstream summary;
+        summary << "LOD DEBUG  HLOD " << hlodDraws << "/" << compactTriangleText(hlodTriangles)
+                << "  L0 " << l0Draws << "/" << compactTriangleText(l0Triangles)
+                << "  L1 " << l1Draws << "/" << compactTriangleText(l1Triangles)
+                << "  L2+ " << l2PlusDraws << "/" << compactTriangleText(l2PlusTriangles);
         appendViewportScreenLabel(
             vertices,
             indices,
@@ -174,7 +252,7 @@ void appendViewportDrawDebugOverlay(
             viewportWidthPixels,
             14.0F,
             72.0F,
-            "LOD DEBUG  HLOD PURPLE  L0 RED FULL  L1 YEL  L2 BLUE LOW",
+            summary.str(),
             false);
     }
     if (shadowDebugEnabled) {
@@ -261,6 +339,55 @@ void appendViewportDrawDebugOverlay(
         return lhs.score > rhs.score;
     });
     const auto labelCount = std::min<std::size_t>(labels.size(), 10U);
+    if (lodDebugEnabled) {
+        static std::uint64_t frameCounter = 0;
+        static std::uint64_t lastSignature = 0;
+        ++frameCounter;
+        auto signature = mixLogHash(static_cast<std::uint64_t>(rows.size()), static_cast<std::uint64_t>(labelCount));
+        for (std::size_t index = 0; index < labelCount; ++index) {
+            const auto& draw = *labels[index].draw;
+            const auto center = math::Vec3 {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+            const auto projection = projectLabelDebug(labelCamera, viewportWidthPixels, center);
+            signature = mixLogHash(signature, draw.renderInstanceId);
+            signature = mixLogHash(signature, draw.renderChunkId);
+            signature = mixLogHash(signature, static_cast<std::uint64_t>(draw.lodIndex));
+            signature = mixLogHash(signature, static_cast<std::uint64_t>(std::max(projection.dotDepth, 0.0F) * 100.0F));
+            signature = mixLogHash(signature, static_cast<std::uint64_t>(std::max(draw.sortDepth, 0.0F) * 100.0F));
+        }
+        if (frameCounter == 1U || frameCounter % 30U == 0U || signature != lastSignature) {
+            lastSignature = signature;
+            std::ostringstream message;
+            message << "LOD label projection camera eye=(" << labelCamera.eye.x << "," << labelCamera.eye.y << "," << labelCamera.eye.z << ")"
+                    << " forward=(" << labelCamera.forward.x << "," << labelCamera.forward.y << "," << labelCamera.forward.z << ")"
+                    << " right=(" << labelCamera.right.x << "," << labelCamera.right.y << "," << labelCamera.right.z << ")"
+                    << " up=(" << labelCamera.up.x << "," << labelCamera.up.y << "," << labelCamera.up.z << ")"
+                    << " fov=" << labelCamera.verticalFovRadians
+                    << " viewport=(" << viewportWidthPixels << "," << labelCamera.viewportHeightPixels << ")"
+                    << " draws=" << rows.size()
+                    << " labels=" << labelCount;
+            for (std::size_t index = 0; index < labelCount; ++index) {
+                const auto& row = labels[index];
+                const auto& draw = *row.draw;
+                const math::Vec3 center {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+                const auto projection = projectLabelDebug(labelCamera, viewportWidthPixels, center);
+                message << " [" << index
+                        << " kind=" << (isOverviewDraw(draw) ? "HLOD" : "LOD")
+                        << " lod=" << draw.lodIndex
+                        << " sortDepth=" << draw.sortDepth
+                        << " dotDepth=" << projection.dotDepth
+                        << " screen=(" << projection.screenX << "," << projection.screenY << ")"
+                        << " inFront=" << (projection.inFront ? 1 : 0)
+                        << " visible=" << (projection.visible ? 1 : 0)
+                        << " labelDepth=" << (projection.labelDepthAccepted ? 1 : 0)
+                        << " center=(" << center.x << "," << center.y << "," << center.z << ")"
+                        << " r=" << draw.worldBoundsRadius
+                        << " tri=" << row.selectedTriangles << "/" << row.sourceTriangles
+                        << " chunk=" << draw.renderChunkId
+                        << "]";
+            }
+            core::logInfo(core::LogCategory::Renderer, message.str());
+        }
+    }
     for (std::size_t index = 0; index < labelCount; ++index) {
         const auto& row = labels[index];
         const auto& draw = *row.draw;

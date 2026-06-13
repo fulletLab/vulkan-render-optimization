@@ -579,6 +579,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         occluderChunkIds,
         result.stats);
     std::unordered_set<std::uint64_t> overviewCoveredModels;
+    std::unordered_set<std::uint64_t> overviewCoveredChunkIds;
 
     for (const auto& overviewRecord : overviewRecords_) {
         if (overviewRecord == nullptr) {
@@ -670,6 +671,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             continue;
         }
 
+        overviewCoveredChunkIds.clear();
         if (tryEmitOverviewRecord(
                 *record,
                 selectedPrimitiveModel,
@@ -683,12 +685,16 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 meshDraws,
                 result.stats,
                 visibleBounds,
-                visibleSourceTriangleCount)) {
+                visibleSourceTriangleCount,
+                &overviewCoveredChunkIds)) {
             continue;
         }
 
         for (const auto* visibleChunk : visibleChunks) {
             const auto& chunk = *visibleChunk;
+            if (overviewCoveredChunkIds.find(chunk.renderChunkId) != overviewCoveredChunkIds.end()) {
+                continue;
+            }
             for (const auto instanceIndex : chunk.instanceIndices) {
                 if (instanceIndex >= record->instances.size()) {
                     continue;
