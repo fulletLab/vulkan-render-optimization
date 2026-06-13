@@ -308,8 +308,8 @@ bool ViewportWidget::renderRendererFrame()
                 cameraFrame.up);
             cameraFrame.right = safeNormalized(
                 cameraFrame.right - cameraFrame.forward * math::dot(cameraFrame.right, cameraFrame.forward),
-                safeNormalized(math::cross(cameraFrame.forward, cameraFrame.up), cameraFrame.right));
-            cameraFrame.up = safeNormalized(math::cross(cameraFrame.right, cameraFrame.forward), cameraFrame.up);
+                safeNormalized(math::cross(cameraFrame.up, cameraFrame.forward), cameraFrame.right));
+            cameraFrame.up = safeNormalized(math::cross(cameraFrame.forward, cameraFrame.right), cameraFrame.up);
             cameraFrame.verticalFovRadians = imported.verticalFovRadians;
             cameraFrame.aspectRatio = imported.aspectRatio > 0.0F ? imported.aspectRatio : aspectRatio();
             cameraFrame.nearPlane = imported.nearPlane;
@@ -346,8 +346,8 @@ bool ViewportWidget::renderRendererFrame()
                 cameraFrame.up);
             cameraFrame.right = safeNormalized(
                 cameraFrame.right - cameraFrame.forward * math::dot(cameraFrame.right, cameraFrame.forward),
-                safeNormalized(math::cross(cameraFrame.forward, cameraFrame.up), cameraFrame.right));
-            cameraFrame.up = safeNormalized(math::cross(cameraFrame.right, cameraFrame.forward), cameraFrame.up);
+                safeNormalized(math::cross(cameraFrame.up, cameraFrame.forward), cameraFrame.right));
+            cameraFrame.up = safeNormalized(math::cross(cameraFrame.forward, cameraFrame.right), cameraFrame.up);
             cameraFrame.verticalFovRadians = imported->verticalFovRadians;
             cameraFrame.aspectRatio = imported->aspectRatio > 0.0F ? imported->aspectRatio : aspectRatio();
             cameraFrame.nearPlane = imported->nearPlane;

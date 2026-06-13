@@ -190,6 +190,9 @@ std::string Scene::serialize(std::string* errorMessage) const
                 item["script"] = {
                     {"name", entity.script->scriptName},
                     {"enabled", entity.script->enabled},
+                    {"moveSpeed", entity.script->moveSpeed},
+                    {"fastMultiplier", entity.script->fastMultiplier},
+                    {"lookSensitivity", entity.script->lookSensitivity},
                 };
             }
             root["entities"].push_back(std::move(item));
@@ -346,6 +349,9 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                 ScriptComponent script;
                 script.scriptName = scriptJson.value("name", std::string {});
                 script.enabled = scriptJson.value("enabled", script.enabled);
+                script.moveSpeed = scriptJson.value("moveSpeed", script.moveSpeed);
+                script.fastMultiplier = scriptJson.value("fastMultiplier", script.fastMultiplier);
+                script.lookSensitivity = scriptJson.value("lookSensitivity", script.lookSensitivity);
                 if (script.scriptName.empty()) {
                     setError(errorMessage, "Scene script name must be non-empty");
                     return false;

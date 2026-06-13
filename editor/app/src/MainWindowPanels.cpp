@@ -183,6 +183,7 @@ void MainWindow::createDockLayout()
     auto* inspectorDock = createDockWidget(QStringLiteral("Inspector"), createInspectorPanel());
     auto* sceneDock = createDockWidget(QStringLiteral("Scene View"), createSceneViewPanel());
     auto* gameDock = createDockWidget(QStringLiteral("Game View"), createGameViewPanel());
+    gameDock_ = gameDock;
     auto* projectDock = createDockWidget(QStringLiteral("Project / Assets / Packages"), createProjectPanel());
     auto* bottomDock = createDockWidget(QStringLiteral("Console / Profiler / Network"), createBottomPanel());
     auto* importDock = createDockWidget(QStringLiteral("Asset Import"), createAssetImportPanel());

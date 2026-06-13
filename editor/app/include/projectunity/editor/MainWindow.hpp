@@ -81,6 +81,8 @@ private:
     void startPlayMode();
     void stopPlayMode();
     [[nodiscard]] projectunity::scene::EntityId findPlayableCameraEntity() const;
+    [[nodiscard]] bool buildPlayRuntimeSnapshot(projectunity::scene::EntityId sourceCameraEntityId);
+    void activateGameViewDock();
     void attachFlyPlayerControllerToSelection();
     void removeScriptFromSelection();
     void ensureFlyPlayerScriptAsset();
@@ -117,6 +119,7 @@ private:
     void updateEditorSunFromControls();
 
     ads::CDockManager* dockManager_ {nullptr};
+    ads::CDockWidget* gameDock_ {nullptr};
     QMenu* windowMenu_ {nullptr};
     QTreeWidget* hierarchyTree_ {nullptr};
     QLineEdit* sceneNameEdit_ {nullptr};
@@ -164,6 +167,7 @@ private:
     QTimer* logFlushTimer_ {nullptr};
     QTimer* lightingApplyTimer_ {nullptr};
     scene::Scene scene_;
+    scene::Scene playRuntimeScene_;
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
     renderer::RenderEnvironmentSettings environmentSettings_;
@@ -174,6 +178,7 @@ private:
     std::shared_ptr<const assets::TextureAsset> environmentTexture_;
     assets::AssetId environmentTextureId_;
     scene::EntityId selectedEntityId_;
+    scene::EntityId playRuntimeCameraEntityId_;
     std::filesystem::path currentScenePath_;
     QByteArray defaultDockState_;
     int activeAssetImports_ {0};

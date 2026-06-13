@@ -70,6 +70,11 @@ enum GameKey : std::size_t {
         && entity.camera.has_value();
 }
 
+[[nodiscard]] float positiveScriptValue(float value, float fallback) noexcept
+{
+    return std::isfinite(value) && value > 0.0F ? value : fallback;
+}
+
 } // namespace
 
 void ViewportWidget::setGameInputEnabled(bool enabled)
@@ -166,8 +171,12 @@ void ViewportWidget::handleGameMouseMove(QMouseEvent* event)
     const auto delta = current - lastMousePosition_;
     lastMousePosition_ = current;
     if (gameMouseLook_) {
-        gameYawRadians_ += static_cast<float>(delta.x()) * kFlyLookSensitivity;
-        gamePitchRadians_ = std::clamp(gamePitchRadians_ - static_cast<float>(delta.y()) * kFlyLookSensitivity, kMinPitch, kMaxPitch);
+        const auto* entity = scene_ != nullptr && gameCameraEntityId_.isValid() ? scene_->findEntity(gameCameraEntityId_) : nullptr;
+        const auto sensitivity = entity != nullptr && entity->script.has_value()
+            ? positiveScriptValue(entity->script->lookSensitivity, kFlyLookSensitivity)
+            : kFlyLookSensitivity;
+        gameYawRadians_ += static_cast<float>(delta.x()) * sensitivity;
+        gamePitchRadians_ = std::clamp(gamePitchRadians_ - static_cast<float>(delta.y()) * sensitivity, kMinPitch, kMaxPitch);
         tickGameScripts();
         event->accept();
         return;
@@ -217,7 +226,9 @@ void ViewportWidget::tickGameScripts()
     if (gameKeys_[Up]) { movement += math::Vec3 {0.0F, 1.0F, 0.0F}; }
     if (gameKeys_[Down]) { movement -= math::Vec3 {0.0F, 1.0F, 0.0F}; }
     if (safeLength(movement) > 0.00001F) {
-        const auto speed = kFlyMoveSpeed * (gameKeys_[Fast] ? kFlyFastMultiplier : 1.0F);
+        const auto moveSpeed = positiveScriptValue(entity->script->moveSpeed, kFlyMoveSpeed);
+        const auto fastMultiplier = positiveScriptValue(entity->script->fastMultiplier, kFlyFastMultiplier);
+        const auto speed = moveSpeed * (gameKeys_[Fast] ? fastMultiplier : 1.0F);
         transform.position += safeNormalized(movement, {}) * (speed * kFlyTickSeconds);
         (void)scene_->setTransform(entity->id, transform);
     }

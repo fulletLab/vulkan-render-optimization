@@ -60,6 +60,9 @@ int main()
     }
     ScriptComponent script;
     script.scriptName = "FlyPlayerController";
+    script.moveSpeed = 12.0F;
+    script.fastMultiplier = 4.0F;
+    script.lookSensitivity = 0.005F;
     if (!scene.setScript(childId, script)) {
         return fail("failed to set script");
     }
@@ -124,7 +127,10 @@ int main()
     }
     if (!loadedChild->script.has_value()
         || loadedChild->script->scriptName != "FlyPlayerController"
-        || !loadedChild->script->enabled) {
+        || !loadedChild->script->enabled
+        || loadedChild->script->moveSpeed != 12.0F
+        || loadedChild->script->fastMultiplier != 4.0F
+        || loadedChild->script->lookSensitivity != 0.005F) {
         return fail("loaded script component mismatch");
     }
 

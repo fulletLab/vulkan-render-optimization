@@ -65,6 +65,9 @@ struct CameraComponent {
 struct ScriptComponent {
     std::string scriptName {"FlyPlayerController"};
     bool enabled {true};
+    float moveSpeed {7.5F};
+    float fastMultiplier {3.0F};
+    float lookSensitivity {0.0035F};
 };
 
 struct Entity {

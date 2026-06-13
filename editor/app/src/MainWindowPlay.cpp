@@ -2,14 +2,71 @@
 
 #include <projectunity/editor/ViewportWidget.hpp>
 
+#include <DockWidget.h>
+
+#include <QApplication>
+#include <QMessageBox>
+#include <QProgressDialog>
 #include <QStatusBar>
 #include <QString>
 
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <sstream>
+#include <unordered_map>
 
 namespace projectunity::editor {
+namespace {
+
+struct PlayRuntimeSnapshotStats {
+    std::uint64_t editorEntities {0};
+    std::uint64_t runtimeEntities {0};
+    std::uint64_t editableProxiesSkipped {0};
+    std::uint64_t runtimeAssetInstances {0};
+    std::uint64_t runtimePrimitiveInstances {0};
+    std::uint64_t runtimeRenderChunks {0};
+    std::uint64_t runtimeCameras {0};
+    std::uint64_t runtimeLights {0};
+    std::uint64_t runtimeScripts {0};
+};
+
+[[nodiscard]] bool isEditablePrimitiveProxy(const scene::Entity& entity) noexcept
+{
+    return entity.meshRenderer.has_value() && !entity.meshRenderer->renderable;
+}
+
+[[nodiscard]] std::string flyPlayerScriptTemplate()
+{
+    return
+        "// ProjectUnity gameplay script asset.\n"
+        "// This script is bound by name through Script: FlyPlayerController.\n"
+        "// Play mode runs it on a runtime scene snapshot, not on editor proxy entities.\n\n"
+        "struct FlyPlayerController {\n"
+        "    float moveSpeed = 7.5f;\n"
+        "    float fastMultiplier = 3.0f;\n"
+        "    float lookSensitivity = 0.0035f;\n\n"
+        "    // Runtime API draft:\n"
+        "    // - Right mouse: look\n"
+        "    // - W/S: forward/back\n"
+        "    // - A/D: strafe\n"
+        "    // - Q/E: down/up\n"
+        "    // - Shift: fast move\n"
+        "    void onUpdate(auto& ctx) {\n"
+        "        const float speed = moveSpeed * (ctx.keyDown(\"Shift\") ? fastMultiplier : 1.0f);\n"
+        "        ctx.lookWithMouse(lookSensitivity);\n"
+        "        ctx.moveLocal({\n"
+        "            (ctx.keyDown(\"D\") ? 1.0f : 0.0f) - (ctx.keyDown(\"A\") ? 1.0f : 0.0f),\n"
+        "            (ctx.keyDown(\"E\") ? 1.0f : 0.0f) - (ctx.keyDown(\"Q\") ? 1.0f : 0.0f),\n"
+        "            (ctx.keyDown(\"W\") ? 1.0f : 0.0f) - (ctx.keyDown(\"S\") ? 1.0f : 0.0f),\n"
+        "        }, speed);\n"
+        "    }\n"
+        "};\n";
+}
+
+} // namespace
 
 scene::EntityId MainWindow::createPlayerEntity()
 {
@@ -26,6 +83,9 @@ scene::EntityId MainWindow::createPlayerEntity()
     camera.nearPlane = 0.05F;
     camera.farPlane = 4000.0F;
     (void)scene_.setCamera(player.id, camera);
+    scene::ScriptComponent script;
+    script.scriptName = "FlyPlayerController";
+    (void)scene_.setScript(player.id, script);
     const auto id = player.id;
     rebuildHierarchy();
     selectEntity(id);
@@ -44,15 +104,110 @@ void MainWindow::ensureFlyPlayerScriptAsset()
         return;
     }
     std::ofstream script(scriptPath, std::ios::binary | std::ios::trunc);
-    script
-        << "// ProjectUnity C++ gameplay script template.\n"
-        << "// Runtime binding: attach ScriptComponent name \"FlyPlayerController\" to an entity with a Camera.\n"
-        << "// Controls in Game View: right mouse look, WASD move, Q/E down/up, Shift fast.\n\n"
-        << "struct FlyPlayerController {\n"
-        << "    float moveSpeed = 7.5f;\n"
-        << "    float fastMultiplier = 3.0f;\n"
-        << "    float lookSensitivity = 0.0035f;\n"
-        << "};\n";
+    script << flyPlayerScriptTemplate();
+}
+
+bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
+{
+    playRuntimeScene_.clear();
+    playRuntimeScene_.setName(std::string(scene_.name()) + " Runtime");
+    playRuntimeCameraEntityId_ = {};
+
+    PlayRuntimeSnapshotStats stats;
+    std::unordered_map<std::uint64_t, scene::EntityId> runtimeIdBySource;
+    runtimeIdBySource.reserve(scene_.entityCount());
+
+    for (const auto& source : scene_.entities()) {
+        ++stats.editorEntities;
+        if (isEditablePrimitiveProxy(source)) {
+            ++stats.editableProxiesSkipped;
+            continue;
+        }
+
+        auto& runtime = playRuntimeScene_.createEntity(source.name);
+        runtimeIdBySource[source.id.value()] = runtime.id;
+        ++stats.runtimeEntities;
+
+        (void)playRuntimeScene_.setTransform(runtime.id, source.transform);
+        if (source.meshRenderer.has_value()) {
+            (void)playRuntimeScene_.setMeshRenderer(runtime.id, source.meshRenderer);
+            if (source.meshRenderer->renderable) {
+                ++stats.runtimeAssetInstances;
+                if (const auto model = assetManager_.model(source.meshRenderer->modelAssetId)) {
+                    stats.runtimePrimitiveInstances += model->primitiveInstances.empty()
+                        ? model->primitives.size()
+                        : model->primitiveInstances.size();
+                    stats.runtimeRenderChunks += model->primitiveClusters.empty()
+                        ? std::max<std::size_t>(model->primitiveInstances.size(), model->primitives.size())
+                        : model->primitiveClusters.size();
+                }
+            }
+        }
+        if (source.light.has_value()) {
+            (void)playRuntimeScene_.setLight(runtime.id, source.light);
+            ++stats.runtimeLights;
+        }
+        if (source.camera.has_value()) {
+            (void)playRuntimeScene_.setCamera(runtime.id, source.camera);
+            ++stats.runtimeCameras;
+        }
+        if (source.script.has_value()) {
+            (void)playRuntimeScene_.setScript(runtime.id, source.script);
+            ++stats.runtimeScripts;
+        }
+    }
+
+    for (const auto& source : scene_.entities()) {
+        const auto runtimeIt = runtimeIdBySource.find(source.id.value());
+        if (runtimeIt == runtimeIdBySource.end() || !source.parent.has_value()) {
+            continue;
+        }
+        const auto parentIt = runtimeIdBySource.find(source.parent->value());
+        if (parentIt != runtimeIdBySource.end()) {
+            (void)playRuntimeScene_.setParent(runtimeIt->second, parentIt->second);
+        }
+    }
+
+    if (const auto cameraIt = runtimeIdBySource.find(sourceCameraEntityId.value()); cameraIt != runtimeIdBySource.end()) {
+        playRuntimeCameraEntityId_ = cameraIt->second;
+    }
+    if (!playRuntimeCameraEntityId_.isValid()) {
+        for (const auto& entity : playRuntimeScene_.entities()) {
+            if (entity.camera.has_value()) {
+                playRuntimeCameraEntityId_ = entity.id;
+                break;
+            }
+        }
+    }
+
+    std::ostringstream message;
+    message << "Play runtime snapshot cooked"
+            << " editorEntities=" << stats.editorEntities
+            << " runtimeEntities=" << stats.runtimeEntities
+            << " editableProxiesSkipped=" << stats.editableProxiesSkipped
+            << " runtimeAssetInstances=" << stats.runtimeAssetInstances
+            << " runtimePrimitiveInstances=" << stats.runtimePrimitiveInstances
+            << " runtimeRenderChunks=" << stats.runtimeRenderChunks
+            << " runtimeCameras=" << stats.runtimeCameras
+            << " runtimeLights=" << stats.runtimeLights
+            << " runtimeScripts=" << stats.runtimeScripts
+            << " runtimeCameraId=" << playRuntimeCameraEntityId_.value();
+    core::logInfo(core::LogCategory::Editor, message.str());
+
+    return playRuntimeCameraEntityId_.isValid();
+}
+
+void MainWindow::activateGameViewDock()
+{
+    if (gameDock_ == nullptr) {
+        return;
+    }
+    gameDock_->toggleView(true);
+    gameDock_->setAsCurrentTab();
+    gameDock_->raise();
+    if (gameViewport_ != nullptr) {
+        gameViewport_->setFocus(Qt::OtherFocusReason);
+    }
 }
 
 void MainWindow::startPlayMode()
@@ -62,15 +217,50 @@ void MainWindow::startPlayMode()
     if (!playerId.isValid()) {
         statusBar()->showMessage(QStringLiteral("Play needs a Player or Camera"));
         core::logWarning(core::LogCategory::Editor, "Play ignored: no scene camera/player exists");
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Play"),
+            QStringLiteral("No Player or Camera found. Use GameObject > Player, then press Play again."));
         return;
     }
+
+    QProgressDialog progress(
+        QStringLiteral("Cooking runtime scene..."),
+        QString(),
+        0,
+        100,
+        this);
+    progress.setWindowTitle(QStringLiteral("Play"));
+    progress.setCancelButton(nullptr);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(10);
+    progress.show();
+    qApp->processEvents();
+
+    if (!buildPlayRuntimeSnapshot(playerId)) {
+        progress.close();
+        statusBar()->showMessage(QStringLiteral("Play runtime build failed"));
+        core::logWarning(core::LogCategory::Editor, "Play ignored: runtime snapshot has no playable camera");
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Play"),
+            QStringLiteral("Runtime scene has no playable camera after cooking."));
+        return;
+    }
+    progress.setValue(70);
+    qApp->processEvents();
+
     playModeActive_ = true;
     if (gameViewport_ != nullptr) {
-        gameViewport_->setGameCameraEntity(playerId);
+        gameViewport_->setScene(&playRuntimeScene_);
+        gameViewport_->setSelectedEntity({});
+        gameViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
         gameViewport_->setGameInputEnabled(true);
         gameViewport_->setGameRuntimeSnapshotEnabled(true);
-        gameViewport_->setFocus(Qt::OtherFocusReason);
     }
+    activateGameViewDock();
+    progress.setValue(100);
     statusBar()->showMessage(QStringLiteral("Play runtime active"));
     core::logInfo(core::LogCategory::Editor, "Play mode started with runtime scene snapshot");
 }
@@ -82,7 +272,11 @@ void MainWindow::stopPlayMode()
         gameViewport_->setGameInputEnabled(false);
         gameViewport_->setGameRuntimeSnapshotEnabled(false);
         gameViewport_->setGameCameraEntity({});
+        gameViewport_->setScene(&scene_);
+        gameViewport_->setSelectedEntity(selectedEntityId_);
     }
+    playRuntimeScene_.clear();
+    playRuntimeCameraEntityId_ = {};
     statusBar()->showMessage(QStringLiteral("Play stopped"));
 }
 

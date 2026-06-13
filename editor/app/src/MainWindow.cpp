@@ -691,12 +691,15 @@ void MainWindow::refreshViewports()
         sceneViewport_->setSelectedEntity(selectedEntityId_);
     }
     if (gameViewport_ != nullptr) {
-        gameViewport_->setScene(&scene_);
-        gameViewport_->setSelectedEntity(selectedEntityId_);
         if (playModeActive_) {
-            gameViewport_->setGameCameraEntity(findPlayableCameraEntity());
+            gameViewport_->setScene(&playRuntimeScene_);
+            gameViewport_->setSelectedEntity({});
+            gameViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
             gameViewport_->setGameInputEnabled(true);
             gameViewport_->setGameRuntimeSnapshotEnabled(true);
+        } else {
+            gameViewport_->setScene(&scene_);
+            gameViewport_->setSelectedEntity(selectedEntityId_);
         }
     }
 }
