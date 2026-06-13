@@ -82,6 +82,12 @@ public:
     [[nodiscard]] bool assetXrayDebugEnabled() const noexcept { return assetXrayDebugEnabled_; }
     void setLodDebugOverlayEnabled(bool enabled) { if (lodDebugOverlayEnabled_ != enabled) { lodDebugOverlayEnabled_ = enabled; update(); } }
     [[nodiscard]] bool lodDebugOverlayEnabled() const noexcept { return lodDebugOverlayEnabled_; }
+    void setShadowDebugOverlayEnabled(bool enabled) { if (shadowDebugOverlayEnabled_ != enabled) { shadowDebugOverlayEnabled_ = enabled; update(); } }
+    [[nodiscard]] bool shadowDebugOverlayEnabled() const noexcept { return shadowDebugOverlayEnabled_; }
+    void setSourceObjectDebugOverlayEnabled(bool enabled) { if (sourceObjectDebugOverlayEnabled_ != enabled) { sourceObjectDebugOverlayEnabled_ = enabled; update(); } }
+    [[nodiscard]] bool sourceObjectDebugOverlayEnabled() const noexcept { return sourceObjectDebugOverlayEnabled_; }
+    void setSunDirectionDebugEnabled(bool enabled) { if (sunDirectionDebugEnabled_ != enabled) { sunDirectionDebugEnabled_ = enabled; update(); } }
+    [[nodiscard]] bool sunDirectionDebugEnabled() const noexcept { return sunDirectionDebugEnabled_; }
     void focusSelected();
 
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
@@ -199,6 +205,9 @@ private:
     bool meshWireOverlayEnabled_ {false};
     bool assetXrayDebugEnabled_ {false};
     bool lodDebugOverlayEnabled_ {false};
+    bool shadowDebugOverlayEnabled_ {false};
+    bool sourceObjectDebugOverlayEnabled_ {false};
+    bool sunDirectionDebugEnabled_ {false};
     bool gameInputEnabled_ {false};
     bool gameRuntimeSnapshotEnabled_ {false};
     bool gameMouseLook_ {false};

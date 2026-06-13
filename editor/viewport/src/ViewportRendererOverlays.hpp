@@ -37,6 +37,16 @@ void appendAxes(
     math::Vec3 cameraRight,
     float cameraDistance);
 
+void appendSunDirection(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    math::Vec3 anchor,
+    math::Vec3 sunDirection,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    math::Vec3 cameraUp,
+    float cameraDistance);
+
 void appendEntityMarker(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,

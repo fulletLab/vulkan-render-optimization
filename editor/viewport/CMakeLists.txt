@@ -20,6 +20,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportWidget.cpp
     src/ViewportWidgetDraw.cpp
     src/ViewportWidgetPicking.cpp
+    src/ViewportDrawDebugOverlay.cpp
+    src/ViewportDrawDebugOverlay.hpp
     src/ViewportLabelGeometry.cpp
     src/ViewportMeshWireOverlay.cpp
     src/ViewportMeshWireOverlay.hpp
@@ -49,6 +51,8 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportRendererOverlays.hpp
     src/ViewportShadowFocus.cpp
     src/ViewportShadowFocus.hpp
+    src/ViewportSourceObjectDebugOverlay.cpp
+    src/ViewportSourceObjectDebugOverlay.hpp
     src/ViewportWidgetRenderer.cpp
     src/ViewportWidgetSelfTest.cpp
     include/projectunity/editor/IEditorDebugDrawBackend.hpp

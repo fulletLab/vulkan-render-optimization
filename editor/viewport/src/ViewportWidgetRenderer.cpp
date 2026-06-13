@@ -1,9 +1,11 @@
 #include <projectunity/editor/ViewportWidget.hpp>
+#include "ViewportDrawDebugOverlay.hpp"
 #include "ViewportLabelGeometry.hpp"
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include "ViewportShadowFocus.hpp"
+#include "ViewportSourceObjectDebugOverlay.hpp"
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
@@ -15,6 +17,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -571,64 +574,16 @@ bool ViewportWidget::renderRendererFrame()
         };
         detail::appendGrid(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
         detail::appendAxes(rendererGizmoVertices_, rendererGizmoIndices_, forward, right, camera_.distance);
-        {
-            const auto sunDirection = safeNormalized(
-                {editorSunLight_.direction[0], editorSunLight_.direction[1], editorSunLight_.direction[2]},
-                {0.35F, -0.82F, 0.45F});
-            const auto anchor = camera_.target;
-            const auto rayLength = std::clamp(camera_.distance * 0.65F, 4.0F, 28.0F);
-            const auto headLength = std::clamp(rayLength * 0.12F, 0.55F, 2.2F);
-            const auto rayStart = anchor - sunDirection * rayLength;
-            constexpr std::array<float, 4> sunColor {1.0F, 0.82F, 0.22F, 0.95F};
-            detail::appendLineQuad(
+        if (sunDirectionDebugEnabled_) {
+            detail::appendSunDirection(
                 rendererGizmoVertices_,
                 rendererGizmoIndices_,
-                rayStart,
-                anchor,
-                sunColor,
-                2.2F,
+                camera_.target,
+                safeNormalized({editorSunLight_.direction[0], editorSunLight_.direction[1], editorSunLight_.direction[2]},
+                    {0.35F, -0.82F, 0.45F}),
                 forward,
                 right,
-                camera_.distance);
-            detail::appendLineQuad(
-                rendererGizmoVertices_,
-                rendererGizmoIndices_,
-                anchor,
-                anchor - sunDirection * headLength + right * (headLength * 0.45F),
-                sunColor,
-                1.8F,
-                forward,
-                right,
-                camera_.distance);
-            detail::appendLineQuad(
-                rendererGizmoVertices_,
-                rendererGizmoIndices_,
-                anchor,
-                anchor - sunDirection * headLength - right * (headLength * 0.45F),
-                sunColor,
-                1.8F,
-                forward,
-                right,
-                camera_.distance);
-            detail::appendLineQuad(
-                rendererGizmoVertices_,
-                rendererGizmoIndices_,
-                rayStart - right * (headLength * 0.35F),
-                rayStart + right * (headLength * 0.35F),
-                sunColor,
-                1.6F,
-                forward,
-                right,
-                camera_.distance);
-            detail::appendLineQuad(
-                rendererGizmoVertices_,
-                rendererGizmoIndices_,
-                rayStart - up * (headLength * 0.35F),
-                rayStart + up * (headLength * 0.35F),
-                sunColor,
-                1.6F,
-                forward,
-                right,
+                up,
                 camera_.distance);
         }
         if (renderWorldDebugChunks.size() > 1U && (renderWorldChunkBoundsDebugEnabled() || assetXrayDebugEnabled_)) {
@@ -768,6 +723,38 @@ bool ViewportWidget::renderRendererFrame()
                     .arg(static_cast<qulonglong>(gizmo.triangles.size() * 3U))
                     .toStdString());
         }
+    }
+    if (lodDebugOverlayEnabled_ || shadowDebugOverlayEnabled_) {
+        appendViewportDrawDebugOverlay(
+            rendererGizmoVertices_,
+            rendererGizmoIndices_,
+            std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_),
+            std::span<const renderer::RenderMeshDraw>(rendererShadowMeshDraws_), frame,
+            ViewportLabelCamera {
+                eye, right, up, forward, cameraFrame.verticalFovRadians,
+                static_cast<float>(std::max(height(), 1)),
+            },
+            static_cast<float>(std::max(width(), 1)),
+            right,
+            up,
+            safeNormalized({editorSunLight_.direction[0], editorSunLight_.direction[1], editorSunLight_.direction[2]},
+                {0.35F, -0.82F, 0.45F}),
+            lodDebugOverlayEnabled_, shadowDebugOverlayEnabled_);
+    }
+    if (sourceObjectDebugOverlayEnabled_ && scene_ != nullptr && assetManager_ != nullptr) {
+        appendViewportSourceObjectDebugOverlay(
+            rendererGizmoVertices_,
+            rendererGizmoIndices_,
+            *scene_,
+            *assetManager_,
+            ViewportLabelCamera {
+                eye, right, up, forward, cameraFrame.verticalFovRadians,
+                static_cast<float>(std::max(height(), 1)),
+            },
+            static_cast<float>(std::max(width(), 1)),
+            cameraFrame.aspectRatio,
+            cameraFrame.nearPlane,
+            cameraFrame.farPlane);
     }
     if (!rendererGizmoVertices_.empty() && !rendererGizmoIndices_.empty()) {
         rendererColorMeshDraws_.push_back({

@@ -151,10 +151,10 @@ int main()
     constexpr auto fov = 1.04719755F;
     constexpr auto viewportHeight = 1080.0F;
 
-    if (selectViewportMeshLod(primitive, 20.0F, 100.0F, fov, viewportHeight, false) != 1U) {
-        return fail("Viewport LOD did not preserve sub-pixel error for a moderately distant mesh");
+    if (selectViewportMeshLod(primitive, 20.0F, 100.0F, fov, viewportHeight, false) != 2U) {
+        return fail("Viewport LOD did not use a low-error coarse LOD for a moderately distant mesh");
     }
-    if (selectViewportMeshLod(primitive, 20.0F, 500.0F, fov, viewportHeight, false) != 2U) {
+    if (selectViewportMeshLod(primitive, 20.0F, 500.0F, fov, viewportHeight, false) != 3U) {
         return fail("Viewport LOD did not choose a coarser sub-pixel LOD at greater distance");
     }
     if (selectViewportMeshLod(primitive, 20.0F, 1'200.0F, fov, viewportHeight, false) != 3U) {

@@ -30,6 +30,7 @@
 #include <QTableWidgetItem>
 #include <QTabWidget>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -147,20 +148,66 @@ void MainWindow::createToolbar()
         }
     });
     toolbar->addSeparator();
-    auto* wireAction = toolbar->addAction(QStringLiteral("Wire"));
+    auto* debugMenu = new QMenu(QStringLiteral("Debug"), toolbar);
+    auto* wireAction = debugMenu->addAction(QStringLiteral("Wire"));
     wireAction->setCheckable(true);
     connect(wireAction, &QAction::triggered, this, [this](bool enabled) {
         if (sceneViewport_ != nullptr) {
             sceneViewport_->setMeshWireOverlayEnabled(enabled);
         }
     });
-    auto* xrayAction = toolbar->addAction(QStringLiteral("XRay"));
+    auto* xrayAction = debugMenu->addAction(QStringLiteral("XRay"));
     xrayAction->setCheckable(true);
     connect(xrayAction, &QAction::triggered, this, [this](bool enabled) {
         if (sceneViewport_ != nullptr) {
             sceneViewport_->setAssetXrayDebugEnabled(enabled);
         }
     });
+    auto* lodDebugAction = debugMenu->addAction(QStringLiteral("LOD / Distance"));
+    lodDebugAction->setCheckable(true);
+    connect(lodDebugAction, &QAction::triggered, this, [this](bool enabled) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setLodDebugOverlayEnabled(enabled);
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->setLodDebugOverlayEnabled(enabled);
+        }
+    });
+    auto* shadowDebugAction = debugMenu->addAction(QStringLiteral("Shadow Marks"));
+    shadowDebugAction->setCheckable(true);
+    connect(shadowDebugAction, &QAction::triggered, this, [this](bool enabled) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setShadowDebugOverlayEnabled(enabled);
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->setShadowDebugOverlayEnabled(enabled);
+        }
+    });
+    auto* sourceDebugAction = debugMenu->addAction(QStringLiteral("Source Objects"));
+    sourceDebugAction->setCheckable(true);
+    connect(sourceDebugAction, &QAction::triggered, this, [this](bool enabled) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setSourceObjectDebugOverlayEnabled(enabled);
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->setSourceObjectDebugOverlayEnabled(enabled);
+        }
+    });
+    auto* sunDebugAction = debugMenu->addAction(QStringLiteral("Sun Direction"));
+    sunDebugAction->setCheckable(true);
+    connect(sunDebugAction, &QAction::triggered, this, [this](bool enabled) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setSunDirectionDebugEnabled(enabled);
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->setSunDirectionDebugEnabled(enabled);
+        }
+    });
+    auto* debugButton = new QToolButton(toolbar);
+    debugButton->setText(QStringLiteral("Debug"));
+    debugButton->setPopupMode(QToolButton::InstantPopup);
+    debugButton->setMenu(debugMenu);
+    toolbar->addWidget(debugButton);
     toolbar->addSeparator();
     toolbar->addAction(QStringLiteral("Play"), this, [this] {
         startPlayMode();

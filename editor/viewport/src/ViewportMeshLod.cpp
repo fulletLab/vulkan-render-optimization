@@ -6,7 +6,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr float kMaximumLodErrorPixels = 0.35F;
+constexpr float kMaximumLodErrorPixels = 1.25F;
 
 [[nodiscard]] bool validProjectionInputs(
     float boundsRadius,

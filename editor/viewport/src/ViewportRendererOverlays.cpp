@@ -97,6 +97,27 @@ void appendAxes(
     appendLineQuad(vertices, indices, {}, {0.0F, 0.0F, 3.0F}, {0.31F, 0.53F, 0.90F, 0.95F}, 2.0F, cameraForward, cameraRight, cameraDistance);
 }
 
+void appendSunDirection(
+    std::vector<renderer::RenderColorVertex>& vertices,
+    std::vector<std::uint32_t>& indices,
+    math::Vec3 anchor,
+    math::Vec3 sunDirection,
+    math::Vec3 cameraForward,
+    math::Vec3 cameraRight,
+    math::Vec3 cameraUp,
+    float cameraDistance)
+{
+    const auto rayLength = std::clamp(cameraDistance * 0.65F, 4.0F, 28.0F);
+    const auto headLength = std::clamp(rayLength * 0.12F, 0.55F, 2.2F);
+    const auto rayStart = anchor - sunDirection * rayLength;
+    constexpr std::array<float, 4> sunColor {1.0F, 0.82F, 0.22F, 0.95F};
+    appendLineQuad(vertices, indices, rayStart, anchor, sunColor, 2.2F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, anchor, anchor - sunDirection * headLength + cameraRight * (headLength * 0.45F), sunColor, 1.8F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, anchor, anchor - sunDirection * headLength - cameraRight * (headLength * 0.45F), sunColor, 1.8F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, rayStart - cameraRight * (headLength * 0.35F), rayStart + cameraRight * (headLength * 0.35F), sunColor, 1.6F, cameraForward, cameraRight, cameraDistance);
+    appendLineQuad(vertices, indices, rayStart - cameraUp * (headLength * 0.35F), rayStart + cameraUp * (headLength * 0.35F), sunColor, 1.6F, cameraForward, cameraRight, cameraDistance);
+}
+
 void appendEntityMarker(
     std::vector<renderer::RenderColorVertex>& vertices,
     std::vector<std::uint32_t>& indices,
