@@ -14,7 +14,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -26,22 +25,25 @@ namespace {
     return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
 }
 
-[[nodiscard]] bool renderWorldChunkBoundsDebugEnabled() noexcept
+[[nodiscard]] bool environmentFlagEnabled(const char* name) noexcept
 {
 #if defined(_WIN32)
     char* value = nullptr;
     std::size_t length = 0;
-    if (::_dupenv_s(&value, &length, "PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS") != 0 || value == nullptr) {
+    if (::_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
         return false;
     }
     const bool enabled = length > 1U && value[0] != '\0' && value[0] != '0';
     std::free(value);
     return enabled;
 #else
-    const auto* value = std::getenv("PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS");
+    const auto* value = std::getenv(name);
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 #endif
 }
+
+[[nodiscard]] bool renderWorldChunkBoundsDebugEnabled() noexcept { return environmentFlagEnabled("PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS"); }
+[[nodiscard]] bool viewportCullingLogEnabled() noexcept { return environmentFlagEnabled("PROJECTUNITY_VIEWPORT_CULLING_LOGS"); }
 
 [[nodiscard]] std::uint64_t elapsedUs(std::chrono::steady_clock::time_point start) noexcept
 {
@@ -190,6 +192,9 @@ void ViewportWidget::setShadowUpdateMode(renderer::RenderShadowUpdateMode mode)
     shadowUpdateMode_ = mode;
     if (mode == renderer::RenderShadowUpdateMode::Off) {
         frozenShadowSelection_.reset();
+        rendererShadowMeshDraws_.clear();
+        rendererShadowCandidateInstances_ = 0;
+        rendererShadowPolicyRejectedInstances_ = 0;
     }
     update();
 }
@@ -265,7 +270,11 @@ bool ViewportWidget::renderRendererFrame()
     frame.clearColor.alpha = 1.0F;
     frame.environment = environmentSettings_;
     rendererMeshDraws_.clear();
-    rendererShadowMeshDraws_.clear();
+    if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Frozen) {
+        rendererShadowMeshDraws_.clear();
+        rendererShadowCandidateInstances_ = 0;
+        rendererShadowPolicyRejectedInstances_ = 0;
+    }
     rendererLights_.clear();
     bool hasMeshSceneContent = false;
     FrameBounds visibleBounds;
@@ -420,39 +429,40 @@ bool ViewportWidget::renderRendererFrame()
         if (renderWorldFrame.visibleBoundsValid) {
             visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }
-        auto cullingSignature = mixLogHash(renderWorldFrame.stats.visibleRenderChunkCount, renderWorldFrame.stats.visibleRenderInstanceCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedChunkCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedInstanceCount);
-        cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.culledMeshDrawCount);
-        cullingSignature = mixLogHash(cullingSignature, static_cast<std::uint64_t>(mode_));
-        ++cullingLogFrameCounter_;
-        const auto framesSinceLog = cullingLogFrameCounter_ - lastCullingLogFrame_;
-        const auto signatureChanged = cullingSignature != lastCullingLogSignature_;
-        if (cullingLogFrameCounter_ == 1U || cullingLogFrameCounter_ % 60U == 0U || (signatureChanged && framesSinceLog >= 15U)) {
-            std::ostringstream message;
-            message << "Viewport culling mode=" << viewportModeName(mode_)
-                    << " camera=" << cameraSource
-                    << " eye=(" << eye.x << "," << eye.y << "," << eye.z << ")"
-                    << " forward=(" << forward.x << "," << forward.y << "," << forward.z << ")"
-                    << " fov=" << cameraFrame.verticalFovRadians
-                    << " aspect=" << cameraFrame.aspectRatio
-                    << " near=" << cameraFrame.nearPlane
-                    << " far=" << cameraFrame.farPlane
-                    << " chunks=" << renderWorldFrame.stats.visibleRenderChunkCount << "/" << renderWorldFrame.stats.renderChunkCount
-                    << " instances=" << renderWorldFrame.stats.visibleRenderInstanceCount << "/" << renderWorldFrame.stats.renderInstanceCount
-                    << " occlusion tested/rejected/occluders="
-                    << renderWorldFrame.stats.occlusionTestedChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionRejectedChunkCount << "/"
-                    << renderWorldFrame.stats.occlusionOccluderChunkCount
-                    << " rejectedInstances=" << renderWorldFrame.stats.occlusionRejectedInstanceCount
-                    << " rejectedTriangles=" << renderWorldFrame.stats.occlusionRejectedTriangleCount
-                    << " meshDrawCandidates=" << renderWorldFrame.stats.candidateMeshDrawCount
-                    << " culledDraws=" << renderWorldFrame.stats.culledMeshDrawCount;
-            appendViewportVisibleDrawDiagnostics(message, rendererMeshDraws_);
-            core::logInfo(core::LogCategory::Renderer, message.str());
-            std::cout << message.str() << '\n';
-            lastCullingLogFrame_ = cullingLogFrameCounter_;
-            lastCullingLogSignature_ = cullingSignature;
+        if (viewportCullingLogEnabled()) {
+            auto cullingSignature = mixLogHash(renderWorldFrame.stats.visibleRenderChunkCount, renderWorldFrame.stats.visibleRenderInstanceCount);
+            cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedChunkCount);
+            cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.occlusionRejectedInstanceCount);
+            cullingSignature = mixLogHash(cullingSignature, renderWorldFrame.stats.culledMeshDrawCount);
+            cullingSignature = mixLogHash(cullingSignature, static_cast<std::uint64_t>(mode_));
+            ++cullingLogFrameCounter_;
+            const auto framesSinceLog = cullingLogFrameCounter_ - lastCullingLogFrame_;
+            const auto signatureChanged = cullingSignature != lastCullingLogSignature_;
+            if (cullingLogFrameCounter_ == 1U || cullingLogFrameCounter_ % 60U == 0U || (signatureChanged && framesSinceLog >= 15U)) {
+                std::ostringstream message;
+                message << "Viewport culling mode=" << viewportModeName(mode_)
+                        << " camera=" << cameraSource
+                        << " eye=(" << eye.x << "," << eye.y << "," << eye.z << ")"
+                        << " forward=(" << forward.x << "," << forward.y << "," << forward.z << ")"
+                        << " fov=" << cameraFrame.verticalFovRadians
+                        << " aspect=" << cameraFrame.aspectRatio
+                        << " near=" << cameraFrame.nearPlane
+                        << " far=" << cameraFrame.farPlane
+                        << " chunks=" << renderWorldFrame.stats.visibleRenderChunkCount << "/" << renderWorldFrame.stats.renderChunkCount
+                        << " instances=" << renderWorldFrame.stats.visibleRenderInstanceCount << "/" << renderWorldFrame.stats.renderInstanceCount
+                        << " occlusion tested/rejected/occluders="
+                        << renderWorldFrame.stats.occlusionTestedChunkCount << "/"
+                        << renderWorldFrame.stats.occlusionRejectedChunkCount << "/"
+                        << renderWorldFrame.stats.occlusionOccluderChunkCount
+                        << " rejectedInstances=" << renderWorldFrame.stats.occlusionRejectedInstanceCount
+                        << " rejectedTriangles=" << renderWorldFrame.stats.occlusionRejectedTriangleCount
+                        << " meshDrawCandidates=" << renderWorldFrame.stats.candidateMeshDrawCount
+                        << " culledDraws=" << renderWorldFrame.stats.culledMeshDrawCount;
+                appendViewportVisibleDrawDiagnostics(message, rendererMeshDraws_);
+                core::logInfo(core::LogCategory::Renderer, message.str());
+                lastCullingLogFrame_ = cullingLogFrameCounter_;
+                lastCullingLogSignature_ = cullingSignature;
+            }
         }
         renderWorldDebugChunks = renderWorldFrame.debugChunks;
     }
@@ -505,16 +515,25 @@ bool ViewportWidget::renderRendererFrame()
         frozenShadowSelection_ = shadowSelection;
     }
     ViewportRenderWorldStats shadowStats;
+    const auto canReuseFrozenShadowCasters = shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Frozen
+        && !rendererShadowMeshDraws_.empty();
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
         && shadowSelection.enabled
         && renderWorld_ != nullptr) {
-        renderWorld_->collectShadowCasters(
-            shadowSelection,
-            {cameraFrame.eye, cameraFrame.right, cameraFrame.up, cameraFrame.forward, cameraFrame.verticalFovRadians, cameraFrame.aspectRatio, cameraFrame.nearPlane, cameraFrame.farPlane},
-            height(),
-            selectedEntityId_,
-            rendererShadowMeshDraws_,
-            shadowStats);
+        if (canReuseFrozenShadowCasters) {
+            shadowStats.shadowCandidateInstances = rendererShadowCandidateInstances_;
+            shadowStats.shadowPolicyRejectedInstances = rendererShadowPolicyRejectedInstances_;
+        } else {
+            renderWorld_->collectShadowCasters(
+                shadowSelection,
+                {cameraFrame.eye, cameraFrame.right, cameraFrame.up, cameraFrame.forward, cameraFrame.verticalFovRadians, cameraFrame.aspectRatio, cameraFrame.nearPlane, cameraFrame.farPlane},
+                height(),
+                selectedEntityId_,
+                rendererShadowMeshDraws_,
+                shadowStats);
+            rendererShadowCandidateInstances_ = shadowStats.shadowCandidateInstances;
+            rendererShadowPolicyRejectedInstances_ = shadowStats.shadowPolicyRejectedInstances;
+        }
     }
     frame.shadowUpdateMode = shadowUpdateMode_;
     frame.shadowCandidateInstances = shadowStats.shadowCandidateInstances;

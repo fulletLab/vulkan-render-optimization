@@ -568,20 +568,28 @@ bool VulkanViewportTarget::recordFrameCommand(
     if (!buildMeshBatches(frame.meshDraws, errorMessage)) {
         return false;
     }
-    if (frame.shadowsEnabled) {
+    const auto reuseFrozenShadowMap = frame.shadowsEnabled
+        && frame.shadowUpdateMode == RenderShadowUpdateMode::Frozen
+        && shadowMapValid_;
+    if (frame.shadowsEnabled && !reuseFrozenShadowMap) {
         if (!buildShadowMeshBatches(frame.shadowMeshDraws, errorMessage)) {
             return false;
         }
     } else {
-        orderedShadowMeshDraws_.clear();
-        shadowMeshInstances_.clear();
-        shadowMeshBatches_.clear();
-        shadowMeshInstanceBuffer_.destroy();
+        if (!frame.shadowsEnabled) {
+            orderedShadowMeshDraws_.clear();
+            shadowMeshInstances_.clear();
+            shadowMeshBatches_.clear();
+            shadowMeshInstanceBuffer_.destroy();
+            shadowMapValid_ = false;
+            shadowContentSignature_ = 0;
+        }
     }
     if (!prepareMeshBatchResources(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }
     if (frame.shadowsEnabled
+        && !reuseFrozenShadowMap
         && !prepareShadowMeshBatchResources(frame, uploads, meshCache, textureCache, errorMessage)) {
         return false;
     }

@@ -189,6 +189,8 @@ private:
     std::optional<renderer::RendererStats> lastRendererStats_;
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
     std::vector<renderer::RenderMeshDraw> rendererShadowMeshDraws_;
+    std::uint64_t rendererShadowCandidateInstances_ {0};
+    std::uint64_t rendererShadowPolicyRejectedInstances_ {0};
     std::vector<renderer::RenderLight> rendererLights_;
     std::vector<renderer::RenderColorVertex> rendererGizmoVertices_;
     std::vector<std::uint32_t> rendererGizmoIndices_;

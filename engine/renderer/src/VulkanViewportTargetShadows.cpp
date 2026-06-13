@@ -125,12 +125,17 @@ bool VulkanViewportTarget::recordShadowPass(
         lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;
     }
-    const auto contentSignature = renderShadowContentSignature(frame);
     const auto reuseFrozenMap = frame.shadowUpdateMode == RenderShadowUpdateMode::Frozen && shadowMapValid_;
+    if (reuseFrozenMap) {
+        gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
+        return true;
+    }
+    const auto contentSignature = renderShadowContentSignature(frame);
     const auto reuseUnchangedLiveMap = frame.shadowUpdateMode == RenderShadowUpdateMode::Live
         && shadowMapValid_
         && shadowContentSignature_ == contentSignature;
-    if (reuseFrozenMap || reuseUnchangedLiveMap) {
+    if (reuseUnchangedLiveMap) {
         gpuProfiler_.write(commandBuffer_, VulkanGpuFrameTimestamp::ShadowEnd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
         lastFrameProfile_.shadowRecordCpuTimeUs += elapsedUs(passStart);
         return true;

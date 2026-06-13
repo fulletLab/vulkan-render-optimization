@@ -14,6 +14,7 @@
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <chrono>
 #include <memory>
@@ -320,6 +321,32 @@ struct VulkanRenderer::Impl {
             stats.lastFrameTextureUploadCount = textureCache.uploadCount() - textureUploadsBefore;
             stats.lastFrameStaticUploadBytes = (meshCache.uploadedBytes() - meshBytesBefore)
                 + (textureCache.uploadedBytes() - textureBytesBefore);
+            if (stats.viewportFramesPresented % 120U == 1U) {
+                stats.recentMaxFrameCpuTimeUs = stats.lastFrameRenderCpuTimeUs;
+                stats.recentMaxFrameGpuTimeUs = stats.lastFrameGpuTimeUs;
+            } else {
+                stats.recentMaxFrameCpuTimeUs = std::max(stats.recentMaxFrameCpuTimeUs, stats.lastFrameRenderCpuTimeUs);
+                stats.recentMaxFrameGpuTimeUs = std::max(stats.recentMaxFrameGpuTimeUs, stats.lastFrameGpuTimeUs);
+            }
+            constexpr std::uint64_t kInteractiveHitchCpuUs = 16'667U;
+            const auto averageThreshold = stats.averageRenderCpuTimeUs > 0U
+                ? stats.averageRenderCpuTimeUs * 5U / 2U
+                : kInteractiveHitchCpuUs;
+            const auto cpuHitchThreshold = std::max(kInteractiveHitchCpuUs, averageThreshold);
+            const auto gpuHitch = stats.lastFrameGpuTimestampsValid && stats.lastFrameGpuTimeUs >= kInteractiveHitchCpuUs;
+            if (stats.lastFrameRenderCpuTimeUs >= cpuHitchThreshold || gpuHitch) {
+                ++stats.hitchFrameCount;
+                stats.lastHitchFrameIndex = stats.viewportFramesPresented;
+                stats.lastHitchCpuTimeUs = stats.lastFrameRenderCpuTimeUs;
+                stats.lastHitchGpuTimeUs = stats.lastFrameGpuTimestampsValid ? stats.lastFrameGpuTimeUs : 0U;
+                stats.lastHitchEditorBuildCpuTimeUs = stats.lastFrameEditorBuildCpuTimeUs;
+                stats.lastHitchRenderWorldBuildCpuTimeUs = stats.lastFrameRenderWorldBuildCpuTimeUs;
+                stats.lastHitchResourcePrepareCpuTimeUs = stats.lastFrameResourcePrepareCpuTimeUs;
+                stats.lastHitchCommandRecordCpuTimeUs = stats.lastFrameCommandRecordCpuTimeUs;
+                stats.lastHitchMeshDrawCount = stats.lastFrameMeshDrawCount;
+                stats.lastHitchVkDrawIndexed = stats.vkDrawIndexed;
+                stats.lastHitchStaticUploadBytes = stats.lastFrameStaticUploadBytes;
+            }
             stats.lastFrameColorUploadBytes = dynamicColorBytes;
             stats.residentMeshCount = meshCache.meshCount();
             stats.residentTextureCount = textureCache.textureCount();

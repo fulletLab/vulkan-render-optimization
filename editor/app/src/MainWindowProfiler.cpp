@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 80;
+constexpr int kProfilerRowCount = 93;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -107,6 +107,19 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("occlusionOccluderChunks"),
         QStringLiteral("occlusionRejectedInstances"),
         QStringLiteral("occlusionRejectedTriangles"),
+        QStringLiteral("recentMaxFrameCpuUs"),
+        QStringLiteral("recentMaxFrameGpuUs"),
+        QStringLiteral("hitchFrameCount"),
+        QStringLiteral("lastHitchFrameIndex"),
+        QStringLiteral("lastHitchCpuUs"),
+        QStringLiteral("lastHitchGpuUs"),
+        QStringLiteral("lastHitchEditorBuildUs"),
+        QStringLiteral("lastHitchRenderWorldBuildUs"),
+        QStringLiteral("lastHitchResourcePrepareUs"),
+        QStringLiteral("lastHitchCommandRecordUs"),
+        QStringLiteral("lastHitchMeshDraws"),
+        QStringLiteral("lastHitchVkDrawIndexed"),
+        QStringLiteral("lastHitchStaticUploadBytes"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -166,9 +179,13 @@ void MainWindow::updateProfilerPanel()
         const auto worldText = QStringLiteral("WORLD %1ms").arg(static_cast<double>(stats.lastFrameRenderWorldBuildCpuTimeUs) / 1000.0, 0, 'f', 1);
         const auto cmdText = QStringLiteral("CMD %1ms").arg(stats.commandRecordingMs, 0, 'f', 1);
         const auto resText = QStringLiteral("RES %1ms").arg(stats.resourcePrepareMs, 0, 'f', 1);
-        performanceStatus_->setText(QStringLiteral("%1 FPS %2 | %3 %4 %5 %6 | D %7/%8 B %9 | VKD %10 BIND %11 | T %12 SUB %13 | LOD %14 -%15 HLOD %16/%17 -%18 | OCC %19/%20/%21 | SH %22 %23/%24 | %25 %26")
+        const auto hitchText = QStringLiteral("H %1 MAX %2ms")
+            .arg(compactCounter(stats.hitchFrameCount))
+            .arg(static_cast<double>(stats.recentMaxFrameCpuTimeUs) / 1000.0, 0, 'f', 1);
+        performanceStatus_->setText(QStringLiteral("%1 FPS %2 %3 | %4 %5 %6 %7 | D %8/%9 B %10 | VKD %11 BIND %12 | T %13 SUB %14 | LOD %15 -%16 HLOD %17/%18 -%19 | OCC %20/%21/%22 | SH %23 %24/%25 | %26 %27")
             .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
             .arg(stats.FPS, 0, 'f', 1)
+            .arg(hitchText)
             .arg(cpuText)
             .arg(worldText)
             .arg(cmdText)
@@ -193,8 +210,14 @@ void MainWindow::updateProfilerPanel()
             .arg(compactCounter(stats.shadowBatchesSubmitted))
             .arg(gpuMeshText)
             .arg(gpuShadowText));
-        performanceStatus_->setToolTip(QStringLiteral("%1 | editor %2ms | color %3us | cull %4")
+        performanceStatus_->setToolTip(QStringLiteral("%1 | max CPU %2ms | last hitch CPU %3ms GPU %4ms RES %5ms CMD %6ms upload %7 | editor %8ms | color %9us | cull %10")
             .arg(gpuFrameText)
+            .arg(static_cast<double>(stats.recentMaxFrameCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(static_cast<double>(stats.lastHitchCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(static_cast<double>(stats.lastHitchGpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(static_cast<double>(stats.lastHitchResourcePrepareCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(static_cast<double>(stats.lastHitchCommandRecordCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(compactCounter(stats.lastHitchStaticUploadBytes))
             .arg(static_cast<double>(stats.lastFrameEditorBuildCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<qulonglong>(stats.lastFrameColorRecordCpuTimeUs))
             .arg(compactCounter(stats.lastFrameCulledMeshDrawCount)));
@@ -290,6 +313,19 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 77, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionOccluderChunkCount)));
     setTableValue(profilerTable_, 78, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedInstanceCount)));
     setTableValue(profilerTable_, 79, QString::number(static_cast<qulonglong>(stats.lastFrameOcclusionRejectedTriangleCount)));
+    setTableValue(profilerTable_, 80, QString::number(static_cast<qulonglong>(stats.recentMaxFrameCpuTimeUs)));
+    setTableValue(profilerTable_, 81, stats.lastFrameGpuTimestampsValid ? QString::number(static_cast<qulonglong>(stats.recentMaxFrameGpuTimeUs)) : QStringLiteral("-"));
+    setTableValue(profilerTable_, 82, QString::number(static_cast<qulonglong>(stats.hitchFrameCount)));
+    setTableValue(profilerTable_, 83, QString::number(static_cast<qulonglong>(stats.lastHitchFrameIndex)));
+    setTableValue(profilerTable_, 84, QString::number(static_cast<qulonglong>(stats.lastHitchCpuTimeUs)));
+    setTableValue(profilerTable_, 85, stats.lastHitchGpuTimeUs > 0U ? QString::number(static_cast<qulonglong>(stats.lastHitchGpuTimeUs)) : QStringLiteral("-"));
+    setTableValue(profilerTable_, 86, QString::number(static_cast<qulonglong>(stats.lastHitchEditorBuildCpuTimeUs)));
+    setTableValue(profilerTable_, 87, QString::number(static_cast<qulonglong>(stats.lastHitchRenderWorldBuildCpuTimeUs)));
+    setTableValue(profilerTable_, 88, QString::number(static_cast<qulonglong>(stats.lastHitchResourcePrepareCpuTimeUs)));
+    setTableValue(profilerTable_, 89, QString::number(static_cast<qulonglong>(stats.lastHitchCommandRecordCpuTimeUs)));
+    setTableValue(profilerTable_, 90, QString::number(static_cast<qulonglong>(stats.lastHitchMeshDrawCount)));
+    setTableValue(profilerTable_, 91, QString::number(static_cast<qulonglong>(stats.lastHitchVkDrawIndexed)));
+    setTableValue(profilerTable_, 92, QString::number(static_cast<qulonglong>(stats.lastHitchStaticUploadBytes)));
 }
 
 } // namespace projectunity::editor
