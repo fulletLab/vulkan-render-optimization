@@ -311,5 +311,67 @@ int main()
         return fail("Viewport shadow caster collection ignored an offscreen caster inside the shadow volume");
     }
 
+    projectunity::scene::Scene shadowBudgetScene;
+    auto& importantCaster = shadowBudgetScene.createEntity("Important Shadow Caster");
+    importantCaster.transform.position = {20.0F, 0.0F, 10.0F};
+    importantCaster.transform.scale = {8.0F, 8.0F, 8.0F};
+    importantCaster.meshRenderer = meshRenderer;
+    const auto importantCasterId = importantCaster.id.value();
+    for (int index = 0; index < 620; ++index) {
+        auto& filler = shadowBudgetScene.createEntity("Shadow Budget Filler");
+        filler.transform.position = {
+            -28.0F + static_cast<float>(index % 29) * 2.0F,
+            10.0F,
+            8.0F + static_cast<float>(index / 29) * 2.0F,
+        };
+        filler.meshRenderer = meshRenderer;
+    }
+    projectunity::editor::ViewportRenderWorld shadowBudgetWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> shadowBudgetColorDraws;
+    std::vector<projectunity::renderer::RenderLight> shadowBudgetLights;
+    (void)shadowBudgetWorld.buildFrame(
+        &shadowBudgetScene,
+        &shadowAssets,
+        {},
+        camera,
+        {},
+        1080,
+        shadowBudgetColorDraws,
+        shadowBudgetLights);
+    const auto shadowBudgetSelection = projectunity::renderer::chooseShadowMap(sunLights, {0.0F, 0.0F, 18.0F}, 120.0F);
+    auto upwardCamera = camera;
+    upwardCamera.forward = {0.0F, 1.0F, 0.0F};
+    upwardCamera.up = {0.0F, 0.0F, -1.0F};
+    std::vector<projectunity::renderer::RenderMeshDraw> forwardShadowDraws;
+    std::vector<projectunity::renderer::RenderMeshDraw> upwardShadowDraws;
+    projectunity::editor::ViewportRenderWorldStats forwardShadowStats;
+    projectunity::editor::ViewportRenderWorldStats upwardShadowStats;
+    shadowBudgetWorld.collectShadowCasters(
+        shadowBudgetSelection,
+        camera,
+        1080,
+        {},
+        forwardShadowDraws,
+        forwardShadowStats);
+    shadowBudgetWorld.collectShadowCasters(
+        shadowBudgetSelection,
+        upwardCamera,
+        1080,
+        {},
+        upwardShadowDraws,
+        upwardShadowStats);
+    const auto importantCastsShadow = [importantCasterId](
+        const std::vector<projectunity::renderer::RenderMeshDraw>& draws) {
+        for (const auto& draw : draws) {
+            if (draw.sceneNodeId == importantCasterId && draw.castsShadow) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (!importantCastsShadow(forwardShadowDraws) || !importantCastsShadow(upwardShadowDraws)) {
+        return fail("Viewport shadow budget changed an important caster when only camera direction changed");
+    }
+
     return EXIT_SUCCESS;
 }
