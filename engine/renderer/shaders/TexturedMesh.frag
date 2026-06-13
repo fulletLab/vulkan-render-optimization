@@ -252,6 +252,6 @@ void main()
     vec3 ambientDiffuse = diffuseIrradiance * sampledBase.rgb * (1.0 - metallic);
     vec3 ambientSpecular = specularIrradiance * clamp(ambientFresnel * envBRDF.x + vec3(envBRDF.y), vec3(0.0), vec3(1.0));
     vec3 emissive = texture(emissiveTexture, inTexCoord).rgb * pushData.emissiveColor.rgb;
-    float outputAlpha = alphaMode == 2 ? sampledBase.a : 1.0;
+    float outputAlpha = sampledBase.a;
     outColor = vec4((ambientDiffuse + ambientSpecular) * occlusion + directRadiance + emissive, outputAlpha);
 }

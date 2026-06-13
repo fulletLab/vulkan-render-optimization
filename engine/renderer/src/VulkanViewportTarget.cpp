@@ -693,11 +693,15 @@ bool VulkanViewportTarget::recordFrameCommand(
             const auto& draw = *batch.draw;
             const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
             const auto noCull = doubleSided || draw.flipsWinding;
-            const auto drawPipeline = isTransparentMeshDraw(draw)
+            const auto debugTransparent = frame.meshDebugOpacity < 0.999F;
+            const auto drawPipeline = debugTransparent || isTransparentMeshDraw(draw)
                 ? (noCull ? meshPipeline_->transparentDoubleSidedPipeline() : meshPipeline_->transparentPipeline())
                 : (noCull ? meshPipeline_->doubleSidedPipeline() : meshPipeline_->pipeline());
             VulkanDrawPushConstants push;
             applyMeshMaterialPush(push, draw);
+            if (debugTransparent) {
+                push.baseColor[3] *= std::clamp(frame.meshDebugOpacity, 0.02F, 1.0F);
+            }
             if (!drawMeshInstances(batch, drawPipeline, push, batch.firstInstance, batch.instanceCount)) {
                 vkCmdEndRenderPass(commandBuffer_);
                 return false;

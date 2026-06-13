@@ -286,9 +286,8 @@ bool ViewportWidget::renderRendererFrame()
     if (mode_ == ViewportMode::Game && scene_ != nullptr) {
         bool cameraFromSceneEntity = false;
         for (const auto& entity : scene_->entities()) {
-            if (!entity.camera.has_value()) {
-                continue;
-            }
+            if (gameCameraEntityId_.isValid() && entity.id != gameCameraEntityId_) { continue; }
+            if (!entity.camera.has_value()) { continue; }
             const auto worldPosition = entityWorldPosition(entity.id);
             if (!worldPosition.has_value()) {
                 continue;
@@ -554,7 +553,7 @@ bool ViewportWidget::renderRendererFrame()
     }
     frame.shadowMeshDraws = std::span<const renderer::RenderMeshDraw>(rendererShadowMeshDraws_);
     frame.meshDraws = std::span<const renderer::RenderMeshDraw>(rendererMeshDraws_);
-    frame.meshWireOverlayEnabled = mode_ == ViewportMode::Scene && meshWireOverlayEnabled_;
+    frame.meshDebugOpacity = mode_ == ViewportMode::Scene && assetXrayDebugEnabled_ ? 0.26F : 1.0F; frame.meshWireOverlayEnabled = mode_ == ViewportMode::Scene && meshWireOverlayEnabled_;
     frame.selectedMeshWireOverlayEnabled = mode_ == ViewportMode::Scene && selectedEntityId_.isValid();
     frame.selectedMeshWireOverlaySceneNodeId = selectedEntityId_.isValid() ? selectedEntityId_.value() : 0U;
     rendererGizmoVertices_.clear();
@@ -631,7 +630,7 @@ bool ViewportWidget::renderRendererFrame()
                 right,
                 camera_.distance);
         }
-        if (renderWorldDebugChunks.size() > 1U && renderWorldChunkBoundsDebugEnabled()) {
+        if (renderWorldDebugChunks.size() > 1U && (renderWorldChunkBoundsDebugEnabled() || assetXrayDebugEnabled_)) {
             for (const auto& chunk : renderWorldDebugChunks) {
                 const auto color = chunk.visible
                     ? (chunk.large

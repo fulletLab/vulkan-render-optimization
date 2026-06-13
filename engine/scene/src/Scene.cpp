@@ -122,6 +122,7 @@ Entity* Scene::duplicateEntityRecursive(EntityId sourceId, std::optional<EntityI
     duplicate.meshRenderer = sourceSnapshot.meshRenderer;
     duplicate.light = sourceSnapshot.light;
     duplicate.camera = sourceSnapshot.camera;
+    duplicate.script = sourceSnapshot.script;
     const auto duplicateId = duplicate.id;
 
     for (const auto childId : sourceSnapshot.children) {
@@ -232,6 +233,22 @@ bool Scene::setCamera(EntityId id, std::optional<CameraComponent> component)
     }
 
     entity->camera = component;
+    return true;
+}
+
+bool Scene::setScript(EntityId id, std::optional<ScriptComponent> component)
+{
+    auto* entity = findEntityMutable(id);
+    if (entity == nullptr) {
+        return false;
+    }
+
+    if (component.has_value() && component->scriptName.empty()) {
+        core::logWarning(core::LogCategory::Core, "Scene rejected script with an empty name");
+        return false;
+    }
+
+    entity->script = std::move(component);
     return true;
 }
 

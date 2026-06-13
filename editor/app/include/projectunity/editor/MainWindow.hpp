@@ -77,6 +77,10 @@ private:
     void duplicateSelectedEntity();
     void selectEntity(projectunity::scene::EntityId id);
     void clearSelection();
+    void startPlayMode();
+    void stopPlayMode();
+    [[nodiscard]] projectunity::scene::EntityId ensureFlyPlayerEntity();
+    void ensureFlyPlayerScriptAsset();
     void rebuildHierarchy();
     void addEntityToHierarchy(QTreeWidgetItem* parentItem, projectunity::scene::EntityId id);
     void updateInspector();
@@ -170,6 +174,7 @@ private:
     QByteArray defaultDockState_;
     int activeAssetImports_ {0};
     bool inspectorUpdating_ {false};
+    bool playModeActive_ {false};
 };
 
 } // namespace projectunity::editor

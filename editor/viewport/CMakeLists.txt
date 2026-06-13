@@ -16,6 +16,7 @@ add_library(projectunity_editor_viewport STATIC
     src/Im3dDebugDrawBackend.cpp
     src/TinyGizmoBackend.cpp
     src/ViewportWidgetCamera.cpp
+    src/ViewportWidgetGameScripts.cpp
     src/ViewportWidget.cpp
     src/ViewportWidgetDraw.cpp
     src/ViewportWidgetPicking.cpp

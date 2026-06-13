@@ -17,9 +17,9 @@ namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::size_t kBatchThreshold = 512;
-constexpr std::size_t kSpatialBatchTargetInstances = 64;
-constexpr std::size_t kMaxSpatialBatchGridSide = 16;
-constexpr std::size_t kMaxSpatialBatchTargets = 768;
+constexpr std::size_t kSpatialBatchTargetInstances = 16;
+constexpr std::size_t kMaxSpatialBatchGridSide = 32;
+constexpr std::size_t kMaxSpatialBatchTargets = 2048;
 
 struct BatchTarget {
     std::size_t materialIndex {0};

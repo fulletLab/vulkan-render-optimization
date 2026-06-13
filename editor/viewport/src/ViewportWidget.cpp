@@ -281,10 +281,7 @@ void ViewportWidget::paintEvent(QPaintEvent* event)
 
 void ViewportWidget::mousePressEvent(QMouseEvent* event)
 {
-    if (mode_ == ViewportMode::Game) {
-        QWidget::mousePressEvent(event);
-        return;
-    }
+    if (mode_ == ViewportMode::Game) { handleGameMousePress(event); return; }
 
     setFocus(Qt::MouseFocusReason);
     lastMousePosition_ = event->position().toPoint();
@@ -332,10 +329,7 @@ void ViewportWidget::mousePressEvent(QMouseEvent* event)
 
 void ViewportWidget::mouseMoveEvent(QMouseEvent* event)
 {
-    if (mode_ == ViewportMode::Game) {
-        QWidget::mouseMoveEvent(event);
-        return;
-    }
+    if (mode_ == ViewportMode::Game) { handleGameMouseMove(event); return; }
 
     const auto currentPosition = event->position().toPoint();
     const auto delta = currentPosition - lastMousePosition_;
@@ -372,6 +366,8 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event)
 
 void ViewportWidget::mouseReleaseEvent(QMouseEvent* event)
 {
+    if (mode_ == ViewportMode::Game) { handleGameMouseRelease(event); return; }
+
     if (event->button() == Qt::RightButton && dragMode_ == DragMode::Look) {
         dragMode_ = DragMode::None;
         event->accept();
@@ -444,10 +440,7 @@ void ViewportWidget::wheelEvent(QWheelEvent* event)
 
 void ViewportWidget::keyPressEvent(QKeyEvent* event)
 {
-    if (mode_ == ViewportMode::Game) {
-        QWidget::keyPressEvent(event);
-        return;
-    }
+    if (mode_ == ViewportMode::Game) { if (!handleGameKey(event, true)) { QWidget::keyPressEvent(event); } return; }
 
     if (dragMode_ == DragMode::Look) {
         const auto fastMode = event->modifiers().testFlag(Qt::ShiftModifier);

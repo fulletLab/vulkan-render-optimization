@@ -149,12 +149,19 @@ void MainWindow::createToolbar()
             sceneViewport_->setMeshWireOverlayEnabled(enabled);
         }
     });
-    toolbar->addSeparator();
-    toolbar->addAction(QStringLiteral("Play"), this, [] {
-        core::logInfo(core::LogCategory::Editor, "Play command invoked");
+    auto* xrayAction = toolbar->addAction(QStringLiteral("XRay"));
+    xrayAction->setCheckable(true);
+    connect(xrayAction, &QAction::triggered, this, [this](bool enabled) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setAssetXrayDebugEnabled(enabled);
+        }
     });
-    toolbar->addAction(QStringLiteral("Pause"), this, [] {
-        core::logInfo(core::LogCategory::Editor, "Pause command invoked");
+    toolbar->addSeparator();
+    toolbar->addAction(QStringLiteral("Play"), this, [this] {
+        startPlayMode();
+    });
+    toolbar->addAction(QStringLiteral("Pause"), this, [this] {
+        stopPlayMode();
     });
     toolbar->addAction(QStringLiteral("Step"), this, [] {
         core::logInfo(core::LogCategory::Editor, "Step command invoked");
@@ -266,6 +273,14 @@ QWidget* MainWindow::createGameViewPanel()
     gameViewport_->setRenderer(renderer_.get());
     gameViewport_->setEnvironmentSettings(environmentSettings_);
     gameViewport_->setEditorSunLight(editorSunLight_);
+    gameViewport_->setTransformEditedCallback([this](scene::EntityId id) {
+        if (id == selectedEntityId_) {
+            updateInspector();
+        }
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->update();
+        }
+    });
     layout->addWidget(gameViewport_);
     return frame;
 }

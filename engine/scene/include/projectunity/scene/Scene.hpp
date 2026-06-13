@@ -62,6 +62,11 @@ struct CameraComponent {
     float farPlane {4000.0F};
 };
 
+struct ScriptComponent {
+    std::string scriptName {"FlyPlayerController"};
+    bool enabled {true};
+};
+
 struct Entity {
     EntityId id;
     std::optional<EntityId> parent;
@@ -71,6 +76,7 @@ struct Entity {
     std::optional<MeshRendererComponent> meshRenderer;
     std::optional<LightComponent> light;
     std::optional<CameraComponent> camera;
+    std::optional<ScriptComponent> script;
 };
 
 class Scene final {
@@ -94,6 +100,7 @@ public:
     [[nodiscard]] bool setMeshRenderer(EntityId id, std::optional<MeshRendererComponent> component);
     [[nodiscard]] bool setLight(EntityId id, std::optional<LightComponent> component);
     [[nodiscard]] bool setCamera(EntityId id, std::optional<CameraComponent> component);
+    [[nodiscard]] bool setScript(EntityId id, std::optional<ScriptComponent> component);
 
     [[nodiscard]] std::vector<EntityId> rootEntities() const;
     [[nodiscard]] const std::vector<Entity>& entities() const noexcept;

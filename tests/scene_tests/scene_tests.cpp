@@ -58,6 +58,11 @@ int main()
     if (!scene.setCamera(childId, camera)) {
         return fail("failed to set camera");
     }
+    ScriptComponent script;
+    script.scriptName = "FlyPlayerController";
+    if (!scene.setScript(childId, script)) {
+        return fail("failed to set script");
+    }
 
     const auto* parentRead = scene.findEntity(parentId);
     if (parentRead == nullptr || parentRead->children.size() != 1 || parentRead->children.front() != childId) {
@@ -116,6 +121,11 @@ int main()
         || loadedChild->camera->direction.z != 1.0F
         || loadedChild->camera->farPlane != 500.0F) {
         return fail("loaded camera component mismatch");
+    }
+    if (!loadedChild->script.has_value()
+        || loadedChild->script->scriptName != "FlyPlayerController"
+        || !loadedChild->script->enabled) {
+        return fail("loaded script component mismatch");
     }
 
     const auto path = std::filesystem::temp_directory_path() / "projectunity_scene_test.scene.json";

@@ -108,6 +108,13 @@ runtime cache replacement, or a full editor rewrite.
   400 MB terrain scenes and the 37 MB rock-cluster scene, with counters proving that
   invisible work is absent from resource prepare, shadows, binds, draw calls, and
   submitted triangles.
+- Dense-cluster LOD note: imported dense scenes now cook smaller spatial material
+  batches so close camera movement near one decorative cluster does not force a whole
+  coarse asset region into full-resolution LOD. Existing `.ffult` caches must be
+  regenerated from the source GLB/glTF to receive the finer batch layout.
+- Debug-view note: Scene View has an `XRay` toolbar toggle that renders imported meshes
+  semi-transparent and enables RenderWorld chunk bounds, making it easier to see which
+  batches/clusters/proxies are controlling LOD, occlusion, and selection behavior.
 
 ## Blocking Renderer Status
 

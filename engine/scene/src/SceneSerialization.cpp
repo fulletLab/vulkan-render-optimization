@@ -186,6 +186,12 @@ std::string Scene::serialize(std::string* errorMessage) const
                     {"farPlane", entity.camera->farPlane},
                 };
             }
+            if (entity.script.has_value()) {
+                item["script"] = {
+                    {"name", entity.script->scriptName},
+                    {"enabled", entity.script->enabled},
+                };
+            }
             root["entities"].push_back(std::move(item));
         }
 
@@ -329,6 +335,22 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     return false;
                 }
                 entity.camera = camera;
+            }
+
+            if (item.contains("script")) {
+                const auto& scriptJson = item.at("script");
+                if (!scriptJson.is_object()) {
+                    setError(errorMessage, "Scene script must be an object");
+                    return false;
+                }
+                ScriptComponent script;
+                script.scriptName = scriptJson.value("name", std::string {});
+                script.enabled = scriptJson.value("enabled", script.enabled);
+                if (script.scriptName.empty()) {
+                    setError(errorMessage, "Scene script name must be non-empty");
+                    return false;
+                }
+                entity.script = std::move(script);
             }
 
             indexById.emplace(entity.id.value(), loadedEntities.size());

@@ -278,6 +278,7 @@ struct RenderFrame {
     std::uint64_t shadowOnlyRejectedInstances {0};
     std::span<const RenderMeshDraw> shadowMeshDraws;
     std::span<const RenderMeshDraw> meshDraws;
+    float meshDebugOpacity {1.0F};
     bool meshWireOverlayEnabled {false};
     bool selectedMeshWireOverlayEnabled {false};
     std::uint64_t selectedMeshWireOverlaySceneNodeId {0};

@@ -9,6 +9,7 @@
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -77,6 +78,8 @@ public:
     [[nodiscard]] TransformSpace transformSpace() const noexcept;
     void setMeshWireOverlayEnabled(bool enabled);
     [[nodiscard]] bool meshWireOverlayEnabled() const noexcept;
+    void setAssetXrayDebugEnabled(bool enabled) { if (assetXrayDebugEnabled_ != enabled) { assetXrayDebugEnabled_ = enabled; update(); } }
+    [[nodiscard]] bool assetXrayDebugEnabled() const noexcept { return assetXrayDebugEnabled_; }
     void focusSelected();
 
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
@@ -84,6 +87,8 @@ public:
     [[nodiscard]] bool runSelfTest(QString* errorMessage);
     [[nodiscard]] const renderer::RendererStats* lastRendererStats() const noexcept;
     void setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians);
+    void setGameInputEnabled(bool enabled);
+    void setGameCameraEntity(scene::EntityId id);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -93,6 +98,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
 
 private:
     enum class DragMode {
@@ -135,6 +141,11 @@ private:
     [[nodiscard]] bool runGizmoDragSelfTest(ViewportTool tool, QString* errorMessage);
     [[nodiscard]] bool ensureRendererSurface();
     [[nodiscard]] bool renderRendererFrame();
+    [[nodiscard]] bool handleGameKey(QKeyEvent* event, bool pressed);
+    void handleGameMousePress(QMouseEvent* event);
+    void handleGameMouseMove(QMouseEvent* event);
+    void handleGameMouseRelease(QMouseEvent* event);
+    void tickGameScripts();
 
     void drawBackground(QPainter& painter) const;
     void drawDebugGeometry(QPainter& painter);
@@ -183,6 +194,14 @@ private:
     QTimer* rendererSurfaceResizeTimer_ {nullptr};
     bool gpuMeshFrameRendered_ {false};
     bool meshWireOverlayEnabled_ {false};
+    bool assetXrayDebugEnabled_ {false};
+    bool gameInputEnabled_ {false};
+    bool gameMouseLook_ {false};
+    std::array<bool, 7> gameKeys_ {};
+    float gameYawRadians_ {0.0F};
+    float gamePitchRadians_ {0.0F};
+    scene::EntityId gameCameraEntityId_;
+    QTimer* gameScriptTimer_ {nullptr};
     std::uint64_t cullingLogFrameCounter_ {0};
     std::uint64_t lastCullingLogFrame_ {0};
     std::uint64_t lastCullingLogSignature_ {0};
