@@ -25,7 +25,8 @@ For editor builds that need Qt discovery help, see `docs/qt_setup.md`.
 ## Current Phase
 
 Current active phase: Phase 6 asset pipeline / Vulkan imported-asset viewport.
-Status: PARCIAL / under review. Phase 6 must not be treated as complete yet.
+Status: PARCIAL / optimization a media / under review. Phase 6 must not be
+treated as complete yet.
 
 The importer, material preservation, Vulkan viewport path, shadows, culling,
 profiling counters, and large-scene optimization work are integrated, but the

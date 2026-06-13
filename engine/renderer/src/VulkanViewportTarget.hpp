@@ -83,6 +83,9 @@ struct VulkanViewportFrameProfile {
     std::uint64_t shadowCastersSubmitted {0};
     std::uint64_t shadowCandidateInstances {0};
     std::uint64_t shadowPolicyRejectedInstances {0};
+    std::uint64_t shadowVisibleInstances {0};
+    std::uint64_t shadowOnlyCandidateInstances {0};
+    std::uint64_t shadowOnlyRejectedInstances {0};
     std::uint64_t shadowBatchesSubmitted {0};
     std::uint64_t shadowInstancesSubmitted {0};
     std::uint64_t shadowTrianglesSubmitted {0};

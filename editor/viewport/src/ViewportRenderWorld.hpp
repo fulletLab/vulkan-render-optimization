@@ -55,6 +55,9 @@ struct ViewportRenderWorldStats {
     std::uint64_t occlusionRejectedTriangleCount {0};
     std::uint64_t shadowCandidateInstances {0};
     std::uint64_t shadowPolicyRejectedInstances {0};
+    std::uint64_t shadowVisibleInstances {0};
+    std::uint64_t shadowOnlyCandidateInstances {0};
+    std::uint64_t shadowOnlyRejectedInstances {0};
     std::uint64_t largeRenderChunkCount {0};
     std::uint64_t largestRenderChunkTriangleCount {0};
     std::uint64_t largestRenderChunkInstanceCount {0};
@@ -98,6 +101,7 @@ public:
 
     void collectShadowCasters(
         const renderer::RenderShadowMapSelection& shadowSelection,
+        const renderer::RenderLight* shadowLight,
         const ViewportRenderWorldCamera& camera,
         int viewportHeight,
         scene::EntityId selectedEntityId,

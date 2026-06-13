@@ -292,6 +292,9 @@ struct VulkanRenderer::Impl {
             stats.shadowCastersSubmitted = profile.shadowCastersSubmitted;
             stats.shadowCandidateInstances = profile.shadowCandidateInstances;
             stats.shadowPolicyRejectedInstances = profile.shadowPolicyRejectedInstances;
+            stats.shadowVisibleInstances = profile.shadowVisibleInstances;
+            stats.shadowOnlyCandidateInstances = profile.shadowOnlyCandidateInstances;
+            stats.shadowOnlyRejectedInstances = profile.shadowOnlyRejectedInstances;
             stats.shadowBatchesSubmitted = profile.shadowBatchesSubmitted;
             stats.shadowInstancesSubmitted = profile.shadowInstancesSubmitted;
             stats.shadowTrianglesSubmitted = profile.shadowTrianglesSubmitted;

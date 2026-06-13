@@ -192,9 +192,7 @@ void ViewportWidget::setShadowUpdateMode(renderer::RenderShadowUpdateMode mode)
     shadowUpdateMode_ = mode;
     if (mode == renderer::RenderShadowUpdateMode::Off) {
         frozenShadowSelection_.reset();
-        rendererShadowMeshDraws_.clear();
-        rendererShadowCandidateInstances_ = 0;
-        rendererShadowPolicyRejectedInstances_ = 0;
+        rendererShadowMeshDraws_.clear(); rendererShadowCandidateInstances_ = rendererShadowPolicyRejectedInstances_ = rendererShadowVisibleInstances_ = 0; rendererShadowOnlyCandidateInstances_ = rendererShadowOnlyRejectedInstances_ = 0;
     }
     update();
 }
@@ -271,9 +269,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.environment = environmentSettings_;
     rendererMeshDraws_.clear();
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Frozen) {
-        rendererShadowMeshDraws_.clear();
-        rendererShadowCandidateInstances_ = 0;
-        rendererShadowPolicyRejectedInstances_ = 0;
+        rendererShadowMeshDraws_.clear(); rendererShadowCandidateInstances_ = rendererShadowPolicyRejectedInstances_ = rendererShadowVisibleInstances_ = 0; rendererShadowOnlyCandidateInstances_ = rendererShadowOnlyRejectedInstances_ = 0;
     }
     rendererLights_.clear();
     bool hasMeshSceneContent = false;
@@ -517,27 +513,32 @@ bool ViewportWidget::renderRendererFrame()
     ViewportRenderWorldStats shadowStats;
     const auto canReuseFrozenShadowCasters = shadowUpdateMode_ == renderer::RenderShadowUpdateMode::Frozen
         && !rendererShadowMeshDraws_.empty();
+    const auto* shadowLight = shadowSelection.lightIndex < rendererLights_.size() ? &rendererLights_[shadowSelection.lightIndex] : nullptr;
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
         && shadowSelection.enabled
         && renderWorld_ != nullptr) {
         if (canReuseFrozenShadowCasters) {
             shadowStats.shadowCandidateInstances = rendererShadowCandidateInstances_;
-            shadowStats.shadowPolicyRejectedInstances = rendererShadowPolicyRejectedInstances_;
+            shadowStats.shadowPolicyRejectedInstances = rendererShadowPolicyRejectedInstances_; shadowStats.shadowVisibleInstances = rendererShadowVisibleInstances_;
+            shadowStats.shadowOnlyCandidateInstances = rendererShadowOnlyCandidateInstances_; shadowStats.shadowOnlyRejectedInstances = rendererShadowOnlyRejectedInstances_;
         } else {
             renderWorld_->collectShadowCasters(
                 shadowSelection,
+                shadowLight,
                 {cameraFrame.eye, cameraFrame.right, cameraFrame.up, cameraFrame.forward, cameraFrame.verticalFovRadians, cameraFrame.aspectRatio, cameraFrame.nearPlane, cameraFrame.farPlane},
                 height(),
                 selectedEntityId_,
                 rendererShadowMeshDraws_,
                 shadowStats);
             rendererShadowCandidateInstances_ = shadowStats.shadowCandidateInstances;
-            rendererShadowPolicyRejectedInstances_ = shadowStats.shadowPolicyRejectedInstances;
+            rendererShadowPolicyRejectedInstances_ = shadowStats.shadowPolicyRejectedInstances; rendererShadowVisibleInstances_ = shadowStats.shadowVisibleInstances;
+            rendererShadowOnlyCandidateInstances_ = shadowStats.shadowOnlyCandidateInstances; rendererShadowOnlyRejectedInstances_ = shadowStats.shadowOnlyRejectedInstances;
         }
     }
     frame.shadowUpdateMode = shadowUpdateMode_;
     frame.shadowCandidateInstances = shadowStats.shadowCandidateInstances;
-    frame.shadowPolicyRejectedInstances = shadowStats.shadowPolicyRejectedInstances;
+    frame.shadowPolicyRejectedInstances = shadowStats.shadowPolicyRejectedInstances; frame.shadowVisibleInstances = shadowStats.shadowVisibleInstances;
+    frame.shadowOnlyCandidateInstances = shadowStats.shadowOnlyCandidateInstances; frame.shadowOnlyRejectedInstances = shadowStats.shadowOnlyRejectedInstances;
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
         && !rendererShadowMeshDraws_.empty()
         && shadowSelection.enabled) {

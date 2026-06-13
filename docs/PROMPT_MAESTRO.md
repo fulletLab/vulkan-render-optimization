@@ -842,6 +842,13 @@ Trabajar fase por fase. No saltar fases. No marcar fase completa sin su Definiti
 18. Fase 18: RmlUi runtime UI.
 19. Fase 19: Polish Unity-like.
 
+Estado actual de continuidad:
+
+- Fase 6 / Asset Pipeline + Vulkan imported-asset optimization esta PARCIAL /
+  a media. No avanzar a Fase 7 como si estuviera terminada hasta resolver y
+  documentar los bloqueos actuales de `docs/phase6.md` y
+  `docs/renderer_status.md`.
+
 ## Regla De Continuidad
 
 Cuando aparezca un bug dentro de una fase:

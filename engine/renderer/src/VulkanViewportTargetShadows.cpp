@@ -111,6 +111,9 @@ bool VulkanViewportTarget::recordShadowPass(
     lastFrameProfile_.shadowUpdateMode = frame.shadowUpdateMode;
     lastFrameProfile_.shadowCandidateInstances = frame.shadowCandidateInstances;
     lastFrameProfile_.shadowPolicyRejectedInstances = frame.shadowPolicyRejectedInstances;
+    lastFrameProfile_.shadowVisibleInstances = frame.shadowVisibleInstances;
+    lastFrameProfile_.shadowOnlyCandidateInstances = frame.shadowOnlyCandidateInstances;
+    lastFrameProfile_.shadowOnlyRejectedInstances = frame.shadowOnlyRejectedInstances;
     const auto hasShadowCaster = std::any_of(shadowMeshBatches_.begin(), shadowMeshBatches_.end(), [](const VulkanMeshDrawBatch& batch) {
         return batch.draw != nullptr
             && batch.draw->castsShadow

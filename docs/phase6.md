@@ -17,11 +17,19 @@ Phase 6 covers:
 
 ## Status
 
-Status: PARCIAL
+Status: PARCIAL / OPTIMIZATION A MEDIA
 
 The imported-asset path is functional and covered by automated tests/smokes, but
 large-world performance and visual parity for extreme third-party scenes still need
 broader manual viewport verification before Phase 6 can be called complete again.
+The Phase 6 optimization track is explicitly not complete: current Vulkan culling,
+batching, runtime LOD, `.ffult` cache, shadow counters, and offscreen shadow-caster
+filtering are integrated work-in-progress pieces, not a finished performance pass.
+Known review items include close-camera behavior on dense rock clusters, shadow-only
+caster stability, micro-stutter with duplicated 400 MB assets, precise picking for
+large imported scenes, and same-frame proof that culled/occluded content no longer
+reaches resource preparation, shadow submission, descriptor/buffer binds, or
+`vkCmdDrawIndexed`.
 
 ## Phase 6.0.01 Research Baseline
 
@@ -95,6 +103,11 @@ runtime cache replacement, or a full editor rewrite.
   the expensive detailed path. Overview generation now requires a valid simplified LOD,
   keeps complete triangle topology, applies a bounded 500k-triangle build budget, and can
   remain enabled for large terrain without modifying the authored asset.
+- Current optimization review note: Phase 6.0.02 remains a media. Do not mark it
+  complete until Release validation shows stable FPS/frame pacing for duplicated
+  400 MB terrain scenes and the 37 MB rock-cluster scene, with counters proving that
+  invisible work is absent from resource prepare, shadows, binds, draw calls, and
+  submitted triangles.
 
 ## Blocking Renderer Status
 

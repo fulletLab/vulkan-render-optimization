@@ -3,11 +3,13 @@
 #include "ViewportMeshLod.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
+#include "ViewportRendererCulling.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <optional>
 
 namespace projectunity::editor {
@@ -48,6 +50,56 @@ namespace {
         : nullptr;
 }
 
+[[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback) noexcept
+{
+    const auto valueLength = value.length();
+    if (valueLength <= 0.00001F || !std::isfinite(valueLength)) {
+        return fallback;
+    }
+    return value / valueLength;
+}
+
+[[nodiscard]] ViewportWorldBounds sphereBounds(math::Vec3 center, float radius) noexcept
+{
+    assets::MeshBounds bounds;
+    bounds.minimum = center - math::Vec3 {radius, radius, radius};
+    bounds.maximum = center + math::Vec3 {radius, radius, radius};
+    return transformViewportBounds(renderer::RenderMatrix4 {}, bounds);
+}
+
+[[nodiscard]] bool sphereVisibleInCamera(math::Vec3 center, float radius, const ViewportRenderWorldCamera& camera)
+{
+    return viewportBoundsVisible(
+        sphereBounds(center, radius),
+        camera.eye,
+        camera.right,
+        camera.up,
+        camera.forward,
+        camera.verticalFovRadians,
+        camera.aspectRatio,
+        camera.nearPlane,
+        camera.farPlane);
+}
+
+[[nodiscard]] float shadowProjectionReach(
+    const renderer::RenderShadowMapSelection& selection,
+    const ViewportRenderWorldCamera& camera) noexcept
+{
+    float reach = 0.0F;
+    for (const auto split : selection.cascadeSplits) {
+        if (std::isfinite(split)) {
+            reach = std::max(reach, split);
+        }
+    }
+    if (reach <= 0.0F && std::isfinite(selection.depthFarPlane)) {
+        reach = selection.depthFarPlane;
+    }
+    if (reach <= 0.0F) {
+        reach = std::min(camera.farPlane, 256.0F);
+    }
+    return std::clamp(reach * 2.5F, 32.0F, std::max(camera.farPlane, 32.0F));
+}
+
 template<typename Instance>
 [[nodiscard]] bool instanceIntersectsShadowSelection(
     const renderer::RenderShadowMapSelection& selection,
@@ -70,10 +122,34 @@ template<typename Instance>
     return false;
 }
 
+template<typename Instance>
+[[nodiscard]] bool offscreenDirectionalShadowMayReachCamera(
+    const renderer::RenderShadowMapSelection& selection,
+    const renderer::RenderLight* light,
+    const ViewportRenderWorldCamera& camera,
+    const Instance& instance)
+{
+    if (light == nullptr || light->type != renderer::RenderLightType::Directional) {
+        return true;
+    }
+    const auto direction = safeNormalized(
+        {light->direction[0], light->direction[1], light->direction[2]},
+        {0.35F, -0.82F, 0.45F});
+    const auto reach = shadowProjectionReach(selection, camera);
+    constexpr std::array<float, 6> kSamples {0.08F, 0.18F, 0.32F, 0.50F, 0.72F, 1.0F};
+    for (const auto sample : kSamples) {
+        if (sphereVisibleInCamera(instance.worldBounds.center + direction * (reach * sample), instance.worldBounds.radius, camera)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 void ViewportRenderWorld::collectShadowCasters(
     const renderer::RenderShadowMapSelection& shadowSelection,
+    const renderer::RenderLight* shadowLight,
     const ViewportRenderWorldCamera& camera,
     int viewportHeight,
     scene::EntityId selectedEntityId,
@@ -100,6 +176,25 @@ void ViewportRenderWorld::collectShadowCasters(
             const auto& material = instance.model->materials[primitive.materialIndex];
             if (material.alphaMode == assets::MaterialAlphaMode::Blend) {
                 continue;
+            }
+            const auto visibleToCamera = viewportBoundsVisible(
+                instance.worldBounds,
+                camera.eye,
+                camera.right,
+                camera.up,
+                camera.forward,
+                camera.verticalFovRadians,
+                camera.aspectRatio,
+                camera.nearPlane,
+                camera.farPlane);
+            if (visibleToCamera) {
+                ++stats.shadowVisibleInstances;
+            } else {
+                ++stats.shadowOnlyCandidateInstances;
+                if (!offscreenDirectionalShadowMayReachCamera(shadowSelection, shadowLight, camera, instance)) {
+                    ++stats.shadowOnlyRejectedInstances;
+                    continue;
+                }
             }
             const auto cameraDistance = (instance.worldBounds.center - camera.eye).length();
             const auto sortDepth = std::max(cameraDistance, camera.nearPlane);

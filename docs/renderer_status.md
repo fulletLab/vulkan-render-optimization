@@ -4,11 +4,16 @@ Date: 2026-05-24
 
 ## Current State
 
-Status: PARCIAL / under review
+Status: PARCIAL / optimization a media / under review
 
 The renderer path has substantial Phase 6 functionality, but it is not a closed
 phase while representative large-scene Vulkan visibility/performance issues remain
 under review.
+The current optimization pass is deliberately marked halfway/partial: culling,
+batching, runtime LOD, `.ffult` asset cooking, shadow counters, and offscreen
+shadow-caster filtering are integrated, but duplicated heavy assets still need
+Release viewport validation for close-camera FPS, shadow stability, frame pacing,
+and same-frame Vulkan call reduction.
 
 Phase 6.0.01 research notes for Vulkan optimization are recorded in
 `docs/phase6_0_01_vulkan_optimization_notes.md`. They are guidance for future

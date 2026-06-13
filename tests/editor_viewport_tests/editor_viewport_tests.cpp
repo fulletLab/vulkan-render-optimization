@@ -274,7 +274,7 @@ int main()
     shadowAssets.modelAsset = testShadowCasterModel();
     projectunity::scene::Scene shadowScene;
     auto& offscreenCaster = shadowScene.createEntity("Offscreen Caster");
-    offscreenCaster.transform.position = {20.0F, 0.0F, 10.0F};
+    offscreenCaster.transform.position = {0.0F, 20.0F, 10.0F};
     projectunity::scene::MeshRendererComponent meshRenderer;
     meshRenderer.modelAssetId = shadowAssets.modelAsset->id;
     offscreenCaster.meshRenderer = meshRenderer;
@@ -302,18 +302,37 @@ int main()
     projectunity::editor::ViewportRenderWorldStats shadowCasterStats;
     shadowWorld.collectShadowCasters(
         shadowSelection,
+        &sun,
         camera,
         1080,
         {},
         shadowDraws,
         shadowCasterStats);
     if (shadowDraws.empty() || shadowCasterStats.shadowCandidateInstances == 0U) {
-        return fail("Viewport shadow caster collection ignored an offscreen caster inside the shadow volume");
+        return fail("Viewport shadow caster collection ignored an offscreen caster whose projected shadow reaches the camera");
+    }
+    if (shadowCasterStats.shadowOnlyCandidateInstances == 0U || shadowCasterStats.shadowOnlyRejectedInstances != 0U) {
+        return fail("Viewport shadow caster collection did not track accepted offscreen shadow casters");
+    }
+
+    projectunity::scene::Scene rejectedShadowScene;
+    auto& rejectedCaster = rejectedShadowScene.createEntity("Rejected Offscreen Caster");
+    rejectedCaster.transform.position = {20.0F, 0.0F, 10.0F};
+    rejectedCaster.meshRenderer = meshRenderer;
+    projectunity::editor::ViewportRenderWorld rejectedShadowWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> rejectedColorDraws;
+    std::vector<projectunity::renderer::RenderMeshDraw> rejectedShadowDraws;
+    std::vector<projectunity::renderer::RenderLight> rejectedLights;
+    (void)rejectedShadowWorld.buildFrame(&rejectedShadowScene, &shadowAssets, {}, camera, {}, 1080, rejectedColorDraws, rejectedLights);
+    projectunity::editor::ViewportRenderWorldStats rejectedShadowStats;
+    rejectedShadowWorld.collectShadowCasters(shadowSelection, &sun, camera, 1080, {}, rejectedShadowDraws, rejectedShadowStats);
+    if (!rejectedShadowDraws.empty() || rejectedShadowStats.shadowOnlyRejectedInstances == 0U) {
+        return fail("Viewport shadow caster collection kept an offscreen caster whose projected shadow misses the camera");
     }
 
     projectunity::scene::Scene shadowBudgetScene;
     auto& importantCaster = shadowBudgetScene.createEntity("Important Shadow Caster");
-    importantCaster.transform.position = {20.0F, 0.0F, 10.0F};
+    importantCaster.transform.position = {0.0F, 20.0F, 10.0F};
     importantCaster.transform.scale = {8.0F, 8.0F, 8.0F};
     importantCaster.meshRenderer = meshRenderer;
     const auto importantCasterId = importantCaster.id.value();
@@ -348,6 +367,7 @@ int main()
     projectunity::editor::ViewportRenderWorldStats upwardShadowStats;
     shadowBudgetWorld.collectShadowCasters(
         shadowBudgetSelection,
+        &sun,
         camera,
         1080,
         {},
@@ -355,6 +375,7 @@ int main()
         forwardShadowStats);
     shadowBudgetWorld.collectShadowCasters(
         shadowBudgetSelection,
+        &sun,
         upwardCamera,
         1080,
         {},
