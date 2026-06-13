@@ -32,6 +32,7 @@ qt_add_executable(projectunity_editor
     src/MainWindowCullingProfile.cpp
     src/MainWindowLighting.cpp
     src/MainWindowPanels.cpp
+    src/MainWindowPlay.cpp
     src/MainWindowProfiler.cpp
     src/MainWindowSmoke.cpp
     include/projectunity/editor/EditorApp.hpp

@@ -383,6 +383,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     const ViewportRenderWorldCamera& camera,
     const renderer::RenderMatrix4& viewProjection,
     int viewportHeight,
+    bool runtimeSnapshot,
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     std::vector<renderer::RenderLight>& lights)
 {
@@ -400,12 +401,13 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     result.stats.sceneNodeCount = scene->entityCount();
     const ViewportSceneEntityLookup entityLookup(*scene);
     bool recordsChanged = false;
-    if (scene_ != scene || assetManager_ != assetManager || dirty_) {
+    if (scene_ != scene || assetManager_ != assetManager || runtimeSnapshot_ != runtimeSnapshot || dirty_) {
         records_.clear();
         orderedRecords_.clear();
         overviewRecords_.clear();
         scene_ = scene;
         assetManager_ = assetManager;
+        runtimeSnapshot_ = runtimeSnapshot;
         dirty_ = false;
         recordsChanged = true;
     }
@@ -414,7 +416,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     std::unordered_map<std::uint64_t, std::vector<const scene::Entity*>> primitiveProxyEntitiesByOwner;
     primitiveProxyEntities.reserve(scene->entityCount());
     for (const auto& entity : scene->entities()) {
-        if (entity.meshRenderer.has_value()
+        if (!runtimeSnapshot && entity.meshRenderer.has_value()
             && !entity.meshRenderer->renderable
             && entity.id != selectedEntityId) {
             const auto proxyModel = assetManager->model(entity.meshRenderer->modelAssetId);
@@ -437,6 +439,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     visited.reserve(scene->entityCount());
     orderedRecords_.clear();
     for (const auto& entity : scene->entities()) {
+        if (runtimeSnapshot && entity.meshRenderer.has_value() && !entity.meshRenderer->renderable) { continue; }
         if (entity.light.has_value()) {
             const auto worldPosition = entityLookup.worldPosition(entity.id);
             if (!worldPosition.has_value()) {
@@ -524,7 +527,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
 
     ViewportFrameBounds visibleBounds;
     std::uint64_t visibleSourceTriangleCount = 0;
-    const auto selectedPrimitiveEntity = selectedEntityId.isValid() ? entityLookup.find(selectedEntityId) : nullptr;
+    const auto selectedPrimitiveEntity = !runtimeSnapshot && selectedEntityId.isValid() ? entityLookup.find(selectedEntityId) : nullptr;
     assets::AssetId selectedPrimitiveModel;
     auto selectedPrimitiveIndex = UINT32_MAX;
     if (selectedPrimitiveEntity != nullptr && selectedPrimitiveEntity->meshRenderer.has_value()) {
@@ -761,16 +764,18 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             }
         }
     }
-    appendSelectedPrimitiveOverrideDraw(
-        *scene,
-        *assetManager,
-        selectedEntityId,
-        camera,
-        viewProjection,
-        meshDraws,
-        result.stats,
-        visibleBounds,
-        visibleSourceTriangleCount);
+    if (!runtimeSnapshot) {
+        appendSelectedPrimitiveOverrideDraw(
+            *scene,
+            *assetManager,
+            selectedEntityId,
+            camera,
+            viewProjection,
+            meshDraws,
+            result.stats,
+            visibleBounds,
+            visibleSourceTriangleCount);
+    }
 
     applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, result.stats);
 

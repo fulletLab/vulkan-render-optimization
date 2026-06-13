@@ -1,5 +1,7 @@
 #include <projectunity/editor/ViewportWidget.hpp>
 
+#include "ViewportRenderWorld.hpp"
+
 #include <projectunity/core/Log.hpp>
 
 #include <QKeyEvent>
@@ -105,6 +107,18 @@ void ViewportWidget::setGameCameraEntity(scene::EntityId id)
     const auto forward = safeNormalized(entity->camera->direction, {0.0F, 0.0F, 1.0F});
     gameYawRadians_ = std::atan2(forward.x, forward.z);
     gamePitchRadians_ = std::asin(std::clamp(forward.y, -1.0F, 1.0F));
+}
+
+void ViewportWidget::setGameRuntimeSnapshotEnabled(bool enabled)
+{
+    if (gameRuntimeSnapshotEnabled_ == enabled) {
+        return;
+    }
+    gameRuntimeSnapshotEnabled_ = enabled;
+    if (renderWorld_ != nullptr) {
+        renderWorld_->markDirty();
+    }
+    update();
 }
 
 bool ViewportWidget::handleGameKey(QKeyEvent* event, bool pressed)

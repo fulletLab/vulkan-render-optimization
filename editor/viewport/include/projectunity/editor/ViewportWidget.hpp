@@ -89,6 +89,7 @@ public:
     void setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians);
     void setGameInputEnabled(bool enabled);
     void setGameCameraEntity(scene::EntityId id);
+    void setGameRuntimeSnapshotEnabled(bool enabled);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -196,6 +197,7 @@ private:
     bool meshWireOverlayEnabled_ {false};
     bool assetXrayDebugEnabled_ {false};
     bool gameInputEnabled_ {false};
+    bool gameRuntimeSnapshotEnabled_ {false};
     bool gameMouseLook_ {false};
     std::array<bool, 7> gameKeys_ {};
     float gameYawRadians_ {0.0F};

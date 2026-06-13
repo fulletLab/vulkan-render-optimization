@@ -73,13 +73,16 @@ private:
     bool saveSceneToPath(const QString& path);
     bool loadSceneFromPath(const QString& path);
     projectunity::scene::EntityId createEmptyEntity(const QString& name);
+    projectunity::scene::EntityId createPlayerEntity();
     void deleteSelectedEntity();
     void duplicateSelectedEntity();
     void selectEntity(projectunity::scene::EntityId id);
     void clearSelection();
     void startPlayMode();
     void stopPlayMode();
-    [[nodiscard]] projectunity::scene::EntityId ensureFlyPlayerEntity();
+    [[nodiscard]] projectunity::scene::EntityId findPlayableCameraEntity() const;
+    void attachFlyPlayerControllerToSelection();
+    void removeScriptFromSelection();
     void ensureFlyPlayerScriptAsset();
     void rebuildHierarchy();
     void addEntityToHierarchy(QTreeWidgetItem* parentItem, projectunity::scene::EntityId id);
@@ -130,6 +133,7 @@ private:
     QLabel* componentSummary_ {nullptr};
     QPushButton* deleteEntityButton_ {nullptr};
     QPushButton* duplicateEntityButton_ {nullptr};
+    QPushButton* addComponentButton_ {nullptr};
     QPlainTextEdit* consoleView_ {nullptr};
     QTableWidget* assetTable_ {nullptr};
     QLabel* assetImportStatus_ {nullptr};

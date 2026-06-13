@@ -42,7 +42,6 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <utility>
 
 namespace projectunity::editor {
@@ -369,83 +368,6 @@ scene::EntityId MainWindow::createEmptyEntity(const QString& name)
     return id;
 }
 
-void MainWindow::ensureFlyPlayerScriptAsset()
-{
-    const auto scriptsDir = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets" / "Scripts";
-    std::error_code errorCode;
-    std::filesystem::create_directories(scriptsDir, errorCode);
-    const auto scriptPath = scriptsDir / "FlyPlayerController.cpp";
-    if (std::filesystem::exists(scriptPath)) {
-        return;
-    }
-    std::ofstream script(scriptPath, std::ios::binary | std::ios::trunc);
-    script
-        << "// ProjectUnity C++ gameplay script template.\n"
-        << "// Runtime binding: attach ScriptComponent name \"FlyPlayerController\" to an entity with a Camera.\n"
-        << "// Controls in Game View: right mouse look, WASD move, Q/E down/up, Shift fast.\n\n"
-        << "struct FlyPlayerController {\n"
-        << "    float moveSpeed = 7.5f;\n"
-        << "    float fastMultiplier = 3.0f;\n"
-        << "    float lookSensitivity = 0.0035f;\n"
-        << "};\n";
-}
-
-scene::EntityId MainWindow::ensureFlyPlayerEntity()
-{
-    ensureFlyPlayerScriptAsset();
-    for (const auto& entity : scene_.entities()) {
-        if (entity.script.has_value()
-            && entity.script->enabled
-            && entity.script->scriptName == "FlyPlayerController"
-            && entity.camera.has_value()) {
-            return entity.id;
-        }
-    }
-
-    auto& player = scene_.createEntity("Player");
-    scene::TransformComponent transform;
-    transform.position = {0.0F, 3.0F, -10.0F};
-    (void)scene_.setTransform(player.id, transform);
-    scene::CameraComponent camera;
-    camera.direction = {0.0F, 0.0F, 1.0F};
-    camera.right = {1.0F, 0.0F, 0.0F};
-    camera.up = {0.0F, 1.0F, 0.0F};
-    camera.verticalFovRadians = 1.04719755F;
-    camera.nearPlane = 0.05F;
-    camera.farPlane = 4000.0F;
-    (void)scene_.setCamera(player.id, camera);
-    scene::ScriptComponent script;
-    script.scriptName = "FlyPlayerController";
-    (void)scene_.setScript(player.id, script);
-    core::logInfo(core::LogCategory::Editor, "Fly Player entity created");
-    return player.id;
-}
-
-void MainWindow::startPlayMode()
-{
-    const auto playerId = ensureFlyPlayerEntity();
-    playModeActive_ = true;
-    rebuildHierarchy();
-    selectEntity(playerId);
-    if (gameViewport_ != nullptr) {
-        gameViewport_->setGameCameraEntity(playerId);
-        gameViewport_->setGameInputEnabled(true);
-        gameViewport_->setFocus(Qt::OtherFocusReason);
-    }
-    statusBar()->showMessage(QStringLiteral("Play: FlyPlayerController active"));
-    core::logInfo(core::LogCategory::Editor, "Play mode started with FlyPlayerController");
-}
-
-void MainWindow::stopPlayMode()
-{
-    playModeActive_ = false;
-    if (gameViewport_ != nullptr) {
-        gameViewport_->setGameInputEnabled(false);
-        gameViewport_->setGameCameraEntity({});
-    }
-    statusBar()->showMessage(QStringLiteral("Play stopped"));
-}
-
 void MainWindow::deleteSelectedEntity()
 {
     if (!selectedEntityId_.isValid()) {
@@ -623,6 +545,9 @@ void MainWindow::updateInspector()
     if (duplicateEntityButton_ != nullptr) {
         duplicateEntityButton_->setEnabled(hasSelection);
     }
+    if (addComponentButton_ != nullptr) {
+        addComponentButton_->setEnabled(hasSelection);
+    }
 
     inspectorUpdating_ = false;
 }
@@ -769,8 +694,9 @@ void MainWindow::refreshViewports()
         gameViewport_->setScene(&scene_);
         gameViewport_->setSelectedEntity(selectedEntityId_);
         if (playModeActive_) {
-            gameViewport_->setGameCameraEntity(ensureFlyPlayerEntity());
+            gameViewport_->setGameCameraEntity(findPlayableCameraEntity());
             gameViewport_->setGameInputEnabled(true);
+            gameViewport_->setGameRuntimeSnapshotEnabled(true);
         }
     }
 }

@@ -96,6 +96,7 @@ public:
         const ViewportRenderWorldCamera& camera,
         const renderer::RenderMatrix4& viewProjection,
         int viewportHeight,
+        bool runtimeSnapshot,
         std::vector<renderer::RenderMeshDraw>& meshDraws,
         std::vector<renderer::RenderLight>& lights);
 
@@ -138,6 +139,7 @@ private:
     const scene::Scene* scene_ {nullptr};
     const assets::IAssetManager* assetManager_ {nullptr};
     bool dirty_ {true};
+    bool runtimeSnapshot_ {false};
     std::uint64_t lastDebugSignature_ {0};
     std::unordered_map<std::uint64_t, std::shared_ptr<EntityRecord>> records_;
     std::vector<const EntityRecord*> orderedRecords_;

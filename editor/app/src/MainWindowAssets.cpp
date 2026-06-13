@@ -173,9 +173,10 @@ bool MainWindow::handleAssetImportResult(const assets::AssetImportResult& result
     rebuildAssetBrowser();
     if (assetTable_ != nullptr) {
         const auto records = assetManager_.records();
+        const auto assetRowOffset = assetTable_->rowCount() - static_cast<int>(records.size());
         for (int row = 0; row < static_cast<int>(records.size()); ++row) {
             if (records[static_cast<std::size_t>(row)].id == result.record.id) {
-                assetTable_->setCurrentCell(row, 0);
+                assetTable_->setCurrentCell(assetRowOffset + row, 0);
                 break;
             }
         }
@@ -207,15 +208,38 @@ void MainWindow::rebuildAssetBrowser()
     if (assetTable_ == nullptr) {
         return;
     }
+    ensureFlyPlayerScriptAsset();
+    std::vector<std::filesystem::path> scriptFiles;
+    const auto scriptsDir = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets" / "Scripts";
+    std::error_code errorCode;
+    if (std::filesystem::exists(scriptsDir, errorCode)) {
+        for (const auto& entry : std::filesystem::directory_iterator(scriptsDir, errorCode)) {
+            if (!entry.is_regular_file(errorCode) || entry.path().extension() != ".cpp") {
+                continue;
+            }
+            scriptFiles.push_back(entry.path());
+        }
+    }
     const auto records = assetManager_.records();
-    assetTable_->setRowCount(static_cast<int>(records.size()));
+    assetTable_->setRowCount(static_cast<int>(records.size() + scriptFiles.size()));
+    for (std::size_t index = 0; index < scriptFiles.size(); ++index) {
+        const auto row = static_cast<int>(index);
+        const auto& path = scriptFiles[index];
+        assetTable_->setItem(row, 0, new QTableWidgetItem(QString::fromStdWString(path.stem().wstring())));
+        assetTable_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("Script")));
+        assetTable_->setItem(row, 2, new QTableWidgetItem(QString::fromStdWString(path.filename().wstring())));
+        assetTable_->setItem(row, 3, new QTableWidgetItem(QStringLiteral("Project/Assets/Scripts")));
+        assetTable_->setItem(row, 4, new QTableWidgetItem(QStringLiteral("-")));
+    }
+    const auto recordRowOffset = static_cast<int>(scriptFiles.size());
     for (int row = 0; row < static_cast<int>(records.size()); ++row) {
         const auto& record = records[static_cast<std::size_t>(row)];
-        assetTable_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(record.displayName)));
-        assetTable_->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(assets::toString(record.type))));
-        assetTable_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(record.sourceName)));
-        assetTable_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(record.cacheFile)));
-        assetTable_->setItem(row, 4, new QTableWidgetItem(QString::number(static_cast<qulonglong>(record.vertexCount))));
+        const auto tableRow = recordRowOffset + row;
+        assetTable_->setItem(tableRow, 0, new QTableWidgetItem(QString::fromStdString(record.displayName)));
+        assetTable_->setItem(tableRow, 1, new QTableWidgetItem(QString::fromUtf8(assets::toString(record.type))));
+        assetTable_->setItem(tableRow, 2, new QTableWidgetItem(QString::fromStdString(record.sourceName)));
+        assetTable_->setItem(tableRow, 3, new QTableWidgetItem(QString::fromStdString(record.cacheFile)));
+        assetTable_->setItem(tableRow, 4, new QTableWidgetItem(QString::number(static_cast<qulonglong>(record.vertexCount))));
     }
 }
 

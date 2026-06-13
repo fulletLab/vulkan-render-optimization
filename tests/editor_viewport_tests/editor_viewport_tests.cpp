@@ -289,6 +289,7 @@ int main()
         camera,
         {},
         1080,
+        false,
         colorDraws,
         sceneLights);
     if (!colorDraws.empty()) {
@@ -323,7 +324,7 @@ int main()
     std::vector<projectunity::renderer::RenderMeshDraw> rejectedColorDraws;
     std::vector<projectunity::renderer::RenderMeshDraw> rejectedShadowDraws;
     std::vector<projectunity::renderer::RenderLight> rejectedLights;
-    (void)rejectedShadowWorld.buildFrame(&rejectedShadowScene, &shadowAssets, {}, camera, {}, 1080, rejectedColorDraws, rejectedLights);
+    (void)rejectedShadowWorld.buildFrame(&rejectedShadowScene, &shadowAssets, {}, camera, {}, 1080, false, rejectedColorDraws, rejectedLights);
     projectunity::editor::ViewportRenderWorldStats rejectedShadowStats;
     rejectedShadowWorld.collectShadowCasters(shadowSelection, &sun, camera, 1080, {}, rejectedShadowDraws, rejectedShadowStats);
     if (!rejectedShadowDraws.empty() || rejectedShadowStats.shadowOnlyRejectedInstances == 0U) {
@@ -355,6 +356,7 @@ int main()
         camera,
         {},
         1080,
+        false,
         shadowBudgetColorDraws,
         shadowBudgetLights);
     const auto shadowBudgetSelection = projectunity::renderer::chooseShadowMap(sunLights, {0.0F, 0.0F, 18.0F}, 120.0F);

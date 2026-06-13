@@ -249,11 +249,13 @@ void MainWindow::useSelectedTextureAsEnvironment()
     }
     const auto row = assetTable_->currentRow();
     const auto records = assetManager_.records();
-    if (row < 0 || row >= static_cast<int>(records.size())) {
+    const auto assetRowOffset = assetTable_->rowCount() - static_cast<int>(records.size());
+    const auto recordRow = row - assetRowOffset;
+    if (recordRow < 0 || recordRow >= static_cast<int>(records.size())) {
         core::logWarning(core::LogCategory::Editor, "Select a Texture2D row in Project Browser before pressing Use Project Texture");
         return;
     }
-    const auto& record = records[static_cast<std::size_t>(row)];
+    const auto& record = records[static_cast<std::size_t>(recordRow)];
     if (record.type != assets::AssetType::Texture2D) {
         core::logWarning(core::LogCategory::Editor, "Selected Project asset is not a Texture2D environment source");
         return;

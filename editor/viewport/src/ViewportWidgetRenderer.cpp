@@ -383,13 +383,14 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.nearPlane,
             cameraFrame.farPlane,
         };
-        const auto renderWorldFrame = renderWorld_->buildFrame(
+        const auto runtimeSnapshot = mode_ == ViewportMode::Game && gameRuntimeSnapshotEnabled_; const auto renderWorldFrame = renderWorld_->buildFrame(
             scene_,
             assetManager_,
-            selectedEntityId_,
+            runtimeSnapshot ? scene::EntityId {} : selectedEntityId_,
             renderWorldCamera,
             viewProjection,
             height(),
+            runtimeSnapshot,
             rendererMeshDraws_,
             rendererLights_);
         frame.renderWorldBuildCpuTimeUs = elapsedUs(renderWorldStart);
@@ -526,7 +527,7 @@ bool ViewportWidget::renderRendererFrame()
                 shadowLight,
                 {cameraFrame.eye, cameraFrame.right, cameraFrame.up, cameraFrame.forward, cameraFrame.verticalFovRadians, cameraFrame.aspectRatio, cameraFrame.nearPlane, cameraFrame.farPlane},
                 height(),
-                selectedEntityId_,
+                (mode_ == ViewportMode::Game && gameRuntimeSnapshotEnabled_) ? scene::EntityId {} : selectedEntityId_,
                 rendererShadowMeshDraws_,
                 shadowStats);
             rendererShadowCandidateInstances_ = shadowStats.shadowCandidateInstances;

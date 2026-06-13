@@ -18,8 +18,10 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMenuBar>
 #include <QPlainTextEdit>
+#include <QPoint>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
@@ -79,6 +81,9 @@ void MainWindow::createMenus()
     auto* gameObjectMenu = menuBar()->addMenu(QStringLiteral("&GameObject"));
     gameObjectMenu->addAction(QStringLiteral("Create Empty"), this, [this] {
         createEmptyEntity(QStringLiteral("GameObject"));
+    });
+    gameObjectMenu->addAction(QStringLiteral("Player"), this, [this] {
+        createPlayerEntity();
     });
     gameObjectMenu->addAction(QStringLiteral("Duplicate"), this, [this] {
         duplicateSelectedEntity();
@@ -369,7 +374,17 @@ QWidget* MainWindow::createInspectorPanel()
     layout->addLayout(form);
 
     auto* addComponent = makeToolButton(QStringLiteral("Add Component"));
-    addComponent->setEnabled(false);
+    connect(addComponent, &QPushButton::clicked, this, [this, addComponent] {
+        QMenu menu(addComponent);
+        menu.addAction(QStringLiteral("FlyPlayerController"), this, [this] {
+            attachFlyPlayerControllerToSelection();
+        });
+        menu.addAction(QStringLiteral("Remove Script"), this, [this] {
+            removeScriptFromSelection();
+        });
+        menu.exec(addComponent->mapToGlobal(QPoint(0, addComponent->height())));
+    });
+    addComponentButton_ = addComponent;
     layout->addWidget(addComponent);
     layout->addStretch();
 
