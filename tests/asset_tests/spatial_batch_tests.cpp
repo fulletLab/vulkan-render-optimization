@@ -130,6 +130,78 @@ bool writeDenseSpatialGlb(const std::filesystem::path& path)
     return writeBinary(path, glb);
 }
 
+bool writeWideSinglePrimitiveGlb(const std::filesystem::path& path)
+{
+    constexpr std::uint32_t columns = 40U;
+    constexpr std::uint32_t rows = 16U;
+    constexpr std::uint32_t triangleCount = columns * rows;
+    constexpr std::uint32_t vertexCount = triangleCount * 3U;
+    std::vector<std::uint8_t> binary;
+
+    const auto posOffset = align4(binary);
+    for (std::uint32_t index = 0; index < triangleCount; ++index) {
+        const auto column = index % columns;
+        const auto row = index / columns;
+        const auto x = static_cast<float>(column) * 2.0F;
+        const auto z = static_cast<float>(row) * 2.0F;
+        const std::array<float, 9> positions {{x, 0.0F, z, x + 0.8F, 0.0F, z, x, 0.6F, z + 0.8F}};
+        for (const auto value : positions) {
+            appendFloat(binary, value);
+        }
+    }
+    const auto posLength = static_cast<std::uint32_t>(binary.size() - posOffset);
+
+    const auto normalOffset = align4(binary);
+    for (std::uint32_t vertex = 0; vertex < vertexCount; ++vertex) {
+        appendFloat(binary, 0.0F); appendFloat(binary, 1.0F); appendFloat(binary, 0.0F);
+    }
+    const auto normalLength = static_cast<std::uint32_t>(binary.size() - normalOffset);
+
+    const auto uvOffset = align4(binary);
+    for (std::uint32_t vertex = 0; vertex < vertexCount; ++vertex) {
+        appendFloat(binary, 0.0F); appendFloat(binary, 0.0F);
+    }
+    const auto uvLength = static_cast<std::uint32_t>(binary.size() - uvOffset);
+
+    const auto indexOffset = align4(binary);
+    for (std::uint32_t vertex = 0; vertex < vertexCount; ++vertex) {
+        appendU32(binary, vertex);
+    }
+    const auto indexLength = static_cast<std::uint32_t>(binary.size() - indexOffset);
+
+    const auto maxX = static_cast<float>(columns - 1U) * 2.0F + 0.8F;
+    const auto maxZ = static_cast<float>(rows - 1U) * 2.0F + 0.8F;
+    const auto json = std::string("{\"asset\":{\"version\":\"2.0\"},\"buffers\":[{\"byteLength\":")
+        + std::to_string(binary.size()) + "}],\"bufferViews\":["
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(posOffset) + ",\"byteLength\":" + std::to_string(posLength) + "},"
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(normalOffset) + ",\"byteLength\":" + std::to_string(normalLength) + "},"
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(uvOffset) + ",\"byteLength\":" + std::to_string(uvLength) + "},"
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(indexOffset) + ",\"byteLength\":" + std::to_string(indexLength) + "}],"
+        + "\"accessors\":["
+        + "{\"bufferView\":0,\"componentType\":5126,\"count\":" + std::to_string(vertexCount)
+        + ",\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[" + std::to_string(maxX) + ",0.6," + std::to_string(maxZ) + "]},"
+        + "{\"bufferView\":1,\"componentType\":5126,\"count\":" + std::to_string(vertexCount) + ",\"type\":\"VEC3\"},"
+        + "{\"bufferView\":2,\"componentType\":5126,\"count\":" + std::to_string(vertexCount) + ",\"type\":\"VEC2\"},"
+        + "{\"bufferView\":3,\"componentType\":5125,\"count\":" + std::to_string(vertexCount) + ",\"type\":\"SCALAR\"}],"
+        + "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.4,0.4,0.4,1]}}],"
+        + "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"TEXCOORD_0\":2},\"indices\":3,\"material\":0}]}],"
+        + "\"nodes\":[{\"mesh\":0}],\"scenes\":[{\"nodes\":[0]}],\"scene\":0}";
+
+    std::vector<std::uint8_t> jsonBytes(json.begin(), json.end());
+    while (jsonBytes.size() % 4U != 0U) {
+        jsonBytes.push_back(static_cast<std::uint8_t>(' '));
+    }
+    align4(binary);
+    std::vector<std::uint8_t> glb;
+    appendU32(glb, 0x46546c67U); appendU32(glb, 2U);
+    appendU32(glb, static_cast<std::uint32_t>(12U + 8U + jsonBytes.size() + 8U + binary.size()));
+    appendU32(glb, static_cast<std::uint32_t>(jsonBytes.size())); appendU32(glb, 0x4e4f534aU);
+    glb.insert(glb.end(), jsonBytes.begin(), jsonBytes.end());
+    appendU32(glb, static_cast<std::uint32_t>(binary.size())); appendU32(glb, 0x004e4942U);
+    glb.insert(glb.end(), binary.begin(), binary.end());
+    return writeBinary(path, glb);
+}
+
 } // namespace
 
 int main()
@@ -153,13 +225,32 @@ int main()
     if (model->editorInstances.size() != kPrimitiveCount) {
         return fail("dense spatial GLB lost editable source instances");
     }
-    if (model->primitiveInstances.size() < 32U || model->primitiveInstances.size() > 96U) {
+    if (model->primitiveInstances.size() < 48U || model->primitiveInstances.size() > 160U) {
         std::cerr << "primitiveInstances=" << model->primitiveInstances.size() << '\n';
         return fail("dense spatial batching is too coarse or too fragmented for runtime LOD");
     }
     if (model->primitiveInstances.size() >= 128U
         && (model->primitiveClusters.empty() || model->primitiveClusters.size() >= model->primitiveInstances.size())) {
         return fail("dense spatial batching did not build a useful cluster hierarchy");
+    }
+
+    const auto widePath = root / "wide_single_primitive.glb";
+    if (!writeWideSinglePrimitiveGlb(widePath)) {
+        return fail("unable to write wide single primitive GLB fixture");
+    }
+    AssetManager wideManager(root / "WideCache" / "Assets");
+    const auto wideResult = wideManager.importModel(widePath);
+    const auto wideModel = wideManager.model(wideResult.record.id);
+    if (!wideResult.success || wideModel == nullptr) {
+        std::cerr << wideResult.error << '\n';
+        return fail("wide single primitive GLB import failed");
+    }
+    if (wideModel->editorInstances.size() != 1U) {
+        return fail("wide single primitive GLB lost its editable source instance");
+    }
+    if (wideModel->primitiveInstances.size() < 24U || wideModel->primitiveInstances.size() > 128U) {
+        std::cerr << "widePrimitiveInstances=" << wideModel->primitiveInstances.size() << '\n';
+        return fail("wide single primitive was not split into local physical chunks");
     }
     std::filesystem::remove_all(root, errorCode);
     return EXIT_SUCCESS;

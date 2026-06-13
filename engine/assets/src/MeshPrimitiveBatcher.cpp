@@ -17,9 +17,9 @@ namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::size_t kBatchThreshold = 512;
-constexpr std::size_t kSpatialBatchTargetInstances = 16;
-constexpr std::size_t kMaxSpatialBatchGridSide = 32;
-constexpr std::size_t kMaxSpatialBatchTargets = 2048;
+constexpr std::size_t kSpatialBatchTargetInstances = 8;
+constexpr std::size_t kMaxSpatialBatchGridSide = 64;
+constexpr float kSpatialBatchTargetCellExtent = 12.0F;
 
 struct BatchTarget {
     std::size_t materialIndex {0};
@@ -103,11 +103,16 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
     return static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedCells))));
 }
 
-[[nodiscard]] std::size_t materialBudgetGridSide(std::size_t materialCount) noexcept
+[[nodiscard]] std::size_t physicalGridSide(const MeshBounds& bounds) noexcept
 {
-    const auto safeMaterialCount = std::max<std::size_t>(materialCount, 1U);
-    const auto targetCells = std::max<std::size_t>(1U, kMaxSpatialBatchTargets / safeMaterialCount);
-    return static_cast<std::size_t>(std::floor(std::sqrt(static_cast<float>(targetCells))));
+    const auto axes = spatialAxes(bounds);
+    const auto extentA = std::fabs(component(bounds.maximum, axes[0]) - component(bounds.minimum, axes[0]));
+    const auto extentB = std::fabs(component(bounds.maximum, axes[1]) - component(bounds.minimum, axes[1]));
+    const auto largestExtent = std::max(extentA, extentB);
+    if (!std::isfinite(largestExtent) || largestExtent <= kSpatialBatchTargetCellExtent) {
+        return 1U;
+    }
+    return static_cast<std::size_t>(std::ceil(largestExtent / kSpatialBatchTargetCellExtent));
 }
 
 [[nodiscard]] std::size_t gridCoordinate(float value, float minimum, float extent, std::size_t side) noexcept
@@ -122,15 +127,6 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
 [[nodiscard]] SpatialBatchGrid makeSpatialBatchGrid(const ModelAsset& model) noexcept
 {
     SpatialBatchGrid grid;
-    const auto instanceSide = instanceGridSide(model.primitiveInstances.size());
-    const auto materialSide = materialBudgetGridSide(model.materials.size());
-    grid.side = std::clamp(
-        std::min(instanceSide, materialSide),
-        std::size_t {1U},
-        kMaxSpatialBatchGridSide);
-    if (grid.side <= 1U) {
-        return grid;
-    }
 
     MeshBounds sceneBounds;
     bool initialized = false;
@@ -143,6 +139,16 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
     }
 
     sceneBounds.center = (sceneBounds.minimum + sceneBounds.maximum) * 0.5F;
+    const auto instanceSide = instanceGridSide(model.primitiveInstances.size());
+    const auto extentSide = physicalGridSide(sceneBounds);
+    grid.side = std::clamp(
+        std::max(instanceSide, extentSide),
+        std::size_t {1U},
+        kMaxSpatialBatchGridSide);
+    if (grid.side <= 1U) {
+        return grid;
+    }
+
     const auto axes = spatialAxes(sceneBounds);
     grid.axisA = axes[0];
     grid.axisB = axes[1];
