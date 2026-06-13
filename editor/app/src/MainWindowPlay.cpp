@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -25,6 +26,7 @@ struct PlayRuntimeSnapshotStats {
     std::uint64_t editorEntities {0};
     std::uint64_t runtimeEntities {0};
     std::uint64_t editableProxiesSkipped {0};
+    std::uint64_t runtimeProxyOverrides {0};
     std::uint64_t runtimeAssetInstances {0};
     std::uint64_t runtimePrimitiveInstances {0};
     std::uint64_t runtimeRenderChunks {0};
@@ -36,6 +38,70 @@ struct PlayRuntimeSnapshotStats {
 [[nodiscard]] bool isEditablePrimitiveProxy(const scene::Entity& entity) noexcept
 {
     return entity.meshRenderer.has_value() && !entity.meshRenderer->renderable;
+}
+
+[[nodiscard]] bool nearVec3(math::Vec3 lhs, math::Vec3 rhs, float epsilon = 0.0005F) noexcept
+{
+    return std::fabs(lhs.x - rhs.x) <= epsilon
+        && std::fabs(lhs.y - rhs.y) <= epsilon
+        && std::fabs(lhs.z - rhs.z) <= epsilon;
+}
+
+[[nodiscard]] bool defaultEditableProxyTransform(
+    const scene::TransformComponent& transform,
+    math::Vec3 expectedPosition) noexcept
+{
+    return nearVec3(transform.position, expectedPosition)
+        && nearVec3(transform.rotationEuler, {0.0F, 0.0F, 0.0F})
+        && nearVec3(transform.scale, {1.0F, 1.0F, 1.0F});
+}
+
+[[nodiscard]] std::optional<std::uint32_t> primitiveInstanceIndexForSnapshotProxy(
+    const assets::ModelAsset& model,
+    const scene::MeshRendererComponent& renderer) noexcept
+{
+    if (renderer.primitiveInstanceIndex.has_value()
+        && *renderer.primitiveInstanceIndex < model.primitiveInstances.size()) {
+        return *renderer.primitiveInstanceIndex;
+    }
+    if (!renderer.editorInstanceIndex.has_value()
+        || *renderer.editorInstanceIndex >= model.editorInstances.size()) {
+        return std::nullopt;
+    }
+
+    const auto editorIndex = *renderer.editorInstanceIndex;
+    const auto& editorInstance = model.editorInstances[editorIndex];
+    if (model.editorInstances.size() == model.primitiveInstances.size()
+        && editorIndex < model.primitiveInstances.size()) {
+        return editorIndex;
+    }
+    for (std::uint32_t index = 0; index < model.primitiveInstances.size(); ++index) {
+        const auto& instance = model.primitiveInstances[index];
+        if (instance.primitiveIndex == editorInstance.sourcePrimitiveIndex
+            && nearVec3(instance.bounds.center, editorInstance.bounds.center, 0.001F)) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool editableProxyHasRuntimeOverride(
+    const scene::Entity& entity,
+    const assets::IAssetManager& assetManager)
+{
+    if (!isEditablePrimitiveProxy(entity)) {
+        return false;
+    }
+    const auto model = assetManager.model(entity.meshRenderer->modelAssetId);
+    if (model == nullptr) {
+        return false;
+    }
+    const auto primitiveInstanceIndex = primitiveInstanceIndexForSnapshotProxy(*model, *entity.meshRenderer);
+    if (!primitiveInstanceIndex.has_value()) {
+        return false;
+    }
+    const auto& instance = model->primitiveInstances[*primitiveInstanceIndex];
+    return !defaultEditableProxyTransform(entity.transform, instance.bounds.center);
 }
 
 [[nodiscard]] std::string flyPlayerScriptTemplate()
@@ -120,8 +186,11 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
     for (const auto& source : scene_.entities()) {
         ++stats.editorEntities;
         if (isEditablePrimitiveProxy(source)) {
-            ++stats.editableProxiesSkipped;
-            continue;
+            if (!editableProxyHasRuntimeOverride(source, assetManager_)) {
+                ++stats.editableProxiesSkipped;
+                continue;
+            }
+            ++stats.runtimeProxyOverrides;
         }
 
         auto& runtime = playRuntimeScene_.createEntity(source.name);
@@ -185,6 +254,7 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
             << " editorEntities=" << stats.editorEntities
             << " runtimeEntities=" << stats.runtimeEntities
             << " editableProxiesSkipped=" << stats.editableProxiesSkipped
+            << " runtimeProxyOverrides=" << stats.runtimeProxyOverrides
             << " runtimeAssetInstances=" << stats.runtimeAssetInstances
             << " runtimePrimitiveInstances=" << stats.runtimePrimitiveInstances
             << " runtimeRenderChunks=" << stats.runtimeRenderChunks

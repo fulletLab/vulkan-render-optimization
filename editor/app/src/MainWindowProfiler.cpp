@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 96;
+constexpr int kProfilerRowCount = 103;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -123,6 +123,13 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("lastHitchMeshDraws"),
         QStringLiteral("lastHitchVkDrawIndexed"),
         QStringLiteral("lastHitchStaticUploadBytes"),
+        QStringLiteral("shadowCandidates"),
+        QStringLiteral("shadowSubmitted"),
+        QStringLiteral("shadowTriangles"),
+        QStringLiteral("shadowCpuMs"),
+        QStringLiteral("shadowGpuMs"),
+        QStringLiteral("shadowRejectedByPolicy"),
+        QStringLiteral("shadowRejectedByCasterCull"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -332,6 +339,13 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 93, QString::number(static_cast<qulonglong>(stats.lastHitchMeshDrawCount)));
     setTableValue(profilerTable_, 94, QString::number(static_cast<qulonglong>(stats.lastHitchVkDrawIndexed)));
     setTableValue(profilerTable_, 95, QString::number(static_cast<qulonglong>(stats.lastHitchStaticUploadBytes)));
+    setTableValue(profilerTable_, 96, QString::number(static_cast<qulonglong>(stats.shadowCandidates)));
+    setTableValue(profilerTable_, 97, QString::number(static_cast<qulonglong>(stats.shadowSubmitted)));
+    setTableValue(profilerTable_, 98, QString::number(static_cast<qulonglong>(stats.shadowTriangles)));
+    setTableValue(profilerTable_, 99, QStringLiteral("%1").arg(stats.shadowCpuMs, 0, 'f', 3));
+    setTableValue(profilerTable_, 100, stats.lastFrameGpuTimestampsValid ? QStringLiteral("%1").arg(stats.shadowGpuMs, 0, 'f', 3) : QStringLiteral("-"));
+    setTableValue(profilerTable_, 101, QString::number(static_cast<qulonglong>(stats.shadowRejectedByPolicy)));
+    setTableValue(profilerTable_, 102, QString::number(static_cast<qulonglong>(stats.shadowRejectedByCasterCull)));
 }
 
 } // namespace projectunity::editor

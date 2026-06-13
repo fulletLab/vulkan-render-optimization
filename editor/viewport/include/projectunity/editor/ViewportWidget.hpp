@@ -80,6 +80,8 @@ public:
     [[nodiscard]] bool meshWireOverlayEnabled() const noexcept;
     void setAssetXrayDebugEnabled(bool enabled) { if (assetXrayDebugEnabled_ != enabled) { assetXrayDebugEnabled_ = enabled; update(); } }
     [[nodiscard]] bool assetXrayDebugEnabled() const noexcept { return assetXrayDebugEnabled_; }
+    void setLodDebugOverlayEnabled(bool enabled) { if (lodDebugOverlayEnabled_ != enabled) { lodDebugOverlayEnabled_ = enabled; update(); } }
+    [[nodiscard]] bool lodDebugOverlayEnabled() const noexcept { return lodDebugOverlayEnabled_; }
     void focusSelected();
 
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
@@ -196,6 +198,7 @@ private:
     bool gpuMeshFrameRendered_ {false};
     bool meshWireOverlayEnabled_ {false};
     bool assetXrayDebugEnabled_ {false};
+    bool lodDebugOverlayEnabled_ {false};
     bool gameInputEnabled_ {false};
     bool gameRuntimeSnapshotEnabled_ {false};
     bool gameMouseLook_ {false};

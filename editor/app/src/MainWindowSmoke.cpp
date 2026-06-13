@@ -57,6 +57,13 @@ void printFrameCounters(const char* label, const renderer::RendererStats& stats)
         << " resourcePrepared=" << stats.resourcePrepared
         << " resourcePrepareMs=" << stats.resourcePrepareMs
         << " shadowCastersSubmitted=" << stats.shadowCastersSubmitted
+        << " shadowCandidates=" << stats.shadowCandidates
+        << " shadowSubmitted=" << stats.shadowSubmitted
+        << " shadowTriangles=" << stats.shadowTriangles
+        << " shadowCpuMs=" << stats.shadowCpuMs
+        << " shadowGpuMs=" << stats.shadowGpuMs
+        << " shadowRejectedByPolicy=" << stats.shadowRejectedByPolicy
+        << " shadowRejectedByCasterCull=" << stats.shadowRejectedByCasterCull
         << " shadowCandidateInstances=" << stats.shadowCandidateInstances
         << " shadowPolicyRejectedInstances=" << stats.shadowPolicyRejectedInstances
         << " shadowBatchesSubmitted=" << stats.shadowBatchesSubmitted

@@ -264,7 +264,8 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
             if (instanceIndex >= record->instances.size()) {
                 continue;
             }
-            const auto& instance = record->instances[instanceIndex];
+            auto& instance = record->instances[instanceIndex];
+            instance.renderChunkId = chunkId;
             if (instance.primitiveIndex < model->primitives.size()) {
                 chunk.triangleCount += model->primitives[instance.primitiveIndex].indices.size() / 3U;
             }
@@ -332,6 +333,20 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
                     chunkInstances,
                     static_cast<std::uint32_t>(clusterIndex));
             }
+            for (const auto sourceIndex : individuallyChunked) {
+                if (sourceIndex >= modelInstanceToRecord.size()) {
+                    continue;
+                }
+                const auto recordIndex = modelInstanceToRecord[sourceIndex];
+                if (recordIndex == SIZE_MAX) {
+                    continue;
+                }
+                appendChunk(
+                    record->instances[recordIndex].sceneNodeId,
+                    mixHash(entity.id.value(), mixHash(sourceIndex, 0xf00dU)),
+                    record->instances[recordIndex].worldBounds,
+                    std::span<const std::size_t>(&recordIndex, 1U));
+            }
         } else {
             for (std::size_t index = 0; index < modelInstanceToRecord.size(); ++index) {
                 const auto recordIndex = modelInstanceToRecord[index];
@@ -344,20 +359,6 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
                     record->instances[recordIndex].worldBounds,
                     std::span<const std::size_t>(&recordIndex, 1U));
             }
-        }
-        for (const auto sourceIndex : individuallyChunked) {
-            if (sourceIndex >= modelInstanceToRecord.size()) {
-                continue;
-            }
-            const auto recordIndex = modelInstanceToRecord[sourceIndex];
-            if (recordIndex == SIZE_MAX) {
-                continue;
-            }
-            appendChunk(
-                record->instances[recordIndex].sceneNodeId,
-                mixHash(entity.id.value(), mixHash(sourceIndex, 0xf00dU)),
-                record->instances[recordIndex].worldBounds,
-                std::span<const std::size_t>(&recordIndex, 1U));
         }
         finalizeEntityRecord(*record);
         return record;
@@ -416,9 +417,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     std::unordered_map<std::uint64_t, std::vector<const scene::Entity*>> primitiveProxyEntitiesByOwner;
     primitiveProxyEntities.reserve(scene->entityCount());
     for (const auto& entity : scene->entities()) {
-        if (!runtimeSnapshot && entity.meshRenderer.has_value()
+        if (entity.meshRenderer.has_value()
             && !entity.meshRenderer->renderable
-            && entity.id != selectedEntityId) {
+            && (runtimeSnapshot || entity.id != selectedEntityId)) {
             const auto proxyModel = assetManager->model(entity.meshRenderer->modelAssetId);
             const auto proxyPrimitiveIndex = proxyModel == nullptr
                 ? std::optional<std::uint32_t> {}

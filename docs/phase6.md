@@ -115,6 +115,29 @@ runtime cache replacement, or a full editor rewrite.
 - Debug-view note: Scene View has an `XRay` toolbar toggle that renders imported meshes
   semi-transparent and enables RenderWorld chunk bounds, making it easier to see which
   batches/clusters/proxies are controlling LOD, occlusion, and selection behavior.
+- Play snapshot correction note: Play now cooks a runtime scene snapshot that skips
+  default editable primitive proxies but preserves moved primitive-proxy overrides, so
+  a proxy edit in Scene View is represented by the runtime draw transform instead of
+  silently reverting to the original imported asset transform. The editor viewport test
+  covers this by moving a non-renderable primitive proxy and requiring the runtime
+  snapshot draw to use the edited bounds.
+- Shadow instrumentation note: renderer/editor stats now expose same-frame shadow
+  aliases `shadowCandidates`, `shadowSubmitted`, `shadowTriangles`, `shadowCpuMs`,
+  `shadowGpuMs`, `shadowRejectedByPolicy`, and `shadowRejectedByCasterCull` in the
+  Profiler and smoke/culling logs. These are fed from the Vulkan frame profile and
+  shadow pass, not from estimated UI-only counters.
+- Shadow caster culling correction note: shadow caster collection keeps offscreen
+  directional casters whose projected shadow can reach the camera, and shadow draws now
+  preserve their source `renderChunkId`. The Vulkan shadow pass culls against the union
+  bounds of each prepared shadow batch instead of the first draw in the batch, preventing
+  one offscreen first instance from rejecting valid casters in the same batch while still
+  allowing spatial chunk-level rejection.
+- Shadow cull-mode review note: the shadow depth pipeline now uses back-face culling for
+  normal opaque/masked casters and a separate no-cull shadow pipeline only for imported
+  `doubleSided` materials or flipped-winding draws. This mirrors the main mesh pipeline
+  more closely and avoids drawing both sides of ordinary closed meshes into the shadow
+  map while preserving alpha/two-sided material behavior. Manual RenderDoc validation is
+  still required before calling the duplicated-shadow issue fully closed.
 
 ## Blocking Renderer Status
 

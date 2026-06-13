@@ -23,6 +23,7 @@ public:
     [[nodiscard]] VkRenderPass renderPass() const noexcept;
     [[nodiscard]] VkFramebuffer framebuffer() const noexcept;
     [[nodiscard]] VkPipeline pipeline() const noexcept;
+    [[nodiscard]] VkPipeline doubleSidedPipeline() const noexcept;
     [[nodiscard]] VkPipelineLayout layout() const noexcept;
     [[nodiscard]] VkImageView imageView() const noexcept;
     [[nodiscard]] VkSampler sampler() const noexcept;
@@ -57,6 +58,7 @@ private:
     std::array<VkFramebuffer, 6> pointCubeFramebuffers_ {};
     VkPipelineLayout layout_ {VK_NULL_HANDLE};
     VkPipeline pipeline_ {VK_NULL_HANDLE};
+    VkPipeline doubleSidedPipeline_ {VK_NULL_HANDLE};
 };
 
 } // namespace projectunity::renderer

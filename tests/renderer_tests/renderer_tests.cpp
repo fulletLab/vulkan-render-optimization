@@ -298,6 +298,13 @@ int main()
         || stats.shadowCastersSubmitted != 0
         || stats.shadowCandidateInstances != 0
         || stats.shadowPolicyRejectedInstances != 0
+        || stats.shadowCandidates != 0
+        || stats.shadowSubmitted != 0
+        || stats.shadowTriangles != 0
+        || stats.shadowRejectedByPolicy != 0
+        || stats.shadowRejectedByCasterCull != 0
+        || stats.shadowCpuMs != 0.0
+        || stats.shadowGpuMs != 0.0
         || stats.shadowBatchesSubmitted != 0
         || stats.shadowInstancesSubmitted != 0
         || stats.shadowTrianglesSubmitted != 0

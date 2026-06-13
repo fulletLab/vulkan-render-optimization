@@ -165,8 +165,7 @@ void ViewportRenderWorld::collectShadowCasters(
             continue;
         }
         for (const auto& instance : record->instances) {
-            if (instance.primitiveIndex >= instance.model->primitives.size()
-                || !instanceIntersectsShadowSelection(shadowSelection, instance)) {
+            if (instance.primitiveIndex >= instance.model->primitives.size()) {
                 continue;
             }
             const auto& primitive = instance.model->primitives[instance.primitiveIndex];
@@ -187,14 +186,21 @@ void ViewportRenderWorld::collectShadowCasters(
                 camera.aspectRatio,
                 camera.nearPlane,
                 camera.farPlane);
+            const auto intersectsShadowSelection = instanceIntersectsShadowSelection(shadowSelection, instance);
             if (visibleToCamera) {
                 ++stats.shadowVisibleInstances;
+                if (!intersectsShadowSelection) {
+                    continue;
+                }
             } else {
                 ++stats.shadowOnlyCandidateInstances;
                 if (!offscreenDirectionalShadowMayReachCamera(shadowSelection, shadowLight, camera, instance)) {
                     ++stats.shadowOnlyRejectedInstances;
                     continue;
                 }
+                // Offscreen casters can still matter when their projected directional
+                // shadow reaches the camera; do not reject them only because the caster
+                // itself is outside the current camera frustum.
             }
             const auto cameraDistance = (instance.worldBounds.center - camera.eye).length();
             const auto sortDepth = std::max(cameraDistance, camera.nearPlane);
@@ -225,7 +231,7 @@ void ViewportRenderWorld::collectShadowCasters(
                 instance.flipsWinding,
                 true,
                 instance.renderInstanceId,
-                0U,
+                instance.renderChunkId,
                 instance.sceneNodeId.value(),
             });
         }

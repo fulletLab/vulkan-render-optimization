@@ -58,6 +58,7 @@ struct ViewportRenderWorld::EntityRecord {
         std::shared_ptr<const assets::ModelAsset> model;
         std::uint32_t primitiveIndex {0};
         std::uint32_t primitiveInstanceIndex {UINT32_MAX};
+        std::uint64_t renderChunkId {0};
         renderer::RenderMatrix4 modelMatrix;
         ViewportWorldBounds worldBounds;
         bool flipsWinding {false};

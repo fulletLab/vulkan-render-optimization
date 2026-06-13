@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <string>
 
 namespace projectunity::renderer {
 namespace {
@@ -194,16 +195,27 @@ bool VulkanViewportTarget::recordShadowPass(
     };
 
     const auto drawShadowView = [&](std::uint32_t viewIndex, std::uint32_t viewCount, VkExtent2D extent) {
+        const auto viewLabelName = frame.shadowMode == RenderShadowMode::PointCubemap
+            ? std::string("ProjectUnity Shadow Cube Face ") + std::to_string(viewIndex)
+            : std::string("ProjectUnity Shadow Cascade ") + std::to_string(viewIndex);
+        VulkanScopedLabel shadowViewLabel(
+            beginDebugLabel_,
+            endDebugLabel_,
+            commandBuffer_,
+            viewLabelName.c_str(),
+            {0.32F, 0.34F, 0.95F, 1.0F});
         setShadowViewport(
             commandBuffer_,
             shadowRenderArea(extent, viewIndex, viewCount));
+        vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
+        auto boundShadowPipeline = shadowPipeline_->pipeline();
         const auto& shadowViewProjection = shadowViewProjectionFor(frame, viewIndex);
         for (const auto& batch : shadowMeshBatches_) {
             const auto& draw = *batch.draw;
             if (!draw.castsShadow || isTransparentMeshDraw(draw)) {
                 continue;
             }
-            if (!shadowSphereIntersects(shadowViewProjection, draw.worldBoundsCenter, draw.worldBoundsRadius)) {
+            if (!shadowSphereIntersects(shadowViewProjection, batch.worldBoundsCenter, batch.worldBoundsRadius)) {
                 ++lastFrameProfile_.shadowCulledBatchCount;
                 continue;
             }
@@ -216,6 +228,14 @@ bool VulkanViewportTarget::recordShadowPass(
             const auto descriptor = needsAlphaTexture ? batch.materialDescriptor : getOpaqueShadowDescriptor();
             if (descriptor == VK_NULL_HANDLE) {
                 return false;
+            }
+            const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
+            const auto shadowPipeline = (doubleSided || draw.flipsWinding)
+                ? shadowPipeline_->doubleSidedPipeline()
+                : shadowPipeline_->pipeline();
+            if (shadowPipeline != boundShadowPipeline) {
+                vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
+                boundShadowPipeline = shadowPipeline;
             }
             VulkanDrawPushConstants push;
             push.modelMatrix = draw.modelMatrix.values;

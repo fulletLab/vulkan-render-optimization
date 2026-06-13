@@ -73,6 +73,13 @@ struct RendererStats {
     std::uint64_t shadowVisibleInstances {0};
     std::uint64_t shadowOnlyCandidateInstances {0};
     std::uint64_t shadowOnlyRejectedInstances {0};
+    std::uint64_t shadowCandidates {0};
+    std::uint64_t shadowSubmitted {0};
+    std::uint64_t shadowTriangles {0};
+    std::uint64_t shadowRejectedByPolicy {0};
+    std::uint64_t shadowRejectedByCasterCull {0};
+    double shadowCpuMs {0.0};
+    double shadowGpuMs {0.0};
     std::uint64_t shadowBatchesSubmitted {0};
     std::uint64_t shadowInstancesSubmitted {0};
     std::uint64_t shadowTrianglesSubmitted {0};

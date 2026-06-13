@@ -848,6 +848,13 @@ Estado actual de continuidad:
   a media. No avanzar a Fase 7 como si estuviera terminada hasta resolver y
   documentar los bloqueos actuales de `docs/phase6.md` y
   `docs/renderer_status.md`.
+- Continuidad 2026-06-13: Play snapshot ya debe preservar edits de proxies
+  movidos; sombras ya tienen counters reales (`shadowCandidates`,
+  `shadowSubmitted`, `shadowTriangles`, `shadowCpuMs`, `shadowGpuMs`,
+  `shadowRejectedByPolicy`, `shadowRejectedByCasterCull`) y labels Vulkan/
+  RenderDoc para el shadow pass. El trabajo sigue PARCIAL: validar manualmente
+  sombras con RenderDoc, frame pacing en Release con assets duplicados, y solo
+  despues meter meshoptimizer en el cooker para LOD/chunks/shadow-index.
 
 ## Regla De Continuidad
 

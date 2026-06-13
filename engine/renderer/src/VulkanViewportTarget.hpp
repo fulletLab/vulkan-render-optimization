@@ -13,6 +13,7 @@
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/renderer/ViewportRenderSurface.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -60,6 +61,8 @@ struct VulkanMeshDrawBatch {
     VkDescriptorSet materialDescriptor {VK_NULL_HANDLE};
     std::uint32_t firstInstance {0};
     std::uint32_t instanceCount {0};
+    std::array<float, 3> worldBoundsCenter {0.0F, 0.0F, 0.0F};
+    float worldBoundsRadius {0.0F};
 };
 
 struct VulkanViewportFrameProfile {

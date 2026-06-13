@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <span>
 #include <vector>
 
@@ -29,11 +30,60 @@ constexpr std::uint32_t kShadowUploadBudgetBatches = 8U;
     return lhs.modelAssetId == rhs.modelAssetId
         && lhs.primitiveIndex == rhs.primitiveIndex
         && lhs.lodIndex == rhs.lodIndex
+        && lhs.renderChunkId == rhs.renderChunkId
         && lhs.material == rhs.material
         && lhs.baseColorTexture == rhs.baseColorTexture
         && lhs.flipsWinding == rhs.flipsWinding
         && lhs.castsShadow == rhs.castsShadow
         && isTransparentMeshDraw(lhs) == isTransparentMeshDraw(rhs);
+}
+
+[[nodiscard]] float distance(std::array<float, 3> lhs, std::array<float, 3> rhs) noexcept
+{
+    const auto dx = lhs[0] - rhs[0];
+    const auto dy = lhs[1] - rhs[1];
+    const auto dz = lhs[2] - rhs[2];
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+void resetBatchBounds(VulkanMeshDrawBatch& batch, const RenderMeshDraw& draw) noexcept
+{
+    batch.worldBoundsCenter = draw.worldBoundsCenter;
+    batch.worldBoundsRadius = std::max(draw.worldBoundsRadius, 0.0F);
+}
+
+void includeBatchBounds(VulkanMeshDrawBatch& batch, const RenderMeshDraw& draw) noexcept
+{
+    const auto drawRadius = std::max(draw.worldBoundsRadius, 0.0F);
+    if (drawRadius <= 0.0F) {
+        return;
+    }
+    if (batch.worldBoundsRadius <= 0.0F) {
+        resetBatchBounds(batch, draw);
+        return;
+    }
+
+    const auto centerDistance = distance(batch.worldBoundsCenter, draw.worldBoundsCenter);
+    if (batch.worldBoundsRadius >= centerDistance + drawRadius) {
+        return;
+    }
+    if (drawRadius >= centerDistance + batch.worldBoundsRadius) {
+        resetBatchBounds(batch, draw);
+        return;
+    }
+    if (centerDistance <= 0.00001F) {
+        batch.worldBoundsRadius = std::max(batch.worldBoundsRadius, drawRadius);
+        return;
+    }
+
+    const auto newRadius = (centerDistance + batch.worldBoundsRadius + drawRadius) * 0.5F;
+    const auto centerShift = (newRadius - batch.worldBoundsRadius) / centerDistance;
+    batch.worldBoundsCenter = {
+        batch.worldBoundsCenter[0] + (draw.worldBoundsCenter[0] - batch.worldBoundsCenter[0]) * centerShift,
+        batch.worldBoundsCenter[1] + (draw.worldBoundsCenter[1] - batch.worldBoundsCenter[1]) * centerShift,
+        batch.worldBoundsCenter[2] + (draw.worldBoundsCenter[2] - batch.worldBoundsCenter[2]) * centerShift,
+    };
+    batch.worldBoundsRadius = newRadius;
 }
 
 [[nodiscard]] bool needsAlphaShadowDescriptor(const RenderMeshDraw& draw) noexcept
@@ -77,11 +127,13 @@ bool VulkanViewportTarget::buildShadowMeshBatches(
         shadowMeshInstances_.push_back(instance);
         if (!shadowMeshBatches_.empty() && canBatchShadow(*shadowMeshBatches_.back().draw, *draw)) {
             ++shadowMeshBatches_.back().instanceCount;
+            includeBatchBounds(shadowMeshBatches_.back(), *draw);
         } else {
             VulkanMeshDrawBatch batch;
             batch.draw = draw;
             batch.firstInstance = instanceIndex;
             batch.instanceCount = 1U;
+            resetBatchBounds(batch, *draw);
             shadowMeshBatches_.push_back(batch);
         }
     }

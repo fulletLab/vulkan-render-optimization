@@ -113,6 +113,33 @@ std::shared_ptr<projectunity::assets::ModelAsset> testShadowCasterModel()
     return model;
 }
 
+std::shared_ptr<projectunity::assets::ModelAsset> testRuntimeProxyModel()
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->id = projectunity::assets::AssetId(774);
+    model->materials.resize(1U);
+    projectunity::assets::MeshPrimitive primitive;
+    primitive.vertices.resize(3U);
+    primitive.indices = {0U, 1U, 2U};
+    primitive.bounds.minimum = {-1.0F, -1.0F, -1.0F};
+    primitive.bounds.maximum = {1.0F, 1.0F, 1.0F};
+    primitive.bounds.center = {0.0F, 0.0F, 0.0F};
+    primitive.bounds.radius = 1.8F;
+    model->primitives.push_back(std::move(primitive));
+
+    projectunity::assets::MeshPrimitiveInstance instance;
+    instance.primitiveIndex = 0U;
+    instance.transform[12] = 0.0F;
+    instance.transform[13] = 0.0F;
+    instance.transform[14] = 10.0F;
+    instance.bounds.minimum = {-1.0F, -1.0F, 9.0F};
+    instance.bounds.maximum = {1.0F, 1.0F, 11.0F};
+    instance.bounds.center = {0.0F, 0.0F, 10.0F};
+    instance.bounds.radius = 1.8F;
+    model->primitiveInstances.push_back(instance);
+    return model;
+}
+
 } // namespace
 
 int main()
@@ -154,6 +181,46 @@ int main()
         0.05F,
         100.0F,
     };
+
+    TestAssetManager runtimeProxyAssets;
+    runtimeProxyAssets.modelAsset = testRuntimeProxyModel();
+    projectunity::scene::Scene runtimeProxyScene;
+    auto& runtimeRoot = runtimeProxyScene.createEntity("Runtime Asset");
+    projectunity::scene::MeshRendererComponent runtimeRootRenderer;
+    runtimeRootRenderer.modelAssetId = runtimeProxyAssets.modelAsset->id;
+    runtimeRoot.meshRenderer = runtimeRootRenderer;
+    auto& movedProxy = runtimeProxyScene.createEntity("Moved Runtime Primitive", runtimeRoot.id);
+    movedProxy.transform.position = {5.0F, 0.0F, 10.0F};
+    projectunity::scene::MeshRendererComponent movedProxyRenderer;
+    movedProxyRenderer.modelAssetId = runtimeProxyAssets.modelAsset->id;
+    movedProxyRenderer.primitiveInstanceIndex = 0U;
+    movedProxyRenderer.renderable = false;
+    movedProxy.meshRenderer = movedProxyRenderer;
+
+    projectunity::editor::ViewportRenderWorld runtimeProxyWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> runtimeProxyDraws;
+    std::vector<projectunity::renderer::RenderLight> runtimeProxyLights;
+    (void)runtimeProxyWorld.buildFrame(
+        &runtimeProxyScene,
+        &runtimeProxyAssets,
+        {},
+        camera,
+        {},
+        1080,
+        true,
+        runtimeProxyDraws,
+        runtimeProxyLights);
+    if (runtimeProxyDraws.size() != 1U) {
+        return fail("Runtime snapshot did not render the asset primitive through its root entity");
+    }
+    if (runtimeProxyDraws.front().sceneNodeId != movedProxy.id.value()) {
+        return fail("Runtime snapshot did not bind the moved non-renderable proxy as the primitive scene node");
+    }
+    if (std::fabs(runtimeProxyDraws.front().worldBoundsCenter[0] - 5.0F) > 0.001F
+        || std::fabs(runtimeProxyDraws.front().worldBoundsCenter[2] - 10.0F) > 0.001F) {
+        return fail("Runtime snapshot ignored the moved primitive proxy transform");
+    }
+
     projectunity::editor::ViewportOcclusionBuffer occlusion(camera, 1080);
     if (!occlusion.addOccluder(testBounds({-2.0F, -2.0F, 4.8F}, {2.0F, 2.0F, 5.2F}))) {
         return fail("Viewport occlusion buffer did not accept a large opaque occluder");
@@ -311,6 +378,9 @@ int main()
         shadowCasterStats);
     if (shadowDraws.empty() || shadowCasterStats.shadowCandidateInstances == 0U) {
         return fail("Viewport shadow caster collection ignored an offscreen caster whose projected shadow reaches the camera");
+    }
+    if (shadowDraws.front().renderChunkId == 0U) {
+        return fail("Viewport shadow caster collection did not preserve the caster render chunk id");
     }
     if (shadowCasterStats.shadowOnlyCandidateInstances == 0U || shadowCasterStats.shadowOnlyRejectedInstances != 0U) {
         return fail("Viewport shadow caster collection did not track accepted offscreen shadow casters");

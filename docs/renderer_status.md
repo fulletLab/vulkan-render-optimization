@@ -1,6 +1,6 @@
 # Renderer Status
 
-Date: 2026-05-24
+Date: 2026-06-13
 
 ## Current State
 
@@ -95,12 +95,24 @@ total shadow caster draws, submitted/culling counts, screen-space LOD reductions
 render CPU timing for the editor Profiler panel and smoke coverage. The same stats now
 split CPU frame cost into resource preparation, full Vulkan command recording, shadow
 pass recording, mesh pass recording, and editor color-aid recording, plus shadow batch
-count. The viewport also records GPU timestamp queries around the full frame, shadow
-pass, mesh pass, and editor color-aid pass, so large imported scenes can be profiled by
-CPU and GPU pass cost before adding heavier renderer features.
+count. The Profiler and smoke/culling logs also expose same-frame shadow aliases:
+`shadowCandidates`, `shadowSubmitted`, `shadowTriangles`, `shadowCpuMs`, `shadowGpuMs`,
+`shadowRejectedByPolicy`, and `shadowRejectedByCasterCull`. These values are copied
+from the Vulkan frame profile after command recording and GPU timestamp collection, so
+they track submitted shadow work instead of UI estimates. The viewport also records GPU
+timestamp queries around the full frame, shadow pass, mesh pass, and editor color-aid
+pass, so large imported scenes can be profiled by CPU and GPU pass cost before adding
+heavier renderer features.
 The shadow pass conservatively culls opaque/masked batches whose world-space sphere
 bounds do not intersect the selected shadow view-projection clip volume; the Profiler
-reports both recorded and culled shadow batches.
+reports both recorded and culled shadow batches. Current shadow batching preserves
+`renderChunkId` from `ViewportRenderWorld` and culls against the union bounds of each
+prepared shadow batch instead of the first draw in the batch, so an unrelated first
+instance cannot make valid casters in the same spatial chunk disappear.
+The shadow depth pipeline uses back-face culling for normal opaque/masked casters and a
+separate no-cull pipeline only for imported `doubleSided` materials or flipped-winding
+draws. This keeps ordinary closed meshes from writing both front and back faces into the
+shadow map while preserving two-sided/alpha-masked material behavior.
 Imported primitives now store cached bounds, and the editor viewport performs camera
 sphere culling before submitting Vulkan mesh draws so offscreen primitives do not enter
 the draw list.

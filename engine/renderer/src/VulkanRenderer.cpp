@@ -295,6 +295,13 @@ struct VulkanRenderer::Impl {
             stats.shadowVisibleInstances = profile.shadowVisibleInstances;
             stats.shadowOnlyCandidateInstances = profile.shadowOnlyCandidateInstances;
             stats.shadowOnlyRejectedInstances = profile.shadowOnlyRejectedInstances;
+            stats.shadowCandidates = profile.shadowCandidateInstances;
+            stats.shadowSubmitted = profile.shadowBatchesSubmitted;
+            stats.shadowTriangles = profile.shadowTrianglesSubmitted;
+            stats.shadowRejectedByPolicy = profile.shadowPolicyRejectedInstances;
+            stats.shadowRejectedByCasterCull = profile.shadowCulledBatchCount;
+            stats.shadowCpuMs = static_cast<double>(profile.shadowRecordCpuTimeUs) / 1000.0;
+            stats.shadowGpuMs = static_cast<double>(profile.shadowGpuTimeUs) / 1000.0;
             stats.shadowBatchesSubmitted = profile.shadowBatchesSubmitted;
             stats.shadowInstancesSubmitted = profile.shadowInstancesSubmitted;
             stats.shadowTrianglesSubmitted = profile.shadowTrianglesSubmitted;
