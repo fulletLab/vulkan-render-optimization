@@ -694,10 +694,36 @@ void optimizePrimitive(MeshPrimitive& primitive)
         return {};
     }
     reportProgress(progress, 82, "Batching and optimizing meshes");
-    detail::batchModelPrimitives(*model);
+    const auto batchStats = detail::batchModelPrimitives(*model);
     detail::splitLargePrimitivesIntoSpatialChunks(*model);
     detail::rebuildMissingSimplificationLods(*model);
     detail::buildPrimitiveClusters(*model);
+    {
+        std::ostringstream message;
+        message << "Mesh batching asset=" << model->name
+                << " id=" << model->id.value()
+                << " mode=" << batchStats.mode
+                << " bypassed=" << (batchStats.bypassed ? 1 : 0)
+                << " sourcePrimitives=" << batchStats.sourcePrimitiveCount
+                << " sourceInstances=" << batchStats.sourceInstanceCount
+                << " materials=" << batchStats.materialCount
+                << " candidateSide=" << batchStats.candidateGridSide
+                << " legacySide=" << batchStats.legacyGridSide
+                << " finalSide=" << batchStats.finalGridSide
+                << " candidateTargets=" << batchStats.candidateBatchCount
+                << " legacyTargets=" << batchStats.legacyBatchCount
+                << " finalTargets=" << batchStats.finalBatchCount
+                << " batchedPrimitives=" << batchStats.outputPrimitiveCount
+                << " batchedInstances=" << batchStats.outputInstanceCount
+                << " cookedPrimitives=" << model->primitives.size()
+                << " cookedInstances=" << model->primitiveInstances.size()
+                << " clusters=" << model->primitiveClusters.size()
+                << " largestBatchInstances=" << batchStats.largestBatchInstances
+                << " avgInstancesPerBatch=" << batchStats.averageInstancesPerBatch
+                << " largestBatchTriangles=" << batchStats.largestBatchTriangles
+                << " largestBatchExtent=" << batchStats.largestBatchExtent;
+        core::logInfo(core::LogCategory::Assets, message.str());
+    }
     AssetRecord record;
     record.id = model->id;
     record.type = AssetType::Model;
@@ -725,7 +751,12 @@ AssetImportResult AssetManager::importModel(
         return {false, {}, std::move(error)};
     }
     reportProgress(progress, 12, "Source file loaded");
-    if (auto cached = tryImportFfultModelCache(sourcePath, makeId(bytes, AssetType::Model), progress); cached.has_value()) { return *cached; }
+    const auto batchComparisonMode = detail::meshPrimitiveBatchComparisonModeEnabled();
+    if (!batchComparisonMode) {
+        if (auto cached = tryImportFfultModelCache(sourcePath, makeId(bytes, AssetType::Model), progress); cached.has_value()) {
+            return *cached;
+        }
+    }
     auto imported = importGltfModel(sourcePath, bytes, progress, &error);
     if (imported.asset == nullptr) {
         core::logError(core::LogCategory::Assets, error);
@@ -733,7 +764,10 @@ AssetImportResult AssetManager::importModel(
     }
     reportProgress(progress, 92, "Writing asset cache");
     if (!writeCacheRecord(imported.record, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
-    if (!writeFfultModelCache(*imported.asset, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
+    if (!batchComparisonMode && !writeFfultModelCache(*imported.asset, &error)) {
+        core::logError(core::LogCategory::Assets, error);
+        return {false, {}, std::move(error)};
+    }
     {
         std::scoped_lock lock(mutex_);
         auto existing = std::find_if(models_.begin(), models_.end(), [&imported](const auto& model) {

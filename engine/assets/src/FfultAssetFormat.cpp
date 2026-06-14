@@ -15,7 +15,7 @@ namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::array<std::uint8_t, 8> kMagic {{'F', 'F', 'U', 'L', 'T', 'A', 'S', 'T'}};
-constexpr std::uint32_t kVersion = 7;
+constexpr std::uint32_t kVersion = 9;
 constexpr std::uint64_t kMaxElements = 128ULL * 1024ULL * 1024ULL;
 
 [[nodiscard]] std::string lowerExtension(std::filesystem::path path)

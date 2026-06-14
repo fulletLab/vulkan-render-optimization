@@ -47,7 +47,7 @@ void rebuildSimplificationLods(MeshPrimitive& primitive)
             sizeof(MeshVertex),
             targetCount,
             kMeshLodErrors[lodIndex],
-            0,
+            meshopt_SimplifyLockBorder,
             &resultError);
         lod.indices.resize(result);
         lod.error = resultError * simplifyScale;

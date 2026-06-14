@@ -227,10 +227,28 @@ int main()
 {
     using projectunity::editor::indexCountForViewportLod;
     using projectunity::editor::selectViewportMeshLod;
+    using projectunity::editor::viewportLodDistanceToBounds;
 
     const auto primitive = testPrimitive();
     constexpr auto fov = 1.04719755F;
     constexpr auto viewportHeight = 1080.0F;
+
+    const auto nearBoundsDistance = viewportLodDistanceToBounds(
+        {0.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, 100.0F},
+        90.0F,
+        0.05F);
+    if (std::abs(nearBoundsDistance - 10.0F) > 0.001F) {
+        return fail("Viewport LOD distance did not use the closest point of a large bound");
+    }
+    const auto insideBoundsDistance = viewportLodDistanceToBounds(
+        {0.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, 5.0F},
+        10.0F,
+        0.05F);
+    if (std::abs(insideBoundsDistance - 0.05F) > 0.001F) {
+        return fail("Viewport LOD distance did not preserve full detail inside a bound");
+    }
 
     if (selectViewportMeshLod(primitive, 20.0F, 100.0F, fov, viewportHeight, false) != 2U) {
         return fail("Viewport LOD did not use a low-error coarse LOD for a moderately distant mesh");
@@ -357,6 +375,9 @@ int main()
         }
     }
     if (!hasMixedHlod || !hasMixedDirect) {
+        std::cerr << "mixedRockFieldDraws=" << noLodRockFieldDraws.size()
+                  << " hasHlod=" << hasMixedHlod
+                  << " hasDirect=" << hasMixedDirect << '\n';
         return fail("Viewport overview did not mix far cluster HLOD with nearby direct rock draws");
     }
 

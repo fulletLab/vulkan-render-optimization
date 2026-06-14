@@ -728,6 +728,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 visibleBounds.includeSphere(instance.worldBounds.center, instance.worldBounds.radius);
                 const auto& material = instance.model->materials[primitive.materialIndex];
                 const auto sortDepth = math::dot(instance.worldBounds.center - camera.eye, camera.forward);
+                const auto lodDistance = viewportLodDistanceToBounds(
+                    camera.eye,
+                    instance.worldBounds.center,
+                    instance.worldBounds.radius,
+                    camera.nearPlane);
                 const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 visibleSourceTriangleCount += sourceTriangleCount;
                 const auto forceFullResolution = selectedPrimitiveModel.isValid()
@@ -737,7 +742,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 const auto lodIndex = selectViewportMeshLod(
                     primitive,
                     instance.worldBounds.radius,
-                    sortDepth,
+                    lodDistance,
                     camera.verticalFovRadians,
                     static_cast<float>(std::max(viewportHeight, 1)),
                     forceFullResolution);

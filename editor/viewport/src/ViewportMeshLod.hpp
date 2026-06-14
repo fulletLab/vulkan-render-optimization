@@ -1,11 +1,18 @@
 #pragma once
 
 #include <projectunity/assets/AssetManager.hpp>
+#include <projectunity/math/Vec3.hpp>
 
 #include <cstddef>
 #include <cstdint>
 
 namespace projectunity::editor {
+
+[[nodiscard]] float viewportLodDistanceToBounds(
+    math::Vec3 eye,
+    math::Vec3 boundsCenter,
+    float boundsRadius,
+    float nearPlane) noexcept;
 
 [[nodiscard]] std::size_t indexCountForViewportLod(
     const assets::MeshPrimitive& primitive,

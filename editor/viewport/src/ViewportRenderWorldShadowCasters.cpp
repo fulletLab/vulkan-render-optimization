@@ -204,11 +204,16 @@ void ViewportRenderWorld::collectShadowCasters(
             }
             const auto cameraDistance = (instance.worldBounds.center - camera.eye).length();
             const auto sortDepth = std::max(cameraDistance, camera.nearPlane);
+            const auto lodDistance = viewportLodDistanceToBounds(
+                camera.eye,
+                instance.worldBounds.center,
+                instance.worldBounds.radius,
+                camera.nearPlane);
             const auto forceFullResolution = instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U;
             const auto lodIndex = selectViewportMeshLod(
                 primitive,
                 instance.worldBounds.radius,
-                sortDepth,
+                lodDistance,
                 camera.verticalFovRadians,
                 static_cast<float>(std::max(viewportHeight, 1)),
                 forceFullResolution);

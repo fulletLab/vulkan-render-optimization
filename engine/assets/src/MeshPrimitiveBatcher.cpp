@@ -8,8 +8,11 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <optional>
+#include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -20,12 +23,40 @@ constexpr std::size_t kBatchThreshold = 512;
 constexpr std::size_t kSpatialBatchTargetInstances = 8;
 constexpr std::size_t kMaxSpatialBatchGridSide = 64;
 constexpr float kSpatialBatchTargetCellExtent = 12.0F;
+constexpr std::size_t kLegacySpatialBatchTargetInstances = 16;
+constexpr std::size_t kLegacyMaxSpatialBatchGridSide = 32;
+constexpr std::size_t kLegacyMaxSpatialBatchTargets = 2048;
+
+enum class BatchGridMode {
+    Legacy,
+    Physical,
+    Adaptive,
+};
 
 struct BatchTarget {
     std::size_t materialIndex {0};
     std::size_t cellX {0};
     std::size_t cellY {0};
     std::uint32_t primitiveIndex {0};
+    std::size_t instanceCount {0};
+};
+
+struct BatchTargetKey {
+    std::size_t materialIndex {0};
+    std::size_t cellX {0};
+    std::size_t cellY {0};
+
+    [[nodiscard]] bool operator==(const BatchTargetKey&) const noexcept = default;
+};
+
+struct BatchTargetKeyHash {
+    [[nodiscard]] std::size_t operator()(const BatchTargetKey& value) const noexcept
+    {
+        auto result = value.materialIndex + 0x9e3779b97f4a7c15ULL;
+        result ^= value.cellX + 0x9e3779b97f4a7c15ULL + (result << 6U) + (result >> 2U);
+        result ^= value.cellY + 0x9e3779b97f4a7c15ULL + (result << 6U) + (result >> 2U);
+        return result;
+    }
 };
 
 struct SpatialBatchGrid {
@@ -95,12 +126,19 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
     return {extents[0].second, extents[1].second};
 }
 
-[[nodiscard]] std::size_t instanceGridSide(std::size_t instanceCount) noexcept
+[[nodiscard]] std::size_t instanceGridSide(std::size_t instanceCount, std::size_t targetInstances) noexcept
 {
     const auto wantedCells = std::max<std::size_t>(
         1U,
-        (instanceCount + kSpatialBatchTargetInstances - 1U) / kSpatialBatchTargetInstances);
+        (instanceCount + targetInstances - 1U) / targetInstances);
     return static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedCells))));
+}
+
+[[nodiscard]] std::size_t materialBudgetGridSide(std::size_t materialCount) noexcept
+{
+    const auto safeMaterialCount = std::max<std::size_t>(materialCount, 1U);
+    const auto targetCells = std::max<std::size_t>(1U, kLegacyMaxSpatialBatchTargets / safeMaterialCount);
+    return static_cast<std::size_t>(std::floor(std::sqrt(static_cast<float>(targetCells))));
 }
 
 [[nodiscard]] std::size_t physicalGridSide(const MeshBounds& bounds) noexcept
@@ -124,27 +162,23 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
     return std::min(static_cast<std::size_t>(normalized * static_cast<float>(side)), side - 1U);
 }
 
-[[nodiscard]] SpatialBatchGrid makeSpatialBatchGrid(const ModelAsset& model) noexcept
+[[nodiscard]] bool modelBounds(const ModelAsset& model, MeshBounds& bounds) noexcept
 {
-    SpatialBatchGrid grid;
-
-    MeshBounds sceneBounds;
     bool initialized = false;
     for (const auto& instance : model.primitiveInstances) {
-        includeBounds(sceneBounds, instance.bounds, initialized);
+        includeBounds(bounds, instance.bounds, initialized);
     }
-    if (!initialized) {
-        grid.side = 1U;
-        return grid;
+    if (initialized) {
+        bounds.center = (bounds.minimum + bounds.maximum) * 0.5F;
+        bounds.radius = (bounds.maximum - bounds.center).length();
     }
+    return initialized;
+}
 
-    sceneBounds.center = (sceneBounds.minimum + sceneBounds.maximum) * 0.5F;
-    const auto instanceSide = instanceGridSide(model.primitiveInstances.size());
-    const auto extentSide = physicalGridSide(sceneBounds);
-    grid.side = std::clamp(
-        std::max(instanceSide, extentSide),
-        std::size_t {1U},
-        kMaxSpatialBatchGridSide);
+[[nodiscard]] SpatialBatchGrid makeSpatialBatchGrid(const MeshBounds& sceneBounds, std::size_t side) noexcept
+{
+    SpatialBatchGrid grid;
+    grid.side = std::max<std::size_t>(side, 1U);
     if (grid.side <= 1U) {
         return grid;
     }
@@ -170,6 +204,123 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
         gridCoordinate(component(center, grid.axisA), grid.minA, grid.extentA, grid.side),
         gridCoordinate(component(center, grid.axisB), grid.minB, grid.extentB, grid.side),
     };
+}
+
+[[nodiscard]] std::size_t countBatchTargets(const ModelAsset& model, const SpatialBatchGrid& grid)
+{
+    std::unordered_set<BatchTargetKey, BatchTargetKeyHash> targets;
+    targets.reserve(model.primitiveInstances.size());
+    for (const auto& instance : model.primitiveInstances) {
+        if (instance.primitiveIndex >= model.primitives.size()) {
+            continue;
+        }
+        const auto& source = model.primitives[instance.primitiveIndex];
+        const auto [cellX, cellY] = spatialCell(grid, instance.bounds.center);
+        targets.insert({source.materialIndex, cellX, cellY});
+    }
+    return targets.size();
+}
+
+[[nodiscard]] BatchGridMode requestedBatchGridMode() noexcept
+{
+#if defined(_MSC_VER)
+    char* rawValue = nullptr;
+    std::size_t valueLength = 0;
+    if (_dupenv_s(&rawValue, &valueLength, "PROJECTUNITY_BATCH_GRID_MODE") != 0 || rawValue == nullptr) {
+        return BatchGridMode::Adaptive;
+    }
+    const std::string modeValue(rawValue);
+    std::free(rawValue);
+    const std::string_view mode(modeValue);
+#else
+    const auto* value = std::getenv("PROJECTUNITY_BATCH_GRID_MODE");
+    if (value == nullptr) {
+        return BatchGridMode::Adaptive;
+    }
+    const std::string_view mode(value);
+#endif
+    if (mode == "legacy" || mode == "legacy_2x2_baseline") {
+        return BatchGridMode::Legacy;
+    }
+    if (mode == "physical" || mode == "current_physical_grid") {
+        return BatchGridMode::Physical;
+    }
+    return BatchGridMode::Adaptive;
+}
+
+[[nodiscard]] const char* batchGridModeName(BatchGridMode mode) noexcept
+{
+    switch (mode) {
+    case BatchGridMode::Legacy:
+        return "legacy_2x2_baseline";
+    case BatchGridMode::Physical:
+        return "current_physical_grid";
+    case BatchGridMode::Adaptive:
+        return "adaptive_grid";
+    }
+    return "adaptive_grid";
+}
+
+struct SpatialBatchSelection {
+    SpatialBatchGrid grid;
+    std::size_t candidateSide {1};
+    std::size_t legacySide {1};
+    std::size_t candidateBatchCount {0};
+    std::size_t legacyBatchCount {0};
+    std::size_t finalBatchCount {0};
+    BatchGridMode mode {BatchGridMode::Adaptive};
+};
+
+[[nodiscard]] SpatialBatchSelection selectSpatialBatchGrid(const ModelAsset& model)
+{
+    SpatialBatchSelection result;
+    result.mode = requestedBatchGridMode();
+    MeshBounds sceneBounds;
+    if (!modelBounds(model, sceneBounds)) {
+        result.grid.side = 1U;
+        return result;
+    }
+    const auto instanceSide = instanceGridSide(model.primitiveInstances.size(), kSpatialBatchTargetInstances);
+    const auto extentSide = physicalGridSide(sceneBounds);
+    result.candidateSide = std::clamp(
+        std::max(instanceSide, extentSide),
+        std::size_t {1U},
+        kMaxSpatialBatchGridSide);
+    result.legacySide = std::clamp(
+        std::min(
+            instanceGridSide(model.primitiveInstances.size(), kLegacySpatialBatchTargetInstances),
+            materialBudgetGridSide(model.materials.size())),
+        std::size_t {1U},
+        kLegacyMaxSpatialBatchGridSide);
+
+    const auto candidateGrid = makeSpatialBatchGrid(sceneBounds, result.candidateSide);
+    const auto legacyGrid = makeSpatialBatchGrid(sceneBounds, result.legacySide);
+    result.candidateBatchCount = countBatchTargets(model, candidateGrid);
+    result.legacyBatchCount = countBatchTargets(model, legacyGrid);
+
+    if (result.mode == BatchGridMode::Legacy) {
+        result.grid = legacyGrid;
+        result.finalBatchCount = result.legacyBatchCount;
+        return result;
+    }
+    if (result.mode == BatchGridMode::Physical || result.candidateBatchCount < result.legacyBatchCount) {
+        result.grid = candidateGrid;
+        result.finalBatchCount = result.candidateBatchCount;
+        return result;
+    }
+
+    result.grid = legacyGrid;
+    result.finalBatchCount = result.legacyBatchCount;
+    for (auto side = result.candidateSide; side > result.legacySide; --side) {
+        auto grid = makeSpatialBatchGrid(sceneBounds, side);
+        const auto batchCount = countBatchTargets(model, grid);
+        if (batchCount < result.legacyBatchCount) {
+            result.grid = grid;
+            result.finalBatchCount = batchCount;
+            break;
+        }
+    }
+    return result;
 }
 
 [[nodiscard]] bool sameMaterial(const MaterialAsset& lhs, const MaterialAsset& rhs) noexcept
@@ -282,17 +433,39 @@ void deduplicateMaterials(ModelAsset& model)
 
 } // namespace
 
-void batchModelPrimitives(ModelAsset& model)
+bool meshPrimitiveBatchComparisonModeEnabled() noexcept
 {
+    return requestedBatchGridMode() != BatchGridMode::Adaptive;
+}
+
+MeshPrimitiveBatchStats batchModelPrimitives(ModelAsset& model)
+{
+    MeshPrimitiveBatchStats stats;
+    stats.sourcePrimitiveCount = model.primitives.size();
+    stats.sourceInstanceCount = model.primitiveInstances.size();
     deduplicateTextures(model);
     if (model.primitives.size() <= kBatchThreshold || model.primitiveInstances.size() <= kBatchThreshold) {
         deduplicateMaterials(model);
-        return;
+        stats.mode = batchGridModeName(requestedBatchGridMode());
+        stats.materialCount = model.materials.size();
+        stats.outputPrimitiveCount = model.primitives.size();
+        stats.outputInstanceCount = model.primitiveInstances.size();
+        stats.bypassed = true;
+        return stats;
     }
     bakeFlatBaseColors(model);
     deduplicateMaterials(model);
+    stats.materialCount = model.materials.size();
 
-    const auto spatialGrid = makeSpatialBatchGrid(model);
+    const auto selection = selectSpatialBatchGrid(model);
+    const auto& spatialGrid = selection.grid;
+    stats.mode = batchGridModeName(selection.mode);
+    stats.candidateGridSide = selection.candidateSide;
+    stats.legacyGridSide = selection.legacySide;
+    stats.finalGridSide = spatialGrid.side;
+    stats.candidateBatchCount = selection.candidateBatchCount;
+    stats.legacyBatchCount = selection.legacyBatchCount;
+    stats.finalBatchCount = selection.finalBatchCount;
     std::vector<MeshPrimitive> batched;
     std::vector<BatchTarget> targets;
     for (const auto& instance : model.primitiveInstances) {
@@ -311,16 +484,17 @@ void batchModelPrimitives(ModelAsset& model)
             MeshPrimitive next;
             next.materialIndex = source.materialIndex;
             batched.push_back(std::move(next));
-            targets.push_back({source.materialIndex, cellX, cellY, outputIndex});
+            targets.push_back({source.materialIndex, cellX, cellY, outputIndex, 0U});
             target = targets.end() - 1;
         }
+        ++target->instanceCount;
 
         auto transformed = source;
         transformed.lods.clear();
         applyGltfTransform(transformed, toMatrix(instance.transform));
         auto& destination = batched[target->primitiveIndex];
         if (destination.vertices.size() + transformed.vertices.size() > std::numeric_limits<std::uint32_t>::max()) {
-            return;
+            return stats;
         }
         const auto vertexOffset = static_cast<std::uint32_t>(destination.vertices.size());
         destination.vertices.insert(destination.vertices.end(), transformed.vertices.begin(), transformed.vertices.end());
@@ -335,10 +509,24 @@ void batchModelPrimitives(ModelAsset& model)
     for (std::uint32_t index = 0; index < batched.size(); ++index) {
         updateMeshBounds(batched[index]);
         rebuildSimplificationLods(batched[index]);
+        const auto extent = batched[index].bounds.maximum - batched[index].bounds.minimum;
+        stats.largestBatchExtent = std::max({stats.largestBatchExtent, extent.x, extent.y, extent.z});
+        stats.largestBatchTriangles = std::max(stats.largestBatchTriangles, batched[index].indices.size() / 3U);
         instances.push_back(identityInstance(index, batched[index].bounds));
+    }
+    for (const auto& target : targets) {
+        stats.largestBatchInstances = std::max(stats.largestBatchInstances, target.instanceCount);
+    }
+    if (!targets.empty()) {
+        stats.averageInstancesPerBatch = static_cast<float>(model.primitiveInstances.size())
+            / static_cast<float>(targets.size());
     }
     model.primitives = std::move(batched);
     model.primitiveInstances = std::move(instances);
+    stats.finalBatchCount = model.primitives.size();
+    stats.outputPrimitiveCount = model.primitives.size();
+    stats.outputInstanceCount = model.primitiveInstances.size();
+    return stats;
 }
 
 } // namespace projectunity::assets::detail

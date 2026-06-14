@@ -1,4 +1,5 @@
 #include "ViewportRenderWorld.hpp"
+#include "ViewportMeshLod.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
@@ -24,6 +25,7 @@ constexpr std::uint64_t kOverviewMaxTriangles = 2'000'000ULL;
 constexpr std::uint64_t kOverviewMinVisibleInstanceReferences = 128ULL;
 constexpr std::uint64_t kOverviewMinVisibleTriangles = 32'000ULL;
 constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
+constexpr float kClusterOverviewMinimumDistance = 24.0F;
 
 struct CachedOverviewDraw {
     assets::AssetId modelAssetId;
@@ -199,13 +201,14 @@ struct CachedOverviewModel {
     if (!worldBoundsValid || viewportHeight <= 0) {
         return false;
     }
-    const auto depth = math::dot(worldBoundsCenter - camera.eye, camera.forward);
-    if (!std::isfinite(depth) || depth <= camera.nearPlane) {
-        return false;
-    }
+    const auto lodDistance = viewportLodDistanceToBounds(
+        camera.eye,
+        worldBoundsCenter,
+        worldBoundsRadius,
+        camera.nearPlane);
     const auto projectedRadius = projectedRadiusPixels(
         worldBoundsRadius,
-        depth,
+        lodDistance,
         camera.verticalFovRadians,
         viewportHeight);
     if (projectedRadius <= 0.0F) {
@@ -227,13 +230,17 @@ struct CachedOverviewModel {
     if (viewportHeight <= 0 || worldBounds.radius <= 0.0F) {
         return false;
     }
-    const auto depth = math::dot(worldBounds.center - camera.eye, camera.forward);
-    if (!std::isfinite(depth) || depth <= std::max(camera.nearPlane, worldBounds.radius * 1.5F)) {
+    const auto lodDistance = viewportLodDistanceToBounds(
+        camera.eye,
+        worldBounds.center,
+        worldBounds.radius,
+        camera.nearPlane);
+    if (lodDistance < kClusterOverviewMinimumDistance) {
         return false;
     }
     const auto projectedRadius = projectedRadiusPixels(
         worldBounds.radius,
-        depth,
+        lodDistance,
         camera.verticalFovRadians,
         viewportHeight);
     if (projectedRadius <= 0.0F) {

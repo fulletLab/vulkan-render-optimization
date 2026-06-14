@@ -27,6 +27,21 @@ constexpr float kMaximumLodErrorPixels = 1.25F;
 
 } // namespace
 
+float viewportLodDistanceToBounds(
+    math::Vec3 eye,
+    math::Vec3 boundsCenter,
+    float boundsRadius,
+    float nearPlane) noexcept
+{
+    const auto minimumDistance = std::max(nearPlane, 0.001F);
+    const auto centerDistance = (boundsCenter - eye).length();
+    if (!std::isfinite(centerDistance)) {
+        return minimumDistance;
+    }
+    const auto radius = std::isfinite(boundsRadius) ? std::max(boundsRadius, 0.0F) : 0.0F;
+    return std::max(centerDistance - radius, minimumDistance);
+}
+
 std::size_t indexCountForViewportLod(const assets::MeshPrimitive& primitive, std::uint32_t lodIndex)
 {
     if (lodIndex == 0U || lodIndex - 1U >= primitive.lods.size()) {
