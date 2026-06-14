@@ -420,11 +420,20 @@ bool ViewportWidget::renderRendererFrame()
         frame.hlodMeshDrawCount = renderWorldFrame.stats.hlodMeshDrawCount;
         frame.hlodCandidateDrawCount = renderWorldFrame.stats.hlodCandidateDrawCount;
         frame.hlodTriangleReductionCount = renderWorldFrame.stats.hlodTriangleReductionCount;
+        frame.hlodRejectedNoOverviewCount = renderWorldFrame.stats.hlodRejectedNoOverviewCount;
+        frame.hlodRejectedVisibleWorkCount = renderWorldFrame.stats.hlodRejectedVisibleWorkCount;
+        frame.hlodRejectedCoverageCount = renderWorldFrame.stats.hlodRejectedCoverageCount;
+        frame.hlodRejectedScreenCount = renderWorldFrame.stats.hlodRejectedScreenCount;
+        frame.hlodRejectedClusterScreenCount = renderWorldFrame.stats.hlodRejectedClusterScreenCount;
         frame.occlusionTestedChunkCount = renderWorldFrame.stats.occlusionTestedChunkCount;
         frame.occlusionRejectedChunkCount = renderWorldFrame.stats.occlusionRejectedChunkCount;
         frame.occlusionOccluderChunkCount = renderWorldFrame.stats.occlusionOccluderChunkCount;
         frame.occlusionRejectedInstanceCount = renderWorldFrame.stats.occlusionRejectedInstanceCount;
         frame.occlusionRejectedTriangleCount = renderWorldFrame.stats.occlusionRejectedTriangleCount;
+        frame.spatialCellCount = renderWorldFrame.stats.spatialCellCount;
+        frame.spatialCellTestCount = renderWorldFrame.stats.spatialCellTestCount;
+        frame.spatialCellRejectedCount = renderWorldFrame.stats.spatialCellRejectedCount;
+        frame.spatialCellCandidateChunkCount = renderWorldFrame.stats.spatialCellCandidateChunkCount;
         if (renderWorldFrame.visibleBoundsValid) {
             visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }

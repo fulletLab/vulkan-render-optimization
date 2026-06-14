@@ -42,16 +42,7 @@ struct VisibleDrawLogRow {
 
 [[nodiscard]] std::uint64_t renderDrawTriangleCount(const renderer::RenderMeshDraw& draw) noexcept
 {
-    if (draw.primitive == nullptr) {
-        return 0;
-    }
-    if (draw.lodIndex > 0U && draw.lodIndex - 1U < draw.primitive->lods.size()) {
-        const auto& lodIndices = draw.primitive->lods[draw.lodIndex - 1U].indices;
-        if (!lodIndices.empty()) {
-            return static_cast<std::uint64_t>(lodIndices.size() / 3U);
-        }
-    }
-    return static_cast<std::uint64_t>(draw.primitive->indices.size() / 3U);
+    return renderer::renderMeshDrawTriangleCount(draw);
 }
 
 } // namespace
@@ -124,9 +115,26 @@ void logRenderWorldChunkDiagnostics(
     for (std::size_t index = 0; index < topCount; ++index) {
         const auto& chunk = sortedRows[index];
         message << "[" << index
+                << " node=" << chunk.sceneNodeId
+                << " asset=" << chunk.modelAssetId
+                << " chunk=" << chunk.chunkId
                 << " tri=" << chunk.triangleCount
                 << " inst=" << chunk.instanceCount
                 << " extent=" << chunk.maxExtent
+                << " bounds=("
+                << chunk.boundsMinimum.x << "," << chunk.boundsMinimum.y << "," << chunk.boundsMinimum.z
+                << ")-("
+                << chunk.boundsMaximum.x << "," << chunk.boundsMaximum.y << "," << chunk.boundsMaximum.z
+                << ")"
+                << " distance=" << chunk.distanceToCamera
+                << " screenPx=" << chunk.projectedRadiusPixels
+                << " lod=" << chunk.lod0DrawCount << "/" << chunk.lod1DrawCount << "/" << chunk.lod2PlusDrawCount
+                << " nearestInstance=" << chunk.nearestRenderInstanceId
+                << " nearestDistance=" << chunk.nearestInstanceDistance
+                << " nearestLod=" << chunk.nearestSelectedLod
+                << " insideRoot=" << (chunk.cameraInsideRootBounds ? "yes" : "no")
+                << " insideChunk=" << (chunk.cameraInsideChunkBounds ? "yes" : "no")
+                << " reason=" << (chunk.reason == nullptr ? "unknown" : chunk.reason)
                 << " vis=" << (chunk.visible ? "yes" : "no")
                 << "]";
     }
@@ -149,7 +157,7 @@ void appendViewportVisibleDrawDiagnostics(
     std::uint64_t behindCenters = 0;
     for (const auto& draw : draws) {
         const auto modelId = draw.modelAssetId.isValid() ? draw.modelAssetId.value() : 0U;
-        const auto overview = !draw.castsShadow;
+        const auto overview = renderer::isOverviewRenderMeshDraw(draw);
         if (overview) {
             ++overviewDraws;
         } else {

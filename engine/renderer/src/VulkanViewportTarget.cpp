@@ -518,6 +518,16 @@ bool VulkanViewportTarget::buildMeshBatches(
         meshInstanceBuffer_.destroy();
         return true;
     }
+    for (const auto& batch : meshBatches_) {
+        if (batch.draw == nullptr) {
+            continue;
+        }
+        accumulateRenderLodBreakdown(
+            lastFrameProfile_.vulkanBatchLod,
+            *batch.draw,
+            batch.instanceCount,
+            renderMeshDrawIndexCount(*batch.draw));
+    }
     return meshInstanceBuffer_.writeMapped(
         context_.resources(),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -653,7 +663,8 @@ bool VulkanViewportTarget::recordFrameCommand(
         VkPipeline drawPipeline,
         const VulkanDrawPushConstants& push,
         std::uint32_t firstInstance,
-        std::uint32_t instanceCount) -> bool {
+        std::uint32_t instanceCount,
+        bool countDiagnostics) -> bool {
         if (instanceCount == 0U) {
             return true;
         }
@@ -683,6 +694,18 @@ bool VulkanViewportTarget::recordFrameCommand(
         vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, instanceCount, 0, 0, 0);
         ++lastFrameProfile_.vkDrawIndexed;
         lastFrameProfile_.trianglesSubmitted += static_cast<std::uint64_t>(mesh->indexCount / 3U) * instanceCount;
+        if (countDiagnostics) {
+            accumulateRenderLodBreakdown(
+                lastFrameProfile_.vkDrawIndexedLod,
+                *batch.draw,
+                instanceCount,
+                mesh->indexCount);
+            accumulateRenderMaterialBreakdown(
+                lastFrameProfile_.mainMaterialDraws,
+                *batch.draw,
+                instanceCount,
+                mesh->indexCount);
+        }
         return true;
     };
     {
@@ -702,7 +725,7 @@ bool VulkanViewportTarget::recordFrameCommand(
             if (debugTransparent) {
                 push.baseColor[3] *= std::clamp(frame.meshDebugOpacity, 0.02F, 1.0F);
             }
-            if (!drawMeshInstances(batch, drawPipeline, push, batch.firstInstance, batch.instanceCount)) {
+            if (!drawMeshInstances(batch, drawPipeline, push, batch.firstInstance, batch.instanceCount, true)) {
                 vkCmdEndRenderPass(commandBuffer_);
                 return false;
             }
@@ -724,7 +747,7 @@ bool VulkanViewportTarget::recordFrameCommand(
                 applyMeshMaterialPush(push, draw);
                 if (frame.meshWireOverlayEnabled) {
                     push.baseColor = kVisibleWireColor;
-                    if (!drawMeshInstances(batch, wirePipeline, push, batch.firstInstance, batch.instanceCount)) {
+                    if (!drawMeshInstances(batch, wirePipeline, push, batch.firstInstance, batch.instanceCount, false)) {
                         vkCmdEndRenderPass(commandBuffer_);
                         return false;
                     }
@@ -743,7 +766,7 @@ bool VulkanViewportTarget::recordFrameCommand(
                         || instanceDraw->sceneNodeId != frame.selectedMeshWireOverlaySceneNodeId) {
                         continue;
                     }
-                    if (!drawMeshInstances(batch, wirePipeline, push, instanceIndex, 1U)) {
+                    if (!drawMeshInstances(batch, wirePipeline, push, instanceIndex, 1U, false)) {
                         vkCmdEndRenderPass(commandBuffer_);
                         return false;
                     }

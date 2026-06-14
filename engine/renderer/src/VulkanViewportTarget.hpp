@@ -97,6 +97,11 @@ struct VulkanViewportFrameProfile {
     std::uint64_t vkBindDescriptors {0};
     std::uint64_t vkDrawIndexed {0};
     std::uint64_t trianglesSubmitted {0};
+    RenderLodBreakdown resourcePreparedLod;
+    RenderLodBreakdown vulkanBatchLod;
+    RenderLodBreakdown vkDrawIndexedLod;
+    RenderMaterialBreakdown mainMaterialDraws;
+    RenderMaterialBreakdown shadowMaterialDraws;
 };
 
 class VulkanViewportTarget final {

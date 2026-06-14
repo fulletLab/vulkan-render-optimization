@@ -3,6 +3,7 @@
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldDiagnostics.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
+#include "ViewportRenderWorldSpatial.hpp"
 #include "ViewportRendererCulling.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
@@ -173,9 +174,9 @@ void buildViewportOcclusionBuffer(
         if (record == nullptr) {
             continue;
         }
-        for (const auto& chunk : record->chunks) {
+        forEachSpatialChunkCandidate(*record, camera, stats, [&](std::size_t, const auto& chunk) {
             if (!viewportChunkCanOcclude(*record, chunk, sceneExtent)) {
-                continue;
+                return;
             }
             if (!viewportBoundsVisible(
                     chunk.worldBounds,
@@ -187,13 +188,13 @@ void buildViewportOcclusionBuffer(
                     camera.aspectRatio,
                     camera.nearPlane,
                     camera.farPlane)) {
-                continue;
+                return;
             }
             if (occlusionBuffer.addOccluder(chunk.worldBounds)) {
                 occluderChunkIds.insert(chunk.renderChunkId);
                 ++stats.occlusionOccluderChunkCount;
             }
-        }
+        });
     }
 }
 

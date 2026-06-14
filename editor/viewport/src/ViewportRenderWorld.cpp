@@ -10,6 +10,7 @@
 #include "ViewportRenderWorldRecordStats.hpp"
 #include "ViewportRenderWorldSelection.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
+#include "ViewportRenderWorldSpatial.hpp"
 #include "ViewportRendererCulling.hpp"
 #include "ViewportSceneLookup.hpp"
 
@@ -20,6 +21,7 @@
 #include <cstring>
 #include <limits>
 #include <span>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -189,6 +191,49 @@ namespace {
         hash = mixHash(hash, model->primitiveClusters.size());
     }
     return hash;
+}
+
+[[nodiscard]] ViewportFrameBounds viewportBoundsFrame(const std::array<math::Vec3, 8>& corners)
+{
+    ViewportFrameBounds result;
+    for (const auto corner : corners) {
+        result.includeSphere(corner, 0.0F);
+    }
+    return result;
+}
+
+[[nodiscard]] bool pointInsideViewportBounds(math::Vec3 point, const std::array<math::Vec3, 8>& corners)
+{
+    const auto frame = viewportBoundsFrame(corners);
+    if (!frame.valid) {
+        return false;
+    }
+    return point.x >= frame.minimum.x && point.x <= frame.maximum.x
+        && point.y >= frame.minimum.y && point.y <= frame.maximum.y
+        && point.z >= frame.minimum.z && point.z <= frame.maximum.z;
+}
+
+[[nodiscard]] float renderWorldProjectedRadiusPixels(
+    float radius,
+    float distance,
+    float verticalFovRadians,
+    int viewportHeight) noexcept
+{
+    if (radius <= 0.0F
+        || distance <= 0.05F
+        || viewportHeight <= 0
+        || !std::isfinite(radius)
+        || !std::isfinite(distance)
+        || !std::isfinite(verticalFovRadians)) {
+        return 0.0F;
+    }
+    const auto tangent = std::tan(verticalFovRadians * 0.5F);
+    if (!std::isfinite(tangent) || tangent <= 0.0F) {
+        return 0.0F;
+    }
+    const auto projectionScale = (static_cast<float>(viewportHeight) * 0.5F) / tangent;
+    const auto projected = radius * projectionScale / distance;
+    return std::isfinite(projected) ? projected : 0.0F;
 }
 
 } // namespace
@@ -563,8 +608,10 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     }
 
     std::vector<ViewportRenderWorldChunkLogRow> chunkDebugRows;
+    std::unordered_map<std::uint64_t, std::size_t> chunkDebugRowById;
     if (collectChunkDebug) {
         chunkDebugRows.reserve(static_cast<std::size_t>(result.stats.renderChunkCount));
+        chunkDebugRowById.reserve(static_cast<std::size_t>(result.stats.renderChunkCount));
     }
 
     std::vector<const EntityRecord::Chunk*> visibleChunks;
@@ -613,7 +660,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         }
         visibleChunks.clear();
         visibleChunks.reserve(record->chunks.size());
-        for (const auto& chunk : record->chunks) {
+        forEachSpatialChunkCandidate(*record, camera, result.stats, [&](std::size_t, const auto& chunk) {
             const auto chunkExtent = renderWorldChunkMaxExtent(chunk.worldBounds.corners);
             const auto largeChunk = chunkExtent >= largeChunkExtent
                 || chunk.triangleCount == result.stats.largestRenderChunkTriangleCount;
@@ -630,14 +677,42 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     camera.aspectRatio,
                     camera.nearPlane,
                     camera.farPlane);
+            auto chunkDebugRowIndex = SIZE_MAX;
             if (collectChunkDebug) {
-                chunkDebugRows.push_back({
-                    chunk.renderChunkId,
-                    chunk.triangleCount,
-                    static_cast<std::uint64_t>(chunk.instanceIndices.size()),
-                    chunkExtent,
-                    chunkVisible,
-                });
+                auto chunkModelAssetId = std::uint64_t {0};
+                if (!chunk.instanceIndices.empty() && chunk.instanceIndices.front() < record->instances.size()) {
+                    const auto& firstInstance = record->instances[chunk.instanceIndices.front()];
+                    chunkModelAssetId = firstInstance.modelAssetId.isValid() ? firstInstance.modelAssetId.value() : 0U;
+                }
+                const auto chunkFrame = viewportBoundsFrame(chunk.worldBounds.corners);
+                const auto chunkDistance = viewportLodDistanceToBounds(
+                    camera.eye,
+                    camera.forward,
+                    chunk.worldBounds.corners,
+                    camera.nearPlane);
+                ViewportRenderWorldChunkLogRow row;
+                row.sceneNodeId = chunk.sceneNodeId.value();
+                row.modelAssetId = chunkModelAssetId;
+                row.chunkId = chunk.renderChunkId;
+                row.triangleCount = chunk.triangleCount;
+                row.instanceCount = static_cast<std::uint64_t>(chunk.instanceIndices.size());
+                row.boundsMinimum = chunkFrame.valid ? chunkFrame.minimum : chunk.worldBounds.center;
+                row.boundsMaximum = chunkFrame.valid ? chunkFrame.maximum : chunk.worldBounds.center;
+                row.maxExtent = chunkExtent;
+                row.distanceToCamera = chunkDistance;
+                row.projectedRadiusPixels = renderWorldProjectedRadiusPixels(
+                    chunk.worldBounds.radius,
+                    chunkDistance,
+                    camera.verticalFovRadians,
+                    viewportHeight);
+                row.visible = chunkVisible;
+                row.cameraInsideRootBounds = record->worldBoundsValid
+                    && pointInsideViewportBounds(camera.eye, record->worldBounds.corners);
+                row.cameraInsideChunkBounds = pointInsideViewportBounds(camera.eye, chunk.worldBounds.corners);
+                row.reason = chunkVisible ? "frustum-visible" : "frustum-culled";
+                chunkDebugRowIndex = chunkDebugRows.size();
+                chunkDebugRows.push_back(row);
+                chunkDebugRowById.insert_or_assign(chunk.renderChunkId, chunkDebugRowIndex);
                 if (result.debugChunks.size() < 512U) {
                     result.debugChunks.push_back({
                         chunk.worldBounds.corners,
@@ -650,7 +725,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 }
             }
             if (!chunkVisible) {
-                continue;
+                return;
             }
             if (viewportChunkRejectedByOcclusion(
                 *record,
@@ -661,11 +736,21 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 occlusionBuffer,
                 occluderChunkIds,
                 result.stats)) {
-                continue;
+                if (chunkDebugRowIndex < chunkDebugRows.size()) {
+                    auto& row = chunkDebugRows[chunkDebugRowIndex];
+                    row.visible = false;
+                    row.reason = "occlusion-culled";
+                }
+                return;
+            }
+            if (chunkDebugRowIndex < chunkDebugRows.size()) {
+                auto& row = chunkDebugRows[chunkDebugRowIndex];
+                row.visible = true;
+                row.reason = "visible";
             }
             ++result.stats.visibleRenderChunkCount;
             visibleChunks.push_back(&chunk);
-        }
+        });
 
         if (visibleChunks.empty()) {
             continue;
@@ -747,6 +832,25 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     static_cast<float>(std::max(viewportHeight, 1)),
                     forceFullResolution);
                 const auto selectedTriangleCount = static_cast<std::uint64_t>(indexCountForViewportLod(primitive, lodIndex) / 3U);
+                if (collectChunkDebug) {
+                    const auto rowIt = chunkDebugRowById.find(chunk.renderChunkId);
+                    if (rowIt != chunkDebugRowById.end() && rowIt->second < chunkDebugRows.size()) {
+                        auto& row = chunkDebugRows[rowIt->second];
+                        if (lodIndex == 0U) {
+                            ++row.lod0DrawCount;
+                        } else if (lodIndex == 1U) {
+                            ++row.lod1DrawCount;
+                        } else {
+                            ++row.lod2PlusDrawCount;
+                        }
+                        if (lodDistance < row.nearestInstanceDistance) {
+                            row.nearestRenderInstanceId = instance.renderInstanceId;
+                            row.nearestInstanceDistance = lodDistance;
+                            row.nearestSelectedLod = lodIndex;
+                            row.modelAssetId = instance.modelAssetId.isValid() ? instance.modelAssetId.value() : row.modelAssetId;
+                        }
+                    }
+                }
                 if (lodIndex > 0U && selectedTriangleCount < sourceTriangleCount) {
                     ++result.stats.lodMeshDrawCount;
                     result.stats.lodTriangleReductionCount += sourceTriangleCount - selectedTriangleCount;

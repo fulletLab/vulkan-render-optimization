@@ -22,10 +22,7 @@ void accumulateViewportRenderWorldRecordStats(
         result.hasMeshSceneContent = result.hasMeshSceneContent || record->hasMeshSceneContent;
         result.stats.renderInstanceCount += record->instances.size();
         result.stats.renderChunkCount += record->chunks.size();
-        result.stats.hlodCandidateDrawCount += record->overviewDraws.size();
-        for (const auto& chunk : record->chunks) {
-            result.stats.hlodCandidateDrawCount += chunk.overviewDraws.size();
-        }
+        result.stats.spatialCellCount += record->chunkCells.size();
         for (const auto& instance : record->instances) {
             if (instance.primitiveIndex >= instance.model->primitives.size()) {
                 continue;

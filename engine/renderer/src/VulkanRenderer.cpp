@@ -36,6 +36,41 @@ namespace {
     return bytes;
 }
 
+[[nodiscard]] RenderLodBreakdown lodBreakdownForDraws(std::span<const RenderMeshDraw> draws) noexcept
+{
+    RenderLodBreakdown breakdown;
+    for (const auto& draw : draws) {
+        accumulateRenderLodBreakdown(breakdown, draw, 1U, renderMeshDrawIndexCount(draw));
+    }
+    return breakdown;
+}
+
+[[nodiscard]] std::string hlodReason(const RenderFrame& frame)
+{
+    if (frame.hlodMeshDrawCount > 0U) {
+        return "active";
+    }
+    if (frame.hlodRejectedNoOverviewCount > 0U) {
+        return "none:no-overview-mesh";
+    }
+    if (frame.hlodCandidateDrawCount == 0U) {
+        return "none:not-built";
+    }
+    if (frame.hlodRejectedVisibleWorkCount > 0U) {
+        return "rejected:visible-work";
+    }
+    if (frame.hlodRejectedCoverageCount > 0U) {
+        return "rejected:coverage";
+    }
+    if (frame.hlodRejectedScreenCount > 0U) {
+        return "rejected:too-close/screen";
+    }
+    if (frame.hlodRejectedClusterScreenCount > 0U) {
+        return "rejected:cluster-screen";
+    }
+    return "rejected:unknown";
+}
+
 } // namespace
 
 struct VulkanRenderer::Impl {
@@ -248,11 +283,21 @@ struct VulkanRenderer::Impl {
             stats.lastFrameHlodMeshDrawCount = frame.hlodMeshDrawCount;
             stats.lastFrameHlodCandidateDrawCount = frame.hlodCandidateDrawCount;
             stats.lastFrameHlodTriangleReductionCount = frame.hlodTriangleReductionCount;
+            stats.lastFrameHlodRejectedNoOverviewCount = frame.hlodRejectedNoOverviewCount;
+            stats.lastFrameHlodRejectedVisibleWorkCount = frame.hlodRejectedVisibleWorkCount;
+            stats.lastFrameHlodRejectedCoverageCount = frame.hlodRejectedCoverageCount;
+            stats.lastFrameHlodRejectedScreenCount = frame.hlodRejectedScreenCount;
+            stats.lastFrameHlodRejectedClusterScreenCount = frame.hlodRejectedClusterScreenCount;
+            stats.lastFrameHlodReason = hlodReason(frame);
             stats.lastFrameOcclusionTestedChunkCount = frame.occlusionTestedChunkCount;
             stats.lastFrameOcclusionRejectedChunkCount = frame.occlusionRejectedChunkCount;
             stats.lastFrameOcclusionOccluderChunkCount = frame.occlusionOccluderChunkCount;
             stats.lastFrameOcclusionRejectedInstanceCount = frame.occlusionRejectedInstanceCount;
             stats.lastFrameOcclusionRejectedTriangleCount = frame.occlusionRejectedTriangleCount;
+            stats.lastFrameSpatialCellCount = frame.spatialCellCount;
+            stats.lastFrameSpatialCellTestCount = frame.spatialCellTestCount;
+            stats.lastFrameSpatialCellRejectedCount = frame.spatialCellRejectedCount;
+            stats.lastFrameSpatialCellCandidateChunkCount = frame.spatialCellCandidateChunkCount;
             stats.lastFrameSceneNodeCount = frame.sceneNodeCount;
             stats.lastFrameRenderChunkCount = frame.renderChunkCount;
             stats.lastFrameVisibleRenderChunkCount = frame.visibleRenderChunkCount;
@@ -305,6 +350,12 @@ struct VulkanRenderer::Impl {
             stats.shadowBatchesSubmitted = profile.shadowBatchesSubmitted;
             stats.shadowInstancesSubmitted = profile.shadowInstancesSubmitted;
             stats.shadowTrianglesSubmitted = profile.shadowTrianglesSubmitted;
+            stats.renderWorldSelectedLod = lodBreakdownForDraws(frame.meshDraws);
+            stats.resourcePreparedLod = profile.resourcePreparedLod;
+            stats.vulkanBatchLod = profile.vulkanBatchLod;
+            stats.vkDrawIndexedLod = profile.vkDrawIndexedLod;
+            stats.mainMaterialDraws = profile.mainMaterialDraws;
+            stats.shadowMaterialDraws = profile.shadowMaterialDraws;
             stats.lastFrameShadowCasterCount = profile.shadowCastersSubmitted;
             stats.vkBindVertex = profile.vkBindVertex;
             stats.vkBindIndex = profile.vkBindIndex;

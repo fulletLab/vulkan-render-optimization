@@ -21,8 +21,6 @@ enum class ShadowDebugState : std::uint8_t {
     Active,
 };
 
-constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
-
 [[nodiscard]] std::uint64_t mixLogHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
     return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
@@ -72,7 +70,7 @@ struct LabelProjectionDebug {
 
 [[nodiscard]] bool isOverviewDraw(const renderer::RenderMeshDraw& draw) noexcept
 {
-    return draw.primitiveIndex >= kOverviewPrimitiveIndexBase;
+    return renderer::isOverviewRenderMeshDraw(draw);
 }
 
 [[nodiscard]] std::uint64_t sourceTriangleCount(const renderer::RenderMeshDraw& draw) noexcept
@@ -82,16 +80,33 @@ struct LabelProjectionDebug {
 
 [[nodiscard]] std::uint64_t selectedTriangleCount(const renderer::RenderMeshDraw& draw) noexcept
 {
-    if (draw.primitive == nullptr) {
-        return 0U;
+    return renderer::renderMeshDrawTriangleCount(draw);
+}
+
+[[nodiscard]] const char* hlodReasonText(const renderer::RenderFrame& frame) noexcept
+{
+    if (frame.hlodMeshDrawCount > 0U) {
+        return "active";
     }
-    if (draw.lodIndex > 0U && draw.lodIndex - 1U < draw.primitive->lods.size()) {
-        const auto& lodIndices = draw.primitive->lods[draw.lodIndex - 1U].indices;
-        if (!lodIndices.empty()) {
-            return static_cast<std::uint64_t>(lodIndices.size() / 3U);
-        }
+    if (frame.hlodRejectedNoOverviewCount > 0U) {
+        return "none:no-overview-mesh";
     }
-    return static_cast<std::uint64_t>(draw.primitive->indices.size() / 3U);
+    if (frame.hlodCandidateDrawCount == 0U) {
+        return "none:not-built";
+    }
+    if (frame.hlodRejectedVisibleWorkCount > 0U) {
+        return "rejected:visible-work";
+    }
+    if (frame.hlodRejectedCoverageCount > 0U) {
+        return "rejected:coverage";
+    }
+    if (frame.hlodRejectedScreenCount > 0U) {
+        return "rejected:too-close/screen";
+    }
+    if (frame.hlodRejectedClusterScreenCount > 0U) {
+        return "rejected:cluster-screen";
+    }
+    return "rejected:unknown";
 }
 
 [[nodiscard]] float projectedRadiusPixels(
@@ -242,6 +257,7 @@ void appendViewportDrawDebugOverlay(
         }
         std::ostringstream summary;
         summary << "LOD DEBUG  HLOD " << hlodDraws << "/" << compactTriangleText(hlodTriangles)
+                << " (" << hlodReasonText(frame) << " " << frame.hlodCandidateDrawCount << ")"
                 << "  L0 " << l0Draws << "/" << compactTriangleText(l0Triangles)
                 << "  L1 " << l1Draws << "/" << compactTriangleText(l1Triangles)
                 << "  L2+ " << l2PlusDraws << "/" << compactTriangleText(l2PlusTriangles);

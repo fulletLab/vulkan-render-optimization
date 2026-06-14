@@ -84,6 +84,11 @@ struct ViewportRenderWorld::EntityRecord {
         std::uint64_t triangleCount {0};
     };
 
+    struct ChunkCell {
+        ViewportWorldBounds worldBounds;
+        std::vector<std::size_t> chunkIndices;
+    };
+
     scene::EntityId entityId;
     std::uint64_t signature {0};
     bool hasMeshSceneContent {false};
@@ -92,6 +97,7 @@ struct ViewportRenderWorld::EntityRecord {
     renderer::RenderMatrix4 modelMatrix;
     std::vector<Instance> instances;
     std::vector<Chunk> chunks;
+    std::vector<ChunkCell> chunkCells;
     std::vector<OverviewDraw> overviewDraws;
     ViewportWorldBounds worldBounds;
     bool worldBoundsValid {false};

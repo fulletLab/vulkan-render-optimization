@@ -36,6 +36,59 @@ projectunity::assets::MeshPrimitive testPrimitive()
     return primitive;
 }
 
+projectunity::assets::MeshPrimitive testBoundedLodPrimitive()
+{
+    auto primitive = testPrimitive();
+    primitive.materialIndex = 0U;
+    primitive.bounds.minimum = {-10.0F, -10.0F, -10.0F};
+    primitive.bounds.maximum = {10.0F, 10.0F, 10.0F};
+    primitive.bounds.center = {0.0F, 0.0F, 0.0F};
+    primitive.bounds.radius = 17.3206F;
+    return primitive;
+}
+
+projectunity::assets::MeshBounds translatedBounds(
+    const projectunity::assets::MeshBounds& bounds,
+    projectunity::math::Vec3 offset)
+{
+    return {
+        bounds.minimum + offset,
+        bounds.maximum + offset,
+        bounds.center + offset,
+        bounds.radius,
+    };
+}
+
+std::shared_ptr<projectunity::assets::ModelAsset> testSinglePrimitiveLodModel(projectunity::assets::AssetId id)
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->id = id;
+    model->materials.resize(1U);
+    model->primitives.push_back(testBoundedLodPrimitive());
+    return model;
+}
+
+std::shared_ptr<projectunity::assets::ModelAsset> testChunkedLodFieldModel()
+{
+    auto model = testSinglePrimitiveLodModel(projectunity::assets::AssetId(2774));
+    const std::array<projectunity::math::Vec3, 4> offsets {{
+        {0.0F, 0.0F, -40.0F},
+        {0.0F, 0.0F, 11.0F},
+        {0.0F, 0.0F, 140.0F},
+        {0.0F, 0.0F, 620.0F},
+    }};
+    for (const auto offset : offsets) {
+        projectunity::assets::MeshPrimitiveInstance instance;
+        instance.primitiveIndex = 0U;
+        instance.transform[12] = offset.x;
+        instance.transform[13] = offset.y;
+        instance.transform[14] = offset.z;
+        instance.bounds = translatedBounds(model->primitives.front().bounds, offset);
+        model->primitiveInstances.push_back(instance);
+    }
+    return model;
+}
+
 projectunity::editor::ViewportWorldBounds testBounds(
     projectunity::math::Vec3 minimum,
     projectunity::math::Vec3 maximum)
@@ -303,6 +356,91 @@ int main()
         0.05F,
         100.0F,
     };
+
+    auto lodCamera = camera;
+    lodCamera.farPlane = 2'000.0F;
+    TestAssetManager duplicateLodAssets;
+    duplicateLodAssets.modelAsset = testSinglePrimitiveLodModel(projectunity::assets::AssetId(1888));
+    projectunity::scene::Scene duplicateLodScene;
+    auto& nearCopy = duplicateLodScene.createEntity("Near LOD Copy");
+    nearCopy.transform.position = {0.0F, 0.0F, 11.0F};
+    projectunity::scene::MeshRendererComponent duplicateRenderer;
+    duplicateRenderer.modelAssetId = duplicateLodAssets.modelAsset->id;
+    nearCopy.meshRenderer = duplicateRenderer;
+    const auto nearCopyId = nearCopy.id.value();
+    auto& farCopy = duplicateLodScene.createEntity("Far LOD Copy");
+    farCopy.transform.position = {0.0F, 0.0F, 620.0F};
+    farCopy.meshRenderer = duplicateRenderer;
+    const auto farCopyId = farCopy.id.value();
+    projectunity::editor::ViewportRenderWorld duplicateLodWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> duplicateLodDraws;
+    std::vector<projectunity::renderer::RenderLight> duplicateLodLights;
+    (void)duplicateLodWorld.buildFrame(
+        &duplicateLodScene,
+        &duplicateLodAssets,
+        {},
+        lodCamera,
+        {},
+        1080,
+        false,
+        duplicateLodDraws,
+        duplicateLodLights);
+    const auto nearDraw = std::find_if(duplicateLodDraws.begin(), duplicateLodDraws.end(), [nearCopyId](const auto& draw) {
+        return draw.sceneNodeId == nearCopyId;
+    });
+    const auto farDraw = std::find_if(duplicateLodDraws.begin(), duplicateLodDraws.end(), [farCopyId](const auto& draw) {
+        return draw.sceneNodeId == farCopyId;
+    });
+    if (nearDraw == duplicateLodDraws.end() || farDraw == duplicateLodDraws.end()) {
+        std::cerr << "duplicateLodDraws=" << duplicateLodDraws.size()
+                  << " nearId=" << nearCopyId
+                  << " farId=" << farCopyId;
+        for (const auto& draw : duplicateLodDraws) {
+            std::cerr << " [node=" << draw.sceneNodeId
+                      << " lod=" << draw.lodIndex
+                      << " depth=" << draw.sortDepth
+                      << " centerZ=" << draw.worldBoundsCenter[2]
+                      << "]";
+        }
+        std::cerr << '\n';
+        return fail("Viewport did not render both duplicate LOD asset instances");
+    }
+    if (nearDraw->lodIndex != 0U) {
+        return fail("Viewport did not keep the near duplicate asset at LOD0");
+    }
+    if (farDraw->lodIndex == 0U) {
+        return fail("Viewport shared the near duplicate asset LOD with the far duplicate");
+    }
+
+    TestAssetManager chunkedLodAssets;
+    chunkedLodAssets.modelAsset = testChunkedLodFieldModel();
+    projectunity::scene::Scene chunkedLodScene;
+    auto& chunkedRoot = chunkedLodScene.createEntity("Chunked LOD Field");
+    projectunity::scene::MeshRendererComponent chunkedRenderer;
+    chunkedRenderer.modelAssetId = chunkedLodAssets.modelAsset->id;
+    chunkedRoot.meshRenderer = chunkedRenderer;
+    projectunity::editor::ViewportRenderWorld chunkedLodWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> chunkedLodDraws;
+    std::vector<projectunity::renderer::RenderLight> chunkedLodLights;
+    (void)chunkedLodWorld.buildFrame(
+        &chunkedLodScene,
+        &chunkedLodAssets,
+        {},
+        lodCamera,
+        {},
+        1080,
+        false,
+        chunkedLodDraws,
+        chunkedLodLights);
+    auto chunkedHasLod0 = false;
+    auto chunkedHasCoarseLod = false;
+    for (const auto& draw : chunkedLodDraws) {
+        chunkedHasLod0 = chunkedHasLod0 || draw.lodIndex == 0U;
+        chunkedHasCoarseLod = chunkedHasCoarseLod || draw.lodIndex > 0U;
+    }
+    if (!chunkedHasLod0 || !chunkedHasCoarseLod) {
+        return fail("Viewport forced one LOD across a chunked asset while the camera was inside its root bounds");
+    }
 
     TestAssetManager runtimeProxyAssets;
     runtimeProxyAssets.modelAsset = testRuntimeProxyModel();

@@ -200,6 +200,7 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    stopPlayMode();
     saveEditorLayout();
     appendPendingLogs();
     if (sceneViewport_ != nullptr) {
@@ -662,6 +663,11 @@ void MainWindow::pushLightingSettingsToViewports()
         gameViewport_->setEditorSunLight(editorSunLight_);
         gameViewport_->setShadowUpdateMode(shadowUpdateMode_);
     }
+    if (playRuntimeViewport_ != nullptr) {
+        playRuntimeViewport_->setEnvironmentSettings(environmentSettings_);
+        playRuntimeViewport_->setEditorSunLight(editorSunLight_);
+        playRuntimeViewport_->setShadowUpdateMode(shadowUpdateMode_);
+    }
 }
 
 void MainWindow::updateEditorSunFromControls()
@@ -691,16 +697,18 @@ void MainWindow::refreshViewports()
         sceneViewport_->setSelectedEntity(selectedEntityId_);
     }
     if (gameViewport_ != nullptr) {
-        if (playModeActive_) {
-            gameViewport_->setScene(&playRuntimeScene_);
-            gameViewport_->setSelectedEntity({});
-            gameViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
-            gameViewport_->setGameInputEnabled(true);
-            gameViewport_->setGameRuntimeSnapshotEnabled(true);
-        } else {
-            gameViewport_->setScene(&scene_);
-            gameViewport_->setSelectedEntity(selectedEntityId_);
-        }
+        gameViewport_->setScene(&scene_);
+        gameViewport_->setSelectedEntity(selectedEntityId_);
+        gameViewport_->setGameCameraEntity({});
+        gameViewport_->setGameInputEnabled(false);
+        gameViewport_->setGameRuntimeSnapshotEnabled(false);
+    }
+    if (playRuntimeViewport_ != nullptr) {
+        playRuntimeViewport_->setScene(&playRuntimeScene_);
+        playRuntimeViewport_->setSelectedEntity({});
+        playRuntimeViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
+        playRuntimeViewport_->setGameInputEnabled(playModeActive_);
+        playRuntimeViewport_->setGameRuntimeSnapshotEnabled(playModeActive_);
     }
 }
 

@@ -82,7 +82,7 @@ private:
     void stopPlayMode();
     [[nodiscard]] projectunity::scene::EntityId findPlayableCameraEntity() const;
     [[nodiscard]] bool buildPlayRuntimeSnapshot(projectunity::scene::EntityId sourceCameraEntityId);
-    void activateGameViewDock();
+    void showPlayRuntimeWindow();
     void attachFlyPlayerControllerToSelection();
     void removeScriptFromSelection();
     void ensureFlyPlayerScriptAsset();
@@ -163,6 +163,7 @@ private:
     QPushButton* resetLightingButton_ {nullptr};
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
+    ViewportWidget* playRuntimeViewport_ {nullptr};
     std::shared_ptr<core::MemoryLogSink> logSink_;
     QTimer* logFlushTimer_ {nullptr};
     QTimer* lightingApplyTimer_ {nullptr};

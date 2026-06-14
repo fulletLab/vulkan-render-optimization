@@ -2,6 +2,7 @@
 
 #include <projectunity/assets/AssetManager.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -29,6 +30,41 @@ struct RendererConfig {
     bool enableRenderDocMarkers {true};
 };
 
+constexpr std::uint32_t kRenderOverviewPrimitiveIndexBase = 0x80000000U;
+constexpr std::size_t kRenderLodCounterCount = 4U;
+
+struct RenderLodBreakdown {
+    std::array<std::uint64_t, kRenderLodCounterCount> draws {};
+    std::array<std::uint64_t, kRenderLodCounterCount> triangles {};
+    std::array<std::uint64_t, kRenderLodCounterCount> maxDrawTriangles {};
+};
+
+struct RenderMaterialBreakdown {
+    std::uint64_t opaqueDraws {0};
+    std::uint64_t opaqueTriangles {0};
+    std::uint64_t alphaMaskDraws {0};
+    std::uint64_t alphaMaskTriangles {0};
+    std::uint64_t blendDraws {0};
+    std::uint64_t blendTriangles {0};
+    std::uint64_t doubleSidedDraws {0};
+    std::uint64_t doubleSidedTriangles {0};
+};
+
+[[nodiscard]] inline bool isOverviewRenderMeshDraw(const struct RenderMeshDraw& draw) noexcept;
+[[nodiscard]] inline std::uint64_t renderMeshDrawIndexCount(const struct RenderMeshDraw& draw) noexcept;
+[[nodiscard]] inline std::uint64_t renderMeshDrawTriangleCount(const struct RenderMeshDraw& draw) noexcept;
+[[nodiscard]] inline std::size_t renderMeshDrawLodCounterSlot(const struct RenderMeshDraw& draw) noexcept;
+inline void accumulateRenderLodBreakdown(
+    RenderLodBreakdown& breakdown,
+    const struct RenderMeshDraw& draw,
+    std::uint32_t instanceCount,
+    std::uint64_t indexCount) noexcept;
+inline void accumulateRenderMaterialBreakdown(
+    RenderMaterialBreakdown& breakdown,
+    const struct RenderMeshDraw& draw,
+    std::uint32_t instanceCount,
+    std::uint64_t indexCount) noexcept;
+
 struct RendererStats {
     RenderBackend backend {RenderBackend::Vulkan};
     std::string gpuName;
@@ -53,11 +89,21 @@ struct RendererStats {
     std::uint64_t lastFrameHlodMeshDrawCount {0};
     std::uint64_t lastFrameHlodCandidateDrawCount {0};
     std::uint64_t lastFrameHlodTriangleReductionCount {0};
+    std::uint64_t lastFrameHlodRejectedNoOverviewCount {0};
+    std::uint64_t lastFrameHlodRejectedVisibleWorkCount {0};
+    std::uint64_t lastFrameHlodRejectedCoverageCount {0};
+    std::uint64_t lastFrameHlodRejectedScreenCount {0};
+    std::uint64_t lastFrameHlodRejectedClusterScreenCount {0};
+    std::string lastFrameHlodReason;
     std::uint64_t lastFrameOcclusionTestedChunkCount {0};
     std::uint64_t lastFrameOcclusionRejectedChunkCount {0};
     std::uint64_t lastFrameOcclusionOccluderChunkCount {0};
     std::uint64_t lastFrameOcclusionRejectedInstanceCount {0};
     std::uint64_t lastFrameOcclusionRejectedTriangleCount {0};
+    std::uint64_t lastFrameSpatialCellCount {0};
+    std::uint64_t lastFrameSpatialCellTestCount {0};
+    std::uint64_t lastFrameSpatialCellRejectedCount {0};
+    std::uint64_t lastFrameSpatialCellCandidateChunkCount {0};
     std::uint64_t lastFrameSceneNodeCount {0};
     std::uint64_t lastFrameRenderChunkCount {0};
     std::uint64_t lastFrameVisibleRenderChunkCount {0};
@@ -83,6 +129,12 @@ struct RendererStats {
     std::uint64_t shadowBatchesSubmitted {0};
     std::uint64_t shadowInstancesSubmitted {0};
     std::uint64_t shadowTrianglesSubmitted {0};
+    RenderLodBreakdown renderWorldSelectedLod;
+    RenderLodBreakdown resourcePreparedLod;
+    RenderLodBreakdown vulkanBatchLod;
+    RenderLodBreakdown vkDrawIndexedLod;
+    RenderMaterialBreakdown mainMaterialDraws;
+    RenderMaterialBreakdown shadowMaterialDraws;
     std::uint64_t vkBindVertex {0};
     std::uint64_t vkBindIndex {0};
     std::uint64_t vkBindDescriptors {0};
@@ -264,11 +316,20 @@ struct RenderFrame {
     std::uint64_t hlodMeshDrawCount {0};
     std::uint64_t hlodCandidateDrawCount {0};
     std::uint64_t hlodTriangleReductionCount {0};
+    std::uint64_t hlodRejectedNoOverviewCount {0};
+    std::uint64_t hlodRejectedVisibleWorkCount {0};
+    std::uint64_t hlodRejectedCoverageCount {0};
+    std::uint64_t hlodRejectedScreenCount {0};
+    std::uint64_t hlodRejectedClusterScreenCount {0};
     std::uint64_t occlusionTestedChunkCount {0};
     std::uint64_t occlusionRejectedChunkCount {0};
     std::uint64_t occlusionOccluderChunkCount {0};
     std::uint64_t occlusionRejectedInstanceCount {0};
     std::uint64_t occlusionRejectedTriangleCount {0};
+    std::uint64_t spatialCellCount {0};
+    std::uint64_t spatialCellTestCount {0};
+    std::uint64_t spatialCellRejectedCount {0};
+    std::uint64_t spatialCellCandidateChunkCount {0};
     std::uint64_t sceneNodeCount {0};
     std::uint64_t renderChunkCount {0};
     std::uint64_t visibleRenderChunkCount {0};
@@ -295,5 +356,87 @@ struct RenderFrame {
     std::uint64_t selectedMeshWireOverlaySceneNodeId {0};
     std::span<const RenderColorMeshDraw> colorMeshDraws;
 };
+
+[[nodiscard]] inline bool isOverviewRenderMeshDraw(const RenderMeshDraw& draw) noexcept
+{
+    return draw.primitiveIndex >= kRenderOverviewPrimitiveIndexBase;
+}
+
+[[nodiscard]] inline std::uint64_t renderMeshDrawIndexCount(const RenderMeshDraw& draw) noexcept
+{
+    if (draw.primitive == nullptr) {
+        return 0U;
+    }
+    if (draw.lodIndex > 0U && draw.lodIndex - 1U < draw.primitive->lods.size()) {
+        const auto& lodIndices = draw.primitive->lods[draw.lodIndex - 1U].indices;
+        if (!lodIndices.empty()) {
+            return static_cast<std::uint64_t>(lodIndices.size());
+        }
+    }
+    return static_cast<std::uint64_t>(draw.primitive->indices.size());
+}
+
+[[nodiscard]] inline std::uint64_t renderMeshDrawTriangleCount(const RenderMeshDraw& draw) noexcept
+{
+    return renderMeshDrawIndexCount(draw) / 3U;
+}
+
+[[nodiscard]] inline std::size_t renderMeshDrawLodCounterSlot(const RenderMeshDraw& draw) noexcept
+{
+    if (isOverviewRenderMeshDraw(draw)) {
+        return 3U;
+    }
+    if (draw.lodIndex == 0U) {
+        return 0U;
+    }
+    if (draw.lodIndex == 1U) {
+        return 1U;
+    }
+    return 2U;
+}
+
+inline void accumulateRenderLodBreakdown(
+    RenderLodBreakdown& breakdown,
+    const RenderMeshDraw& draw,
+    std::uint32_t instanceCount,
+    std::uint64_t indexCount) noexcept
+{
+    const auto slot = renderMeshDrawLodCounterSlot(draw);
+    if (slot >= kRenderLodCounterCount) {
+        return;
+    }
+    const auto instances = static_cast<std::uint64_t>(std::max<std::uint32_t>(instanceCount, 1U));
+    const auto triangles = (indexCount / 3U) * instances;
+    ++breakdown.draws[slot];
+    breakdown.triangles[slot] += triangles;
+    breakdown.maxDrawTriangles[slot] = std::max(breakdown.maxDrawTriangles[slot], triangles);
+}
+
+inline void accumulateRenderMaterialBreakdown(
+    RenderMaterialBreakdown& breakdown,
+    const RenderMeshDraw& draw,
+    std::uint32_t instanceCount,
+    std::uint64_t indexCount) noexcept
+{
+    const auto triangles = (indexCount / 3U) * static_cast<std::uint64_t>(std::max<std::uint32_t>(instanceCount, 1U));
+    switch (draw.material == nullptr ? assets::MaterialAlphaMode::Opaque : draw.material->alphaMode) {
+    case assets::MaterialAlphaMode::Mask:
+        ++breakdown.alphaMaskDraws;
+        breakdown.alphaMaskTriangles += triangles;
+        break;
+    case assets::MaterialAlphaMode::Blend:
+        ++breakdown.blendDraws;
+        breakdown.blendTriangles += triangles;
+        break;
+    case assets::MaterialAlphaMode::Opaque:
+        ++breakdown.opaqueDraws;
+        breakdown.opaqueTriangles += triangles;
+        break;
+    }
+    if (draw.material != nullptr && draw.material->doubleSided) {
+        ++breakdown.doubleSidedDraws;
+        breakdown.doubleSidedTriangles += triangles;
+    }
+}
 
 } // namespace projectunity::renderer

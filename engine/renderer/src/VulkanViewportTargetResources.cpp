@@ -81,6 +81,11 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
         if (batch.materialDescriptor == VK_NULL_HANDLE) {
             return false;
         }
+        accumulateRenderLodBreakdown(
+            lastFrameProfile_.resourcePreparedLod,
+            draw,
+            batch.instanceCount,
+            batch.mesh == nullptr ? renderMeshDrawIndexCount(draw) : batch.mesh->indexCount);
         preparedBatches.push_back(batch);
         ++lastFrameProfile_.resourcePrepared;
     }

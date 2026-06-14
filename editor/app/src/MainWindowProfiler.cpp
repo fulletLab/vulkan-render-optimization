@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 107;
+constexpr int kProfilerRowCount = 120;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -71,6 +71,41 @@ void setRatioValue(QTableWidget* table, int row, std::uint64_t visible, std::uin
         return QStringLiteral("%1K").arg(static_cast<double>(value) / 1'000.0, 0, 'f', 1);
     }
     return QString::number(static_cast<qulonglong>(value));
+}
+
+[[nodiscard]] QString lodBreakdownText(const renderer::RenderLodBreakdown& breakdown)
+{
+    return QStringLiteral("L0 %1/%2 max%3 L1 %4/%5 max%6 L2+ %7/%8 max%9 H %10/%11 max%12")
+        .arg(compactCounter(breakdown.draws[0]))
+        .arg(compactCounter(breakdown.triangles[0]))
+        .arg(compactCounter(breakdown.maxDrawTriangles[0]))
+        .arg(compactCounter(breakdown.draws[1]))
+        .arg(compactCounter(breakdown.triangles[1]))
+        .arg(compactCounter(breakdown.maxDrawTriangles[1]))
+        .arg(compactCounter(breakdown.draws[2]))
+        .arg(compactCounter(breakdown.triangles[2]))
+        .arg(compactCounter(breakdown.maxDrawTriangles[2]))
+        .arg(compactCounter(breakdown.draws[3]))
+        .arg(compactCounter(breakdown.triangles[3]))
+        .arg(compactCounter(breakdown.maxDrawTriangles[3]));
+}
+
+[[nodiscard]] QString materialDrawText(const renderer::RenderMaterialBreakdown& breakdown)
+{
+    return QStringLiteral("O %1 M %2 B %3 DBL %4")
+        .arg(compactCounter(breakdown.opaqueDraws))
+        .arg(compactCounter(breakdown.alphaMaskDraws))
+        .arg(compactCounter(breakdown.blendDraws))
+        .arg(compactCounter(breakdown.doubleSidedDraws));
+}
+
+[[nodiscard]] QString materialTriangleText(const renderer::RenderMaterialBreakdown& breakdown)
+{
+    return QStringLiteral("O %1 M %2 B %3 DBL %4")
+        .arg(compactCounter(breakdown.opaqueTriangles))
+        .arg(compactCounter(breakdown.alphaMaskTriangles))
+        .arg(compactCounter(breakdown.blendTriangles))
+        .arg(compactCounter(breakdown.doubleSidedTriangles));
 }
 
 void ensureProfilerRows(QTableWidget* table)
@@ -134,6 +169,19 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("shadowRejectedByCasterCull"),
         QStringLiteral("lastFrameMeshUploadBytes"),
         QStringLiteral("lastFrameTextureUploadBytes"),
+        QStringLiteral("lodChain RenderWorld"),
+        QStringLiteral("lodChain resourcePrepared"),
+        QStringLiteral("lodChain VulkanBatch"),
+        QStringLiteral("lodChain vkDrawIndexed"),
+        QStringLiteral("mainMaterialDraws"),
+        QStringLiteral("mainMaterialTriangles"),
+        QStringLiteral("shadowMaterialDraws"),
+        QStringLiteral("shadowMaterialTriangles"),
+        QStringLiteral("HLOD reason"),
+        QStringLiteral("spatialCells"),
+        QStringLiteral("spatialCellTests"),
+        QStringLiteral("spatialCellRejected"),
+        QStringLiteral("spatialCellCandidateChunks"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -229,7 +277,7 @@ void MainWindow::updateProfilerPanel()
             .arg(gpuMeshText)
             .arg(gpuShadowText);
         performanceStatus_->setText(statusText + QStringLiteral(" | %1").arg(uploadText));
-        performanceStatus_->setToolTip(QStringLiteral("%1 | max CPU %2ms | last hitch CPU %3ms GPU %4ms RES %5ms CMD %6ms upload M%7 T%8 total %9 | editor %10ms | color %11us | cull %12")
+        performanceStatus_->setToolTip(QStringLiteral("%1 | max CPU %2ms | last hitch CPU %3ms GPU %4ms RES %5ms CMD %6ms upload M%7 T%8 total %9 | editor %10ms | color %11us | cull %12 | HLOD %13 | RW %14 | VK %15 | MAT %16")
             .arg(gpuFrameText)
             .arg(static_cast<double>(stats.recentMaxFrameCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<double>(stats.lastHitchCpuTimeUs) / 1000.0, 0, 'f', 1)
@@ -241,7 +289,11 @@ void MainWindow::updateProfilerPanel()
             .arg(compactCounter(stats.lastHitchStaticUploadBytes))
             .arg(static_cast<double>(stats.lastFrameEditorBuildCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<qulonglong>(stats.lastFrameColorRecordCpuTimeUs))
-            .arg(compactCounter(stats.lastFrameCulledMeshDrawCount)));
+            .arg(compactCounter(stats.lastFrameCulledMeshDrawCount))
+            .arg(QString::fromStdString(stats.lastFrameHlodReason))
+            .arg(lodBreakdownText(stats.renderWorldSelectedLod))
+            .arg(lodBreakdownText(stats.vkDrawIndexedLod))
+            .arg(materialTriangleText(stats.mainMaterialDraws)));
     }
     setTableValue(
         profilerTable_,
@@ -361,6 +413,28 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 104, QString::number(static_cast<qulonglong>(stats.shadowRejectedByCasterCull)));
     setTableValue(profilerTable_, 105, QString::number(static_cast<qulonglong>(stats.lastFrameMeshUploadBytes)));
     setTableValue(profilerTable_, 106, QString::number(static_cast<qulonglong>(stats.lastFrameTextureUploadBytes)));
+    setTableValue(profilerTable_, 107, lodBreakdownText(stats.renderWorldSelectedLod));
+    setTableValue(profilerTable_, 108, lodBreakdownText(stats.resourcePreparedLod));
+    setTableValue(profilerTable_, 109, lodBreakdownText(stats.vulkanBatchLod));
+    setTableValue(profilerTable_, 110, lodBreakdownText(stats.vkDrawIndexedLod));
+    setTableValue(profilerTable_, 111, materialDrawText(stats.mainMaterialDraws));
+    setTableValue(profilerTable_, 112, materialTriangleText(stats.mainMaterialDraws));
+    setTableValue(profilerTable_, 113, materialDrawText(stats.shadowMaterialDraws));
+    setTableValue(profilerTable_, 114, materialTriangleText(stats.shadowMaterialDraws));
+    setTableValue(
+        profilerTable_,
+        115,
+        QStringLiteral("%1 noOverview=%2 visibleWork=%3 coverage=%4 screen=%5 clusterScreen=%6")
+            .arg(QString::fromStdString(stats.lastFrameHlodReason))
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodRejectedNoOverviewCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodRejectedVisibleWorkCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodRejectedCoverageCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodRejectedScreenCount))
+            .arg(static_cast<qulonglong>(stats.lastFrameHlodRejectedClusterScreenCount)));
+    setTableValue(profilerTable_, 116, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellCount)));
+    setTableValue(profilerTable_, 117, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellTestCount)));
+    setTableValue(profilerTable_, 118, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellRejectedCount)));
+    setTableValue(profilerTable_, 119, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellCandidateChunkCount)));
 }
 
 } // namespace projectunity::editor

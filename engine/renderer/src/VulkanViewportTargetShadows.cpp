@@ -294,6 +294,11 @@ bool VulkanViewportTarget::recordShadowPass(
             const auto submittedTriangles = static_cast<std::uint64_t>(mesh->indexCount / 3U) * batch.instanceCount;
             lastFrameProfile_.shadowTrianglesSubmitted += submittedTriangles;
             lastFrameProfile_.trianglesSubmitted += submittedTriangles;
+            accumulateRenderMaterialBreakdown(
+                lastFrameProfile_.shadowMaterialDraws,
+                draw,
+                batch.instanceCount,
+                mesh->indexCount);
         }
         return true;
     };

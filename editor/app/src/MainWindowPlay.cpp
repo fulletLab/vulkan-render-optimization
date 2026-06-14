@@ -2,10 +2,9 @@
 
 #include <projectunity/editor/ViewportWidget.hpp>
 
-#include <DockWidget.h>
-
 #include <QApplication>
 #include <QMessageBox>
+#include <QObject>
 #include <QProgressDialog>
 #include <QStatusBar>
 #include <QString>
@@ -281,21 +280,12 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
     return playRuntimeCameraEntityId_.isValid();
 }
 
-void MainWindow::activateGameViewDock()
-{
-    if (gameDock_ == nullptr) {
-        return;
-    }
-    gameDock_->toggleView(true);
-    gameDock_->setAsCurrentTab();
-    gameDock_->raise();
-    if (gameViewport_ != nullptr) {
-        gameViewport_->setFocus(Qt::OtherFocusReason);
-    }
-}
-
 void MainWindow::startPlayMode()
 {
+    if (playModeActive_) {
+        stopPlayMode();
+    }
+
     ensureFlyPlayerScriptAsset();
     const auto playerId = findPlayableCameraEntity();
     if (!playerId.isValid()) {
@@ -336,24 +326,26 @@ void MainWindow::startPlayMode()
     qApp->processEvents();
 
     playModeActive_ = true;
-    if (gameViewport_ != nullptr) {
-        gameViewport_->setScene(&playRuntimeScene_);
-        gameViewport_->setSelectedEntity({});
-        gameViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
-        gameViewport_->setGameInputEnabled(true);
-        gameViewport_->setGameRuntimeSnapshotEnabled(true);
-        gameViewport_->update();
-    }
-    activateGameViewDock();
+    showPlayRuntimeWindow();
+    refreshViewports();
     progress.setValue(100);
-    statusBar()->showMessage(QStringLiteral("Play runtime active"));
-    core::logInfo(core::LogCategory::Editor, "Play mode started with runtime scene snapshot");
+    statusBar()->showMessage(QStringLiteral("Play runtime window active"));
+    core::logInfo(core::LogCategory::Editor, "Play mode started in an independent runtime window");
     appendPendingLogs();
 }
 
 void MainWindow::stopPlayMode()
 {
     playModeActive_ = false;
+    if (playRuntimeViewport_ != nullptr) {
+        auto* runtimeViewport = playRuntimeViewport_;
+        playRuntimeViewport_ = nullptr;
+        runtimeViewport->setGameInputEnabled(false);
+        runtimeViewport->setGameRuntimeSnapshotEnabled(false);
+        runtimeViewport->setGameCameraEntity({});
+        runtimeViewport->setRenderer(nullptr);
+        runtimeViewport->close();
+    }
     if (gameViewport_ != nullptr) {
         gameViewport_->setGameInputEnabled(false);
         gameViewport_->setGameRuntimeSnapshotEnabled(false);
@@ -363,8 +355,53 @@ void MainWindow::stopPlayMode()
     }
     playRuntimeScene_.clear();
     playRuntimeCameraEntityId_ = {};
+    refreshViewports();
     statusBar()->showMessage(QStringLiteral("Play stopped"));
     appendPendingLogs();
+}
+
+void MainWindow::showPlayRuntimeWindow()
+{
+    if (!playModeActive_ || !playRuntimeCameraEntityId_.isValid()) {
+        return;
+    }
+
+    if (playRuntimeViewport_ != nullptr) {
+        playRuntimeViewport_->raise();
+        playRuntimeViewport_->activateWindow();
+        playRuntimeViewport_->setFocus(Qt::OtherFocusReason);
+        return;
+    }
+
+    auto* runtimeViewport = new ViewportWidget(ViewportMode::Game);
+    playRuntimeViewport_ = runtimeViewport;
+    runtimeViewport->setObjectName(QStringLiteral("PlayRuntimeViewport"));
+    runtimeViewport->setWindowTitle(QStringLiteral("ProjectUnity Runtime - %1").arg(QString::fromStdString(std::string(scene_.name()))));
+    runtimeViewport->setAttribute(Qt::WA_DeleteOnClose, true);
+    runtimeViewport->resize(1280, 720);
+    runtimeViewport->setScene(&playRuntimeScene_);
+    runtimeViewport->setAssetManager(&assetManager_);
+    runtimeViewport->setRenderer(renderer_.get());
+    runtimeViewport->setEnvironmentSettings(environmentSettings_);
+    runtimeViewport->setEditorSunLight(editorSunLight_);
+    runtimeViewport->setShadowUpdateMode(shadowUpdateMode_);
+    runtimeViewport->setSelectedEntity({});
+    runtimeViewport->setGameCameraEntity(playRuntimeCameraEntityId_);
+    runtimeViewport->setGameRuntimeSnapshotEnabled(true);
+    runtimeViewport->setGameInputEnabled(true);
+    connect(runtimeViewport, &QObject::destroyed, this, [this, runtimeViewport] {
+        if (playRuntimeViewport_ != runtimeViewport) {
+            return;
+        }
+        playRuntimeViewport_ = nullptr;
+        if (playModeActive_) {
+            stopPlayMode();
+        }
+    });
+    runtimeViewport->show();
+    runtimeViewport->raise();
+    runtimeViewport->activateWindow();
+    runtimeViewport->setFocus(Qt::OtherFocusReason);
 }
 
 scene::EntityId MainWindow::findPlayableCameraEntity() const

@@ -3,6 +3,7 @@
 #include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
+#include "ViewportRenderWorldSpatial.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,6 +14,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace projectunity::editor {
@@ -24,8 +26,10 @@ constexpr std::uint64_t kOverviewMaxSourceTriangles = 8'000'000ULL;
 constexpr std::uint64_t kOverviewMaxTriangles = 2'000'000ULL;
 constexpr std::uint64_t kOverviewMinVisibleInstanceReferences = 128ULL;
 constexpr std::uint64_t kOverviewMinVisibleTriangles = 32'000ULL;
-constexpr std::uint32_t kOverviewPrimitiveIndexBase = 0x80000000U;
 constexpr float kClusterOverviewMinimumDistance = 24.0F;
+constexpr std::size_t kMinChunksForSpatialCells = 64;
+constexpr std::size_t kTargetChunksPerSpatialCell = 16;
+constexpr std::size_t kMaxChunkSpatialGridSide = 32;
 
 struct CachedOverviewDraw {
     assets::AssetId modelAssetId;
@@ -111,6 +115,133 @@ struct CachedOverviewModel {
         return fallback;
     }
     return value / length;
+}
+
+[[nodiscard]] float worldAxisComponent(math::Vec3 value, int axis) noexcept
+{
+    if (axis == 0) {
+        return value.x;
+    }
+    if (axis == 1) {
+        return value.y;
+    }
+    return value.z;
+}
+
+void includeWorldPoint(ViewportFrameBounds& bounds, math::Vec3 point)
+{
+    bounds.includeSphere(point, 0.0F);
+}
+
+[[nodiscard]] ViewportFrameBounds boundsFrame(const ViewportWorldBounds& bounds)
+{
+    ViewportFrameBounds result;
+    for (const auto corner : bounds.corners) {
+        includeWorldPoint(result, corner);
+    }
+    return result;
+}
+
+[[nodiscard]] ViewportWorldBounds worldBoundsFromFrame(const ViewportFrameBounds& bounds)
+{
+    assets::MeshBounds meshBounds;
+    meshBounds.minimum = bounds.minimum;
+    meshBounds.maximum = bounds.maximum;
+    meshBounds.center = bounds.center();
+    meshBounds.radius = bounds.radius();
+    return transformViewportBounds(identityMatrix(), meshBounds);
+}
+
+[[nodiscard]] std::array<int, 2> spatialCellAxes(const ViewportWorldBounds& bounds) noexcept
+{
+    const auto frame = boundsFrame(bounds);
+    const auto extent = frame.maximum - frame.minimum;
+    std::array<std::pair<float, int>, 3> axes {{
+        {std::fabs(extent.x), 0},
+        {std::fabs(extent.y), 1},
+        {std::fabs(extent.z), 2},
+    }};
+    std::sort(axes.begin(), axes.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first > rhs.first;
+    });
+    return {axes[0].second, axes[1].second};
+}
+
+[[nodiscard]] std::size_t spatialCellCoordinate(float value, float minimum, float extent, std::size_t side) noexcept
+{
+    if (side <= 1U || extent <= 0.0001F || !std::isfinite(value)) {
+        return 0;
+    }
+    const auto normalized = std::clamp((value - minimum) / extent, 0.0F, 0.999999F);
+    return std::min(static_cast<std::size_t>(normalized * static_cast<float>(side)), side - 1U);
+}
+
+template<typename Record>
+void rebuildChunkSpatialCells(Record& record)
+{
+    record.chunkCells.clear();
+    if (record.chunks.size() < kMinChunksForSpatialCells || !record.worldBoundsValid) {
+        return;
+    }
+
+    const auto frame = boundsFrame(record.worldBounds);
+    if (!frame.valid) {
+        return;
+    }
+    const auto axes = spatialCellAxes(record.worldBounds);
+    const auto minA = worldAxisComponent(frame.minimum, axes[0]);
+    const auto minB = worldAxisComponent(frame.minimum, axes[1]);
+    const auto extentA = worldAxisComponent(frame.maximum, axes[0]) - minA;
+    const auto extentB = worldAxisComponent(frame.maximum, axes[1]) - minB;
+    if (std::fabs(extentA) <= 0.0001F && std::fabs(extentB) <= 0.0001F) {
+        return;
+    }
+
+    const auto wantedCells = std::max<std::size_t>(
+        1U,
+        (record.chunks.size() + kTargetChunksPerSpatialCell - 1U) / kTargetChunksPerSpatialCell);
+    const auto side = std::clamp(
+        static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedCells)))),
+        std::size_t {2U},
+        kMaxChunkSpatialGridSide);
+    const auto cellCount = side * side;
+    std::vector<std::vector<std::size_t>> cellChunks(cellCount);
+    std::vector<ViewportFrameBounds> cellBounds(cellCount);
+
+    for (std::size_t chunkIndex = 0; chunkIndex < record.chunks.size(); ++chunkIndex) {
+        const auto& chunk = record.chunks[chunkIndex];
+        const auto cellX = spatialCellCoordinate(
+            worldAxisComponent(chunk.worldBounds.center, axes[0]),
+            minA,
+            extentA,
+            side);
+        const auto cellY = spatialCellCoordinate(
+            worldAxisComponent(chunk.worldBounds.center, axes[1]),
+            minB,
+            extentB,
+            side);
+        const auto cellIndex = cellY * side + cellX;
+        if (cellIndex >= cellChunks.size()) {
+            continue;
+        }
+        cellChunks[cellIndex].push_back(chunkIndex);
+        cellBounds[cellIndex].includeSphere(chunk.worldBounds.center, chunk.worldBounds.radius);
+    }
+
+    record.chunkCells.reserve(cellCount);
+    for (std::size_t cellIndex = 0; cellIndex < cellChunks.size(); ++cellIndex) {
+        if (cellChunks[cellIndex].empty() || !cellBounds[cellIndex].valid) {
+            continue;
+        }
+        typename Record::ChunkCell cell;
+        cell.worldBounds = worldBoundsFromFrame(cellBounds[cellIndex]);
+        cell.chunkIndices = std::move(cellChunks[cellIndex]);
+        record.chunkCells.push_back(std::move(cell));
+    }
+
+    if (record.chunkCells.size() <= 1U) {
+        record.chunkCells.clear();
+    }
 }
 
 [[nodiscard]] const assets::TextureAsset* modelTexture(
@@ -398,7 +529,7 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
         draw.modelAssetId = assets::AssetId(
             mixHash(model.id.value(), mixHash(salt, static_cast<std::uint64_t>(cached.size())))
             | 0x8000000000000000ULL);
-        draw.primitiveIndex = kOverviewPrimitiveIndexBase + static_cast<std::uint32_t>(cached.size());
+        draw.primitiveIndex = renderer::kRenderOverviewPrimitiveIndexBase + static_cast<std::uint32_t>(cached.size());
         draw.sourceTriangleCount = overview.sourceTriangleCount;
         draw.primitive = std::make_shared<const assets::MeshPrimitive>(std::move(overview.primitive));
         cached.push_back(std::move(draw));
@@ -470,6 +601,7 @@ void ViewportRenderWorld::finalizeEntityRecord(EntityRecord& record) const
         record.worldBounds = transformViewportBounds(identityMatrix(), assetBounds);
         record.worldBoundsValid = true;
     }
+    rebuildChunkSpatialCells(record);
 
     record.sourceTriangleCount = 0;
     for (const auto& instance : record.instances) {
@@ -558,7 +690,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     std::uint64_t visibleChunkTriangles = 0;
     std::vector<const EntityRecord::Chunk*> visibleChunks;
     visibleChunks.reserve(record.chunks.size());
-    for (const auto& chunk : record.chunks) {
+    forEachSpatialChunkCandidate(record, camera, stats, [&](std::size_t, const auto& chunk) {
         if (!viewportBoundsVisible(
                 chunk.worldBounds,
                 camera.eye,
@@ -569,7 +701,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
                 camera.aspectRatio,
                 camera.nearPlane,
                 camera.farPlane)) {
-            continue;
+            return;
         }
         ++visibleChunkCount;
         const auto chunkIsOccluder = occluderChunkIds != nullptr
@@ -581,13 +713,13 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
                 ++stats.occlusionRejectedChunkCount;
                 stats.occlusionRejectedInstanceCount += static_cast<std::uint64_t>(chunk.instanceIndices.size());
                 stats.occlusionRejectedTriangleCount += chunk.triangleCount;
-                continue;
+                return;
             }
         }
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
         visibleChunkTriangles += chunk.triangleCount;
         visibleChunks.push_back(&chunk);
-    }
+    });
     if (visibleChunkCount == 0U) {
         return false;
     }
@@ -619,6 +751,33 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     const auto model = record.instances.empty() ? std::shared_ptr<const assets::ModelAsset> {} : record.instances.front().model;
     if (model == nullptr) {
         return false;
+    }
+
+    auto visibleClusterOverviewDraws = std::uint64_t {0};
+    for (const auto* chunk : visibleChunks) {
+        if (chunk != nullptr) {
+            visibleClusterOverviewDraws += static_cast<std::uint64_t>(chunk->overviewDraws.size());
+        }
+    }
+    stats.hlodCandidateDrawCount += std::max<std::uint64_t>(
+        static_cast<std::uint64_t>(record.overviewDraws.size()),
+        visibleClusterOverviewDraws);
+    if (record.overviewDraws.empty() && visibleClusterOverviewDraws == 0U) {
+        ++stats.hlodRejectedNoOverviewCount;
+    }
+    if (!enoughVisibleWork) {
+        ++stats.hlodRejectedVisibleWorkCount;
+    } else if (!overviewCoverageEnough) {
+        ++stats.hlodRejectedCoverageCount;
+    } else if (!record.overviewDraws.empty()
+        && !overviewScreenEligible(
+            record.worldBoundsValid,
+            record.worldBounds,
+            camera,
+            viewportHeight,
+            visibleChunkInstanceReferences,
+            visibleChunkTriangles)) {
+        ++stats.hlodRejectedScreenCount;
     }
 
     const auto emitOverview = [&](const EntityRecord::OverviewDraw& overview, std::uint64_t renderChunkId) {
@@ -679,6 +838,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         }
         if (overviewCoveredChunkIds != nullptr
             && !clusterOverviewScreenEligible(chunk->worldBounds, camera, viewportHeight)) {
+            ++stats.hlodRejectedClusterScreenCount;
             continue;
         }
         for (const auto& overview : chunk->overviewDraws) {
