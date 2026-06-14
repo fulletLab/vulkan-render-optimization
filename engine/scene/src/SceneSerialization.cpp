@@ -122,6 +122,40 @@ constexpr int kSceneFormatVersion = 1;
     return false;
 }
 
+[[nodiscard]] const char* runtimePhysicsModeToString(RuntimePhysicsMode mode) noexcept
+{
+    switch (mode) {
+    case RuntimePhysicsMode::None:
+        return "none";
+    case RuntimePhysicsMode::StaticCollider:
+        return "staticCollider";
+    case RuntimePhysicsMode::RigidBody:
+        return "rigidBody";
+    }
+    return "none";
+}
+
+[[nodiscard]] bool runtimePhysicsModeFromJson(const nlohmann::json& json, RuntimePhysicsMode& output)
+{
+    if (!json.is_string()) {
+        return false;
+    }
+    const auto mode = json.get<std::string>();
+    if (mode == "none") {
+        output = RuntimePhysicsMode::None;
+        return true;
+    }
+    if (mode == "staticCollider") {
+        output = RuntimePhysicsMode::StaticCollider;
+        return true;
+    }
+    if (mode == "rigidBody") {
+        output = RuntimePhysicsMode::RigidBody;
+        return true;
+    }
+    return false;
+}
+
 void setError(std::string* errorMessage, std::string message)
 {
     if (errorMessage != nullptr) {
@@ -153,6 +187,12 @@ std::string Scene::serialize(std::string* errorMessage) const
                 item["meshRenderer"] = {
                     {"modelAssetId", entity.meshRenderer->modelAssetId.value()},
                     {"renderable", entity.meshRenderer->renderable},
+                    {"runtimeCook", {
+                        {"staticBatchable", entity.meshRenderer->runtimeCook.staticBatchable},
+                        {"mutable", entity.meshRenderer->runtimeCook.mutableRuntime},
+                        {"physics", runtimePhysicsModeToString(entity.meshRenderer->runtimeCook.physics)},
+                        {"grabbable", entity.meshRenderer->runtimeCook.grabbable},
+                    }},
                 };
                 if (entity.meshRenderer->primitiveInstanceIndex.has_value()) {
                     item["meshRenderer"]["primitiveInstanceIndex"] = *entity.meshRenderer->primitiveInstanceIndex;
@@ -288,6 +328,21 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     meshRenderer.editorInstanceIndex = meshRendererJson.at("editorInstanceIndex").get<std::uint32_t>();
                 }
                 meshRenderer.renderable = meshRendererJson.value("renderable", true);
+                if (meshRendererJson.contains("runtimeCook")) {
+                    const auto& runtimeJson = meshRendererJson.at("runtimeCook");
+                    if (!runtimeJson.is_object()) {
+                        setError(errorMessage, "Scene mesh renderer runtimeCook must be an object");
+                        return false;
+                    }
+                    meshRenderer.runtimeCook.staticBatchable = runtimeJson.value("staticBatchable", true);
+                    meshRenderer.runtimeCook.mutableRuntime = runtimeJson.value("mutable", false);
+                    meshRenderer.runtimeCook.grabbable = runtimeJson.value("grabbable", false);
+                    if (runtimeJson.contains("physics")
+                        && !runtimePhysicsModeFromJson(runtimeJson.at("physics"), meshRenderer.runtimeCook.physics)) {
+                        setError(errorMessage, "Scene mesh renderer runtimeCook physics mode is invalid");
+                        return false;
+                    }
+                }
                 entity.meshRenderer = meshRenderer;
             }
 

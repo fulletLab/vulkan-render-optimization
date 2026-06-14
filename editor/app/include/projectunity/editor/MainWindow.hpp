@@ -81,7 +81,7 @@ private:
     void startPlayMode();
     void stopPlayMode();
     [[nodiscard]] projectunity::scene::EntityId findPlayableCameraEntity() const;
-    [[nodiscard]] bool buildPlayRuntimeSnapshot(projectunity::scene::EntityId sourceCameraEntityId);
+    [[nodiscard]] bool cookPlayRuntimeScene(projectunity::scene::EntityId sourceCameraEntityId);
     void showPlayRuntimeWindow();
     void attachFlyPlayerControllerToSelection();
     void removeScriptFromSelection();

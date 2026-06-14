@@ -21,11 +21,25 @@ struct TransformComponent {
     math::Vec3 scale {1.0F, 1.0F, 1.0F};
 };
 
+enum class RuntimePhysicsMode : std::uint8_t {
+    None,
+    StaticCollider,
+    RigidBody,
+};
+
+struct RuntimeCookComponent {
+    bool staticBatchable {true};
+    bool mutableRuntime {false};
+    RuntimePhysicsMode physics {RuntimePhysicsMode::None};
+    bool grabbable {false};
+};
+
 struct MeshRendererComponent {
     core::StableId modelAssetId;
     std::optional<std::uint32_t> primitiveInstanceIndex;
     std::optional<std::uint32_t> editorInstanceIndex;
     bool renderable {true};
+    RuntimeCookComponent runtimeCook;
 };
 
 enum class LightComponentType : std::uint8_t {

@@ -184,46 +184,6 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
         return fail(QStringLiteral("Game View self-test failed: %1").arg(viewportError));
     }
 
-    newScene();
-    const auto playCameraId = createPlayerEntity();
-    const auto editorEntityCountBeforePlay = scene_.entityCount();
-    const auto* editorPlayerBeforePlay = scene_.findEntity(playCameraId);
-    if (editorPlayerBeforePlay == nullptr || !editorPlayerBeforePlay->camera.has_value()) {
-        return fail(QStringLiteral("Play smoke could not create an editor Player camera"));
-    }
-    const auto editorPlayerPositionBeforePlay = editorPlayerBeforePlay->transform.position;
-    startPlayMode();
-    QApplication::processEvents();
-    if (!playModeActive_
-        || playRuntimeViewport_ == nullptr
-        || !playRuntimeViewport_->isWindow()
-        || playRuntimeViewport_ == gameViewport_
-        || !playRuntimeCameraEntityId_.isValid()
-        || playRuntimeScene_.entityCount() != editorEntityCountBeforePlay) {
-        return fail(QStringLiteral("Play did not open an independent runtime window snapshot"));
-    }
-    auto* runtimeCamera = playRuntimeScene_.findEntity(playRuntimeCameraEntityId_);
-    if (runtimeCamera == nullptr) {
-        return fail(QStringLiteral("Play runtime snapshot did not contain the camera entity"));
-    }
-    auto runtimeTransform = runtimeCamera->transform;
-    runtimeTransform.position.x += 12.0F;
-    (void)playRuntimeScene_.setTransform(playRuntimeCameraEntityId_, runtimeTransform);
-    const auto* editorPlayerAfterRuntimeEdit = scene_.findEntity(playCameraId);
-    if (editorPlayerAfterRuntimeEdit == nullptr
-        || !math::nearlyEqual(editorPlayerAfterRuntimeEdit->transform.position, editorPlayerPositionBeforePlay)) {
-        return fail(QStringLiteral("Runtime snapshot mutation leaked into the editor scene"));
-    }
-    stopPlayMode();
-    QApplication::processEvents();
-    if (playModeActive_
-        || playRuntimeViewport_ != nullptr
-        || playRuntimeCameraEntityId_.isValid()
-        || playRuntimeScene_.entityCount() != 0U) {
-        return fail(QStringLiteral("Play stop did not discard the runtime snapshot and window"));
-    }
-    newScene();
-
     const auto projectedPick = sceneViewport_->pickEntityAt(QPointF(
         sceneViewport_->width() * 0.5,
         sceneViewport_->height() * 0.5));
@@ -262,6 +222,45 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
 
     if (scene_.entityCount() != 2 || scene_.rootEntities().size() != 1) {
         return fail(QStringLiteral("Loaded scene lost entity hierarchy"));
+    }
+
+    newScene();
+    const auto playCameraId = createPlayerEntity();
+    const auto editorEntityCountBeforePlay = scene_.entityCount();
+    const auto* editorPlayerBeforePlay = scene_.findEntity(playCameraId);
+    if (editorPlayerBeforePlay == nullptr || !editorPlayerBeforePlay->camera.has_value()) {
+        return fail(QStringLiteral("Play smoke could not create an editor Player camera"));
+    }
+    const auto editorPlayerPositionBeforePlay = editorPlayerBeforePlay->transform.position;
+    startPlayMode();
+    QApplication::processEvents();
+    if (!playModeActive_
+        || playRuntimeViewport_ == nullptr
+        || !playRuntimeViewport_->isWindow()
+        || playRuntimeViewport_ == gameViewport_
+        || !playRuntimeCameraEntityId_.isValid()
+        || playRuntimeScene_.entityCount() != editorEntityCountBeforePlay) {
+        return fail(QStringLiteral("Play did not open an independent runtime window snapshot"));
+    }
+    auto* runtimeCamera = playRuntimeScene_.findEntity(playRuntimeCameraEntityId_);
+    if (runtimeCamera == nullptr) {
+        return fail(QStringLiteral("Play runtime snapshot did not contain the camera entity"));
+    }
+    auto runtimeTransform = runtimeCamera->transform;
+    runtimeTransform.position.x += 12.0F;
+    (void)playRuntimeScene_.setTransform(playRuntimeCameraEntityId_, runtimeTransform);
+    const auto* editorPlayerAfterRuntimeEdit = scene_.findEntity(playCameraId);
+    if (editorPlayerAfterRuntimeEdit == nullptr
+        || !math::nearlyEqual(editorPlayerAfterRuntimeEdit->transform.position, editorPlayerPositionBeforePlay)) {
+        return fail(QStringLiteral("Runtime snapshot mutation leaked into the editor scene"));
+    }
+    stopPlayMode();
+    QApplication::processEvents();
+    if (playModeActive_
+        || playRuntimeViewport_ != nullptr
+        || playRuntimeCameraEntityId_.isValid()
+        || playRuntimeScene_.entityCount() != 0U) {
+        return fail(QStringLiteral("Play stop did not discard the runtime snapshot and window"));
     }
 
     const auto assetExamplePath = pathToQString(

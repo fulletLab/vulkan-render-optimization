@@ -35,6 +35,10 @@ int main()
     MeshRendererComponent renderer {projectunity::core::StableId(77), 3U};
     renderer.editorInstanceIndex = 4U;
     renderer.renderable = false;
+    renderer.runtimeCook.staticBatchable = false;
+    renderer.runtimeCook.mutableRuntime = true;
+    renderer.runtimeCook.physics = RuntimePhysicsMode::RigidBody;
+    renderer.runtimeCook.grabbable = true;
     if (!scene.setMeshRenderer(childId, renderer)) {
         return fail("failed to set mesh renderer");
     }
@@ -110,7 +114,11 @@ int main()
         || loadedChild->meshRenderer->modelAssetId.value() != 77
         || loadedChild->meshRenderer->primitiveInstanceIndex.value_or(0U) != 3U
         || loadedChild->meshRenderer->editorInstanceIndex.value_or(0U) != 4U
-        || loadedChild->meshRenderer->renderable) {
+        || loadedChild->meshRenderer->renderable
+        || loadedChild->meshRenderer->runtimeCook.staticBatchable
+        || !loadedChild->meshRenderer->runtimeCook.mutableRuntime
+        || loadedChild->meshRenderer->runtimeCook.physics != RuntimePhysicsMode::RigidBody
+        || !loadedChild->meshRenderer->runtimeCook.grabbable) {
         return fail("loaded mesh renderer mismatch");
     }
     if (!loadedChild->light.has_value()

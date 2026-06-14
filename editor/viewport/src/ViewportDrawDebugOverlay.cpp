@@ -21,6 +21,13 @@ enum class ShadowDebugState : std::uint8_t {
     Active,
 };
 
+enum class LodDebugColor : std::uint8_t {
+    Red,
+    Yellow,
+    Purple,
+    Hlod,
+};
+
 [[nodiscard]] std::uint64_t mixLogHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
     return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
@@ -109,31 +116,99 @@ struct LabelProjectionDebug {
     return "rejected:unknown";
 }
 
-[[nodiscard]] float projectedRadiusPixels(
+[[nodiscard]] math::Vec3 drawCenter(const renderer::RenderMeshDraw& draw) noexcept
+{
+    return {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+}
+
+[[nodiscard]] float maxHalfExtent(std::array<float, 3> halfExtent) noexcept
+{
+    return std::max({std::fabs(halfExtent[0]), std::fabs(halfExtent[1]), std::fabs(halfExtent[2])});
+}
+
+[[nodiscard]] float drawDistanceToCenter(const renderer::RenderMeshDraw& draw, const ViewportLabelCamera& camera) noexcept
+{
+    if (draw.distanceToCameraCenter > 0.0F && std::isfinite(draw.distanceToCameraCenter)) {
+        return draw.distanceToCameraCenter;
+    }
+    const auto distance = (drawCenter(draw) - camera.eye).length();
+    return std::isfinite(distance) ? distance : 0.0F;
+}
+
+[[nodiscard]] float drawDistanceToBounds(const renderer::RenderMeshDraw& draw, float distanceToCenter) noexcept
+{
+    if ((draw.distanceToCameraBounds > 0.0F || draw.cameraInsideChunkBounds)
+        && std::isfinite(draw.distanceToCameraBounds)) {
+        return draw.distanceToCameraBounds;
+    }
+    return std::max(distanceToCenter - std::max(draw.worldBoundsRadius, 0.0F), 0.0F);
+}
+
+[[nodiscard]] float drawProjectedRadiusPixels(
     const renderer::RenderMeshDraw& draw,
     float verticalFovRadians,
-    float viewportHeight) noexcept
+    float viewportHeight,
+    float distanceToCenter) noexcept
 {
-    if (draw.worldBoundsRadius <= 0.0F || draw.sortDepth <= 0.05F || viewportHeight <= 0.0F) {
+    if (draw.projectedRadiusPixels > 0.0F && std::isfinite(draw.projectedRadiusPixels)) {
+        return draw.projectedRadiusPixels;
+    }
+    if (draw.worldBoundsRadius <= 0.0F || distanceToCenter <= 0.05F || viewportHeight <= 0.0F) {
         return 0.0F;
     }
     const auto projectionScale = (viewportHeight * 0.5F) / std::max(std::tan(verticalFovRadians * 0.5F), 0.001F);
-    const auto projected = draw.worldBoundsRadius * projectionScale / std::max(draw.sortDepth, 0.05F);
+    const auto projected = draw.worldBoundsRadius * projectionScale / std::max(distanceToCenter, 0.05F);
     return std::isfinite(projected) ? projected : 0.0F;
 }
 
-[[nodiscard]] std::array<float, 4> lodDebugLineColor(const renderer::RenderMeshDraw& draw) noexcept
+[[nodiscard]] LodDebugColor lodDebugColorClass(
+    const renderer::RenderMeshDraw& draw,
+    const ViewportLabelCamera& camera) noexcept
 {
     if (isOverviewDraw(draw)) {
+        return LodDebugColor::Hlod;
+    }
+    const auto distanceToCenter = drawDistanceToCenter(draw, camera);
+    const auto extent = maxHalfExtent(draw.worldBoundsHalfExtent);
+    const auto closeDistance = std::clamp(extent * 2.0F, 8.0F, 32.0F);
+    const auto mediumDistance = std::clamp(extent * 8.0F, 48.0F, 180.0F);
+    if (distanceToCenter <= closeDistance) {
+        return LodDebugColor::Red;
+    }
+    if (distanceToCenter <= mediumDistance) {
+        return LodDebugColor::Yellow;
+    }
+    return LodDebugColor::Purple;
+}
+
+[[nodiscard]] std::array<float, 4> lodDebugLineColor(LodDebugColor color) noexcept
+{
+    switch (color) {
+    case LodDebugColor::Red:
+        return {1.0F, 0.18F, 0.08F, 0.78F};
+    case LodDebugColor::Yellow:
+        return {1.0F, 0.78F, 0.08F, 0.76F};
+    case LodDebugColor::Purple:
+        return {0.58F, 0.27F, 1.0F, 0.82F};
+    case LodDebugColor::Hlod:
         return {0.78F, 0.25F, 1.0F, 0.88F};
     }
-    if (draw.lodIndex == 0U) {
-        return {1.0F, 0.18F, 0.08F, 0.78F};
+    return {0.58F, 0.27F, 1.0F, 0.82F};
+}
+
+[[nodiscard]] const char* lodDebugColorName(LodDebugColor color) noexcept
+{
+    switch (color) {
+    case LodDebugColor::Red:
+        return "red";
+    case LodDebugColor::Yellow:
+        return "yellow";
+    case LodDebugColor::Purple:
+        return "purple";
+    case LodDebugColor::Hlod:
+        return "hlod";
     }
-    if (draw.lodIndex == 1U) {
-        return {1.0F, 0.78F, 0.08F, 0.76F};
-    }
-    return {0.12F, 0.48F, 1.0F, 0.82F};
+    return "unknown";
 }
 
 [[nodiscard]] std::string compactTriangleText(std::uint64_t triangles)
@@ -201,6 +276,10 @@ void appendViewportDrawDebugOverlay(
         ShadowDebugState shadowState {ShadowDebugState::None};
         std::uint64_t selectedTriangles {0};
         std::uint64_t sourceTriangles {0};
+        LodDebugColor debugColor {LodDebugColor::Purple};
+        float distanceToCenter {0.0F};
+        float distanceToBounds {0.0F};
+        float projectedRadius {0.0F};
         float score {0.0F};
     };
     std::vector<DebugDrawRow> rows;
@@ -211,7 +290,14 @@ void appendViewportDrawDebugOverlay(
         const auto shadowIt = shadowByInstance.find(draw.renderInstanceId);
         const auto shadowState = shadowIt == shadowByInstance.end() ? ShadowDebugState::None : shadowIt->second;
         const auto shadowRisk = draw.flipsWinding || (draw.material != nullptr && draw.material->doubleSided);
-        const auto projectedRadius = projectedRadiusPixels(draw, labelCamera.verticalFovRadians, labelCamera.viewportHeightPixels);
+        const auto distanceToCenter = drawDistanceToCenter(draw, labelCamera);
+        const auto distanceToBounds = drawDistanceToBounds(draw, distanceToCenter);
+        const auto projectedRadius = drawProjectedRadiusPixels(
+            draw,
+            labelCamera.verticalFovRadians,
+            labelCamera.viewportHeightPixels,
+            distanceToCenter);
+        const auto debugColor = lodDebugColorClass(draw, labelCamera);
         auto score = static_cast<float>(selectedTriangles) * 0.001F + projectedRadius * 12.0F;
         if (shadowState == ShadowDebugState::Active) {
             score += 5000.0F;
@@ -227,7 +313,7 @@ void appendViewportDrawDebugOverlay(
         if (isOverviewDraw(draw)) {
             score += 2200.0F;
         }
-        rows.push_back({&draw, shadowState, selectedTriangles, sourceTriangles, score});
+        rows.push_back({&draw, shadowState, selectedTriangles, sourceTriangles, debugColor, distanceToCenter, distanceToBounds, projectedRadius, score});
     }
 
     if (lodDebugEnabled) {
@@ -239,6 +325,9 @@ void appendViewportDrawDebugOverlay(
         std::uint64_t l0Triangles = 0;
         std::uint64_t l1Triangles = 0;
         std::uint64_t l2PlusTriangles = 0;
+        std::uint64_t redDraws = 0;
+        std::uint64_t yellowDraws = 0;
+        std::uint64_t purpleDraws = 0;
         for (const auto& row : rows) {
             const auto& draw = *row.draw;
             if (isOverviewDraw(draw)) {
@@ -254,13 +343,21 @@ void appendViewportDrawDebugOverlay(
                 ++l2PlusDraws;
                 l2PlusTriangles += row.selectedTriangles;
             }
+            if (row.debugColor == LodDebugColor::Red) {
+                ++redDraws;
+            } else if (row.debugColor == LodDebugColor::Yellow) {
+                ++yellowDraws;
+            } else if (row.debugColor == LodDebugColor::Purple) {
+                ++purpleDraws;
+            }
         }
         std::ostringstream summary;
         summary << "LOD DEBUG  HLOD " << hlodDraws << "/" << compactTriangleText(hlodTriangles)
                 << " (" << hlodReasonText(frame) << " " << frame.hlodCandidateDrawCount << ")"
                 << "  L0 " << l0Draws << "/" << compactTriangleText(l0Triangles)
                 << "  L1 " << l1Draws << "/" << compactTriangleText(l1Triangles)
-                << "  L2+ " << l2PlusDraws << "/" << compactTriangleText(l2PlusTriangles);
+                << "  L2+ " << l2PlusDraws << "/" << compactTriangleText(l2PlusTriangles)
+                << "  VIS R/Y/P " << redDraws << "/" << yellowDraws << "/" << purpleDraws;
         appendViewportScreenLabel(
             vertices,
             indices,
@@ -291,7 +388,7 @@ void appendViewportDrawDebugOverlay(
     for (std::size_t index = 0; index < rows.size() && markersDrawn < kMaxMarkers; index += markerStride) {
         const auto& row = rows[index];
         const auto& draw = *row.draw;
-        const math::Vec3 center {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+        const auto center = drawCenter(draw);
         const auto shadowRisk = draw.flipsWinding || (draw.material != nullptr && draw.material->doubleSided);
         const auto markerSize = std::clamp(draw.worldBoundsRadius * 0.08F, 0.08F, 0.55F);
         if (lodDebugEnabled) {
@@ -300,7 +397,7 @@ void appendViewportDrawDebugOverlay(
                 indices,
                 center - cameraRight * markerSize,
                 center + cameraRight * markerSize,
-                lodDebugLineColor(draw),
+                lodDebugLineColor(row.debugColor),
                 1.35F,
                 labelCamera.forward,
                 cameraRight,
@@ -310,7 +407,7 @@ void appendViewportDrawDebugOverlay(
                 indices,
                 center - cameraUp * markerSize,
                 center + cameraUp * markerSize,
-                lodDebugLineColor(draw),
+                lodDebugLineColor(row.debugColor),
                 1.35F,
                 labelCamera.forward,
                 cameraRight,
@@ -362,11 +459,12 @@ void appendViewportDrawDebugOverlay(
         auto signature = mixLogHash(static_cast<std::uint64_t>(rows.size()), static_cast<std::uint64_t>(labelCount));
         for (std::size_t index = 0; index < labelCount; ++index) {
             const auto& draw = *labels[index].draw;
-            const auto center = math::Vec3 {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+            const auto center = drawCenter(draw);
             const auto projection = projectLabelDebug(labelCamera, viewportWidthPixels, center);
             signature = mixLogHash(signature, draw.renderInstanceId);
             signature = mixLogHash(signature, draw.renderChunkId);
             signature = mixLogHash(signature, static_cast<std::uint64_t>(draw.lodIndex));
+            signature = mixLogHash(signature, static_cast<std::uint64_t>(labels[index].debugColor));
             signature = mixLogHash(signature, static_cast<std::uint64_t>(std::max(projection.dotDepth, 0.0F) * 100.0F));
             signature = mixLogHash(signature, static_cast<std::uint64_t>(std::max(draw.sortDepth, 0.0F) * 100.0F));
         }
@@ -384,12 +482,16 @@ void appendViewportDrawDebugOverlay(
             for (std::size_t index = 0; index < labelCount; ++index) {
                 const auto& row = labels[index];
                 const auto& draw = *row.draw;
-                const math::Vec3 center {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+                const auto center = drawCenter(draw);
                 const auto projection = projectLabelDebug(labelCamera, viewportWidthPixels, center);
                 message << " [" << index
                         << " kind=" << (isOverviewDraw(draw) ? "HLOD" : "LOD")
                         << " lod=" << draw.lodIndex
+                        << " debugColor=" << lodDebugColorName(row.debugColor)
                         << " sortDepth=" << draw.sortDepth
+                        << " distanceToCenter=" << row.distanceToCenter
+                        << " distanceToBounds=" << row.distanceToBounds
+                        << " screenPx=" << row.projectedRadius
                         << " dotDepth=" << projection.dotDepth
                         << " screen=(" << projection.screenX << "," << projection.screenY << ")"
                         << " inFront=" << (projection.inFront ? 1 : 0)
@@ -397,8 +499,33 @@ void appendViewportDrawDebugOverlay(
                         << " labelDepth=" << (projection.labelDepthAccepted ? 1 : 0)
                         << " center=(" << center.x << "," << center.y << "," << center.z << ")"
                         << " r=" << draw.worldBoundsRadius
+                        << " chunkHalfExtent=(" << draw.worldBoundsHalfExtent[0] << "," << draw.worldBoundsHalfExtent[1] << "," << draw.worldBoundsHalfExtent[2] << ")"
+                        << " rootHalfExtent=(" << draw.rootBoundsHalfExtent[0] << "," << draw.rootBoundsHalfExtent[1] << "," << draw.rootBoundsHalfExtent[2] << ")"
+                        << " insideRoot=" << (draw.cameraInsideRootBounds ? 1 : 0)
+                        << " insideChunk=" << (draw.cameraInsideChunkBounds ? 1 : 0)
                         << " tri=" << row.selectedTriangles << "/" << row.sourceTriangles
                         << " chunk=" << draw.renderChunkId
+                        << "]";
+            }
+            message << " redDraws=";
+            for (const auto& row : rows) {
+                if (row.debugColor != LodDebugColor::Red || row.draw == nullptr) {
+                    continue;
+                }
+                const auto& draw = *row.draw;
+                const auto center = drawCenter(draw);
+                message << "["
+                        << "chunkId=" << draw.renderChunkId
+                        << " chunkWorldCenter=(" << center.x << "," << center.y << "," << center.z << ")"
+                        << " chunkWorldHalfExtent=(" << draw.worldBoundsHalfExtent[0] << "," << draw.worldBoundsHalfExtent[1] << "," << draw.worldBoundsHalfExtent[2] << ")"
+                        << " distanceToCenter=" << row.distanceToCenter
+                        << " distanceToBounds=" << row.distanceToBounds
+                        << " screenPx=" << row.projectedRadius
+                        << " selectedLOD=" << draw.lodIndex
+                        << " debugColor=" << lodDebugColorName(row.debugColor)
+                        << " insideRoot=" << (draw.cameraInsideRootBounds ? 1 : 0)
+                        << " insideChunk=" << (draw.cameraInsideChunkBounds ? 1 : 0)
+                        << " rootHalfExtent=(" << draw.rootBoundsHalfExtent[0] << "," << draw.rootBoundsHalfExtent[1] << "," << draw.rootBoundsHalfExtent[2] << ")"
                         << "]";
             }
             core::logInfo(core::LogCategory::Renderer, message.str());
@@ -407,7 +534,7 @@ void appendViewportDrawDebugOverlay(
     for (std::size_t index = 0; index < labelCount; ++index) {
         const auto& row = labels[index];
         const auto& draw = *row.draw;
-        const math::Vec3 center {draw.worldBoundsCenter[0], draw.worldBoundsCenter[1], draw.worldBoundsCenter[2]};
+        const auto center = drawCenter(draw);
         const auto shadowRisk = draw.flipsWinding || (draw.material != nullptr && draw.material->doubleSided);
         const auto cascade = estimatedCascadeIndex(frame, draw.sortDepth);
         const auto shadowText = row.shadowState == ShadowDebugState::Active
@@ -417,7 +544,8 @@ void appendViewportDrawDebugOverlay(
         if (isOverviewDraw(draw)) {
             label << "HLOD ";
         }
-        label << "D" << static_cast<int>(std::max(draw.sortDepth, 0.0F))
+        label << (row.debugColor == LodDebugColor::Red ? "R " : (row.debugColor == LodDebugColor::Yellow ? "Y " : "P "))
+              << "D" << static_cast<int>(std::max(row.distanceToCenter, 0.0F))
               << " L" << draw.lodIndex
               << " T" << compactTriangleText(row.selectedTriangles)
               << "/" << compactTriangleText(row.sourceTriangles)

@@ -132,6 +132,18 @@ namespace {
     return matrix;
 }
 
+[[nodiscard]] bool proxyExtractsFromRuntimeBatch(const scene::Entity& entity) noexcept
+{
+    if (!entity.meshRenderer.has_value()) {
+        return false;
+    }
+    const auto& cook = entity.meshRenderer->runtimeCook;
+    return cook.mutableRuntime
+        || !cook.staticBatchable
+        || cook.grabbable
+        || cook.physics != scene::RuntimePhysicsMode::None;
+}
+
 [[nodiscard]] float maxAbsScale(math::Vec3 scale)
 {
     return std::max({std::fabs(scale.x), std::fabs(scale.y), std::fabs(scale.z)});
@@ -183,6 +195,10 @@ namespace {
         hash = mixHash(hash, entity.meshRenderer->primitiveInstanceIndex.value_or(UINT32_MAX));
         hash = mixHash(hash, entity.meshRenderer->editorInstanceIndex.value_or(UINT32_MAX));
         hash = mixHash(hash, entity.meshRenderer->renderable ? 1U : 0U);
+        hash = mixHash(hash, entity.meshRenderer->runtimeCook.staticBatchable ? 1U : 0U);
+        hash = mixHash(hash, entity.meshRenderer->runtimeCook.mutableRuntime ? 1U : 0U);
+        hash = mixHash(hash, static_cast<std::uint64_t>(entity.meshRenderer->runtimeCook.physics));
+        hash = mixHash(hash, entity.meshRenderer->runtimeCook.grabbable ? 1U : 0U);
     }
     hash = mixHash(hash, reinterpret_cast<std::uintptr_t>(model));
     if (model != nullptr) {
@@ -211,6 +227,40 @@ namespace {
     return point.x >= frame.minimum.x && point.x <= frame.maximum.x
         && point.y >= frame.minimum.y && point.y <= frame.maximum.y
         && point.z >= frame.minimum.z && point.z <= frame.maximum.z;
+}
+
+[[nodiscard]] math::Vec3 viewportBoundsHalfExtent(const std::array<math::Vec3, 8>& corners)
+{
+    const auto frame = viewportBoundsFrame(corners);
+    if (!frame.valid) {
+        return {};
+    }
+    return (frame.maximum - frame.minimum) * 0.5F;
+}
+
+[[nodiscard]] float viewportBoundsDistanceToPoint(math::Vec3 point, const std::array<math::Vec3, 8>& corners)
+{
+    const auto frame = viewportBoundsFrame(corners);
+    if (!frame.valid) {
+        return 0.0F;
+    }
+    const auto axisDistance = [](float value, float minimum, float maximum) noexcept {
+        if (value < minimum) {
+            return minimum - value;
+        }
+        return value > maximum ? value - maximum : 0.0F;
+    };
+    const math::Vec3 distance {
+        axisDistance(point.x, frame.minimum.x, frame.maximum.x),
+        axisDistance(point.y, frame.minimum.y, frame.maximum.y),
+        axisDistance(point.z, frame.minimum.z, frame.maximum.z),
+    };
+    return distance.length();
+}
+
+[[nodiscard]] std::array<float, 3> vec3Array(math::Vec3 value) noexcept
+{
+    return {value.x, value.y, value.z};
 }
 
 [[nodiscard]] float renderWorldProjectedRadiusPixels(
@@ -341,6 +391,10 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
             auto matrix = multiply(entityModelMatrix, renderMatrix(source.transform));
             const auto proxyIt = primitiveProxyEntities.find(primitiveProxyKey({entity.id.value(), model->id.value(), index}));
             if (proxyIt != primitiveProxyEntities.end() && proxyIt->second != nullptr) {
+                if (proxyExtractsFromRuntimeBatch(*proxyIt->second)) {
+                    modelInstanceToRecord[index] = SIZE_MAX;
+                    continue;
+                }
                 sceneNodeId = proxyIt->second->id;
                 if (!defaultPrimitiveProxyTransform(proxyIt->second->transform, source.bounds.center)) {
                     const auto proxyPosition = entityLookup.worldPosition(proxyIt->second->id);
@@ -540,6 +594,10 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 signature = hashVec3(signature, proxy->transform.position);
                 signature = hashVec3(signature, proxy->transform.rotationEuler);
                 signature = hashVec3(signature, proxy->transform.scale);
+                signature = mixHash(signature, proxy->meshRenderer->runtimeCook.staticBatchable ? 1U : 0U);
+                signature = mixHash(signature, proxy->meshRenderer->runtimeCook.mutableRuntime ? 1U : 0U);
+                signature = mixHash(signature, static_cast<std::uint64_t>(proxy->meshRenderer->runtimeCook.physics));
+                signature = mixHash(signature, proxy->meshRenderer->runtimeCook.grabbable ? 1U : 0U);
             }
         }
 
@@ -855,7 +913,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     ++result.stats.lodMeshDrawCount;
                     result.stats.lodTriangleReductionCount += sourceTriangleCount - selectedTriangleCount;
                 }
-                meshDraws.push_back({
+                auto draw = renderer::RenderMeshDraw {
                     instance.modelAssetId,
                     instance.primitiveIndex,
                     lodIndex,
@@ -876,7 +934,23 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     instance.renderInstanceId,
                     chunk.renderChunkId,
                     instance.sceneNodeId.value(),
-                });
+                };
+                const auto distanceToCenter = (instance.worldBounds.center - camera.eye).length();
+                draw.worldBoundsHalfExtent = vec3Array(viewportBoundsHalfExtent(instance.worldBounds.corners));
+                draw.distanceToCameraCenter = std::isfinite(distanceToCenter) ? distanceToCenter : 0.0F;
+                draw.distanceToCameraBounds = viewportBoundsDistanceToPoint(camera.eye, instance.worldBounds.corners);
+                draw.projectedRadiusPixels = renderWorldProjectedRadiusPixels(
+                    instance.worldBounds.radius,
+                    std::max(draw.distanceToCameraCenter, camera.nearPlane),
+                    camera.verticalFovRadians,
+                    viewportHeight);
+                draw.rootBoundsHalfExtent = record->worldBoundsValid
+                    ? vec3Array(viewportBoundsHalfExtent(record->worldBounds.corners))
+                    : std::array<float, 3> {0.0F, 0.0F, 0.0F};
+                draw.cameraInsideRootBounds = record->worldBoundsValid
+                    && pointInsideViewportBounds(camera.eye, record->worldBounds.corners);
+                draw.cameraInsideChunkBounds = pointInsideViewportBounds(camera.eye, instance.worldBounds.corners);
+                meshDraws.push_back(draw);
             }
         }
     }

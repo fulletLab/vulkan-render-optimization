@@ -274,6 +274,13 @@ struct RenderMeshDraw {
     std::uint64_t renderInstanceId {0};
     std::uint64_t renderChunkId {0};
     std::uint64_t sceneNodeId {0};
+    std::array<float, 3> worldBoundsHalfExtent {0.0F, 0.0F, 0.0F};
+    float distanceToCameraCenter {0.0F};
+    float distanceToCameraBounds {0.0F};
+    float projectedRadiusPixels {0.0F};
+    std::array<float, 3> rootBoundsHalfExtent {0.0F, 0.0F, 0.0F};
+    bool cameraInsideRootBounds {false};
+    bool cameraInsideChunkBounds {false};
 };
 
 struct RenderColorVertex {

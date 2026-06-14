@@ -17,18 +17,26 @@
 #include <optional>
 #include <sstream>
 #include <unordered_map>
+#include <vector>
 
 namespace projectunity::editor {
 namespace {
 
-struct PlayRuntimeSnapshotStats {
+struct PlayRuntimeCookStats {
     std::uint64_t editorEntities {0};
+    std::uint64_t editableProxies {0};
+    std::uint64_t editableChildren {0};
     std::uint64_t runtimeEntities {0};
-    std::uint64_t editableProxiesSkipped {0};
-    std::uint64_t runtimeProxyOverrides {0};
     std::uint64_t runtimeAssetInstances {0};
-    std::uint64_t runtimePrimitiveInstances {0};
-    std::uint64_t runtimeRenderChunks {0};
+    std::uint64_t runtimeChunks {0};
+    std::uint64_t runtimeDrawPackets {0};
+    std::uint64_t mergedOrInstancedParts {0};
+    std::uint64_t skippedEditableProxies {0};
+    std::uint64_t overrideInstances {0};
+    std::uint64_t mutableRuntimeEntities {0};
+    std::uint64_t dynamicBatchMasks {0};
+    std::uint64_t drawsBeforeCompile {0};
+    std::uint64_t drawsAfterCompile {0};
     std::uint64_t runtimeCameras {0};
     std::uint64_t runtimeLights {0};
     std::uint64_t runtimeScripts {0};
@@ -104,6 +112,73 @@ struct PlayRuntimeSnapshotStats {
     return !defaultEditableProxyTransform(entity.transform, instance.bounds.center);
 }
 
+[[nodiscard]] bool hasRuntimeGameplayState(const scene::Entity& entity) noexcept
+{
+    return entity.light.has_value() || entity.camera.has_value() || entity.script.has_value();
+}
+
+[[nodiscard]] bool requiresRuntimeEntity(const scene::Entity& entity) noexcept
+{
+    if (hasRuntimeGameplayState(entity)) {
+        return true;
+    }
+    if (!entity.meshRenderer.has_value()) {
+        return false;
+    }
+    const auto& cook = entity.meshRenderer->runtimeCook;
+    return cook.mutableRuntime
+        || !cook.staticBatchable
+        || cook.grabbable
+        || cook.physics != scene::RuntimePhysicsMode::None;
+}
+
+[[nodiscard]] std::uint64_t runtimePrimitivePartCount(const assets::ModelAsset& model) noexcept
+{
+    if (!model.primitiveInstances.empty()) {
+        return model.primitiveInstances.size();
+    }
+    return model.primitives.size();
+}
+
+[[nodiscard]] std::uint64_t runtimeChunkCount(const assets::ModelAsset& model) noexcept
+{
+    if (!model.primitiveClusters.empty()) {
+        return model.primitiveClusters.size();
+    }
+    return runtimePrimitivePartCount(model);
+}
+
+[[nodiscard]] std::uint64_t runtimeDrawPacketCount(const assets::ModelAsset& model) noexcept
+{
+    if (!model.primitiveClusters.empty()) {
+        return model.primitiveClusters.size();
+    }
+    return model.primitives.empty() ? 0U : model.primitives.size();
+}
+
+void copyRuntimeComponents(
+    const scene::Entity& source,
+    scene::Scene& runtimeScene,
+    scene::EntityId runtimeId,
+    const std::optional<scene::MeshRendererComponent>& meshRendererOverride = std::nullopt)
+{
+    (void)runtimeScene.setTransform(runtimeId, source.transform);
+    if (meshRendererOverride.has_value()) {
+        (void)runtimeScene.setMeshRenderer(runtimeId, meshRendererOverride);
+    } else if (source.meshRenderer.has_value()) {
+        (void)runtimeScene.setMeshRenderer(runtimeId, source.meshRenderer);
+    }
+    if (source.light.has_value()) {
+        (void)runtimeScene.setLight(runtimeId, source.light);
+    }
+    if (source.camera.has_value()) {
+        (void)runtimeScene.setCamera(runtimeId, source.camera);
+    }
+    if (source.script.has_value()) {
+        (void)runtimeScene.setScript(runtimeId, source.script);
+    }
+}
+
 [[nodiscard]] std::string flyPlayerScriptTemplate()
 {
     return
@@ -175,56 +250,152 @@ void MainWindow::ensureFlyPlayerScriptAsset()
     script << flyPlayerScriptTemplate();
 }
 
-bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
+bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
 {
     playRuntimeScene_.clear();
     playRuntimeScene_.setName(std::string(scene_.name()) + " Runtime");
     playRuntimeCameraEntityId_ = {};
 
-    PlayRuntimeSnapshotStats stats;
+    PlayRuntimeCookStats stats;
     std::unordered_map<std::uint64_t, scene::EntityId> runtimeIdBySource;
     runtimeIdBySource.reserve(scene_.entityCount());
+    std::vector<std::pair<scene::EntityId, scene::EntityId>> runtimeParentLinks;
+    runtimeParentLinks.reserve(scene_.entityCount());
 
     for (const auto& source : scene_.entities()) {
         ++stats.editorEntities;
         if (isEditablePrimitiveProxy(source)) {
-            if (!editableProxyHasRuntimeOverride(source, assetManager_)) {
-                ++stats.editableProxiesSkipped;
-                continue;
+            ++stats.editableProxies;
+            if (source.parent.has_value()) {
+                ++stats.editableChildren;
             }
-            ++stats.runtimeProxyOverrides;
+            continue;
+        }
+
+        if (source.meshRenderer.has_value() && source.meshRenderer->renderable) {
+            auto& runtime = playRuntimeScene_.createEntity("RuntimeAssetInstance: " + source.name);
+            runtimeIdBySource[source.id.value()] = runtime.id;
+            ++stats.runtimeEntities;
+
+            auto renderer = *source.meshRenderer;
+            if (!requiresRuntimeEntity(source)) {
+                renderer.runtimeCook.staticBatchable = true;
+                renderer.runtimeCook.mutableRuntime = false;
+                renderer.runtimeCook.physics = scene::RuntimePhysicsMode::None;
+                renderer.runtimeCook.grabbable = false;
+                ++stats.runtimeAssetInstances;
+            } else {
+                ++stats.mutableRuntimeEntities;
+            }
+            copyRuntimeComponents(source, playRuntimeScene_, runtime.id, renderer);
+
+            if (const auto model = assetManager_.model(source.meshRenderer->modelAssetId)) {
+                const auto sourceParts = runtimePrimitivePartCount(*model);
+                const auto chunks = runtimeChunkCount(*model);
+                const auto drawPackets = runtimeDrawPacketCount(*model);
+                stats.drawsBeforeCompile += sourceParts;
+                stats.runtimeChunks += chunks;
+                stats.runtimeDrawPackets += drawPackets;
+                stats.mergedOrInstancedParts += sourceParts;
+            }
+            if (source.light.has_value()) {
+                ++stats.runtimeLights;
+            }
+            if (source.camera.has_value()) {
+                ++stats.runtimeCameras;
+            }
+            if (source.script.has_value()) {
+                ++stats.runtimeScripts;
+            }
+            continue;
         }
 
         auto& runtime = playRuntimeScene_.createEntity(source.name);
         runtimeIdBySource[source.id.value()] = runtime.id;
         ++stats.runtimeEntities;
-
-        (void)playRuntimeScene_.setTransform(runtime.id, source.transform);
-        if (source.meshRenderer.has_value()) {
-            (void)playRuntimeScene_.setMeshRenderer(runtime.id, source.meshRenderer);
-            if (source.meshRenderer->renderable) {
-                ++stats.runtimeAssetInstances;
-                if (const auto model = assetManager_.model(source.meshRenderer->modelAssetId)) {
-                    stats.runtimePrimitiveInstances += model->primitiveInstances.empty()
-                        ? model->primitives.size()
-                        : model->primitiveInstances.size();
-                    stats.runtimeRenderChunks += model->primitiveClusters.empty()
-                        ? std::max<std::size_t>(model->primitiveInstances.size(), model->primitives.size())
-                        : model->primitiveClusters.size();
-                }
-            }
-        }
+        copyRuntimeComponents(source, playRuntimeScene_, runtime.id);
         if (source.light.has_value()) {
-            (void)playRuntimeScene_.setLight(runtime.id, source.light);
             ++stats.runtimeLights;
         }
         if (source.camera.has_value()) {
-            (void)playRuntimeScene_.setCamera(runtime.id, source.camera);
             ++stats.runtimeCameras;
         }
         if (source.script.has_value()) {
-            (void)playRuntimeScene_.setScript(runtime.id, source.script);
             ++stats.runtimeScripts;
+        }
+    }
+
+    for (const auto& source : scene_.entities()) {
+        if (!isEditablePrimitiveProxy(source) || !source.meshRenderer.has_value()) {
+            continue;
+        }
+
+        const auto model = assetManager_.model(source.meshRenderer->modelAssetId);
+        const auto primitiveInstanceIndex = model == nullptr
+            ? std::optional<std::uint32_t> {}
+            : primitiveInstanceIndexForSnapshotProxy(*model, *source.meshRenderer);
+        if (!primitiveInstanceIndex.has_value()) {
+            ++stats.skippedEditableProxies;
+            continue;
+        }
+
+        if (requiresRuntimeEntity(source)) {
+            auto maskRenderer = *source.meshRenderer;
+            maskRenderer.renderable = false;
+            maskRenderer.runtimeCook.staticBatchable = false;
+            maskRenderer.runtimeCook.mutableRuntime = true;
+            auto& mask = playRuntimeScene_.createEntity("RuntimeBatchMask: " + source.name);
+            copyRuntimeComponents(source, playRuntimeScene_, mask.id, maskRenderer);
+            ++stats.runtimeEntities;
+            ++stats.dynamicBatchMasks;
+            if (source.parent.has_value()) {
+                runtimeParentLinks.push_back({mask.id, *source.parent});
+            }
+
+            auto dynamicRenderer = *source.meshRenderer;
+            dynamicRenderer.renderable = true;
+            dynamicRenderer.runtimeCook.staticBatchable = false;
+            dynamicRenderer.runtimeCook.mutableRuntime = true;
+            auto& dynamic = playRuntimeScene_.createEntity("RuntimeEntity: " + source.name);
+            runtimeIdBySource[source.id.value()] = dynamic.id;
+            copyRuntimeComponents(source, playRuntimeScene_, dynamic.id, dynamicRenderer);
+            ++stats.runtimeEntities;
+            ++stats.mutableRuntimeEntities;
+            ++stats.runtimeDrawPackets;
+            if (stats.mergedOrInstancedParts > 0U) {
+                --stats.mergedOrInstancedParts;
+            }
+            if (source.parent.has_value()) {
+                runtimeParentLinks.push_back({dynamic.id, *source.parent});
+            }
+            if (source.light.has_value()) {
+                ++stats.runtimeLights;
+            }
+            if (source.camera.has_value()) {
+                ++stats.runtimeCameras;
+            }
+            if (source.script.has_value()) {
+                ++stats.runtimeScripts;
+            }
+            continue;
+        }
+
+        if (!editableProxyHasRuntimeOverride(source, assetManager_)) {
+            ++stats.skippedEditableProxies;
+            continue;
+        }
+
+        auto renderer = *source.meshRenderer;
+        renderer.renderable = false;
+        renderer.runtimeCook.staticBatchable = true;
+        renderer.runtimeCook.mutableRuntime = false;
+        auto& runtimeProxy = playRuntimeScene_.createEntity("RuntimeOverride: " + source.name);
+        runtimeIdBySource[source.id.value()] = runtimeProxy.id;
+        copyRuntimeComponents(source, playRuntimeScene_, runtimeProxy.id, renderer);
+        ++stats.runtimeEntities;
+        ++stats.overrideInstances;
+        if (source.parent.has_value()) {
+            runtimeParentLinks.push_back({runtimeProxy.id, *source.parent});
         }
     }
 
@@ -238,6 +409,14 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
             (void)playRuntimeScene_.setParent(runtimeIt->second, parentIt->second);
         }
     }
+    for (const auto& [runtimeChildId, sourceParentId] : runtimeParentLinks) {
+        const auto parentIt = runtimeIdBySource.find(sourceParentId.value());
+        if (parentIt != runtimeIdBySource.end()) {
+            (void)playRuntimeScene_.setParent(runtimeChildId, parentIt->second);
+        }
+    }
+
+    stats.drawsAfterCompile += stats.runtimeDrawPackets;
 
     if (const auto cameraIt = runtimeIdBySource.find(sourceCameraEntityId.value()); cameraIt != runtimeIdBySource.end()) {
         playRuntimeCameraEntityId_ = cameraIt->second;
@@ -262,14 +441,21 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
     }
 
     std::ostringstream message;
-    message << "Play runtime snapshot cooked"
+    message << "CookRuntimeScene"
             << " editorEntities=" << stats.editorEntities
+            << " editableProxies=" << stats.editableProxies
+            << " editableChildren=" << stats.editableChildren
             << " runtimeEntities=" << stats.runtimeEntities
-            << " editableProxiesSkipped=" << stats.editableProxiesSkipped
-            << " runtimeProxyOverrides=" << stats.runtimeProxyOverrides
             << " runtimeAssetInstances=" << stats.runtimeAssetInstances
-            << " runtimePrimitiveInstances=" << stats.runtimePrimitiveInstances
-            << " runtimeRenderChunks=" << stats.runtimeRenderChunks
+            << " runtimeChunks=" << stats.runtimeChunks
+            << " runtimeDrawPackets=" << stats.runtimeDrawPackets
+            << " mergedOrInstancedParts=" << stats.mergedOrInstancedParts
+            << " skippedEditableProxies=" << stats.skippedEditableProxies
+            << " overrideInstances=" << stats.overrideInstances
+            << " mutableRuntimeEntities=" << stats.mutableRuntimeEntities
+            << " dynamicBatchMasks=" << stats.dynamicBatchMasks
+            << " drawsBeforeCompile=" << stats.drawsBeforeCompile
+            << " drawsAfterCompile=" << stats.drawsAfterCompile
             << " runtimeCameras=" << stats.runtimeCameras
             << " runtimeLights=" << stats.runtimeLights
             << " runtimeScripts=" << stats.runtimeScripts
@@ -312,10 +498,10 @@ void MainWindow::startPlayMode()
     progress.show();
     qApp->processEvents();
 
-    if (!buildPlayRuntimeSnapshot(playerId)) {
+    if (!cookPlayRuntimeScene(playerId)) {
         progress.close();
         statusBar()->showMessage(QStringLiteral("Play runtime build failed"));
-        core::logWarning(core::LogCategory::Editor, "Play ignored: runtime snapshot has no playable camera");
+        core::logWarning(core::LogCategory::Editor, "Play ignored: cooked runtime scene has no playable camera");
         QMessageBox::warning(
             this,
             QStringLiteral("Play"),
