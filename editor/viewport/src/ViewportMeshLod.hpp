@@ -3,6 +3,7 @@
 #include <projectunity/assets/AssetManager.hpp>
 #include <projectunity/math/Vec3.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -10,8 +11,8 @@ namespace projectunity::editor {
 
 [[nodiscard]] float viewportLodDistanceToBounds(
     math::Vec3 eye,
-    math::Vec3 boundsCenter,
-    float boundsRadius,
+    math::Vec3 forward,
+    const std::array<math::Vec3, 8>& boundsCorners,
     float nearPlane) noexcept;
 
 [[nodiscard]] std::size_t indexCountForViewportLod(

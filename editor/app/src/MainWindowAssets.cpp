@@ -114,7 +114,9 @@ void MainWindow::importAssetAsync(const QString& path)
         (void)handleAssetImportResult(result, true);
         const auto message = result.success
             ? QStringLiteral("Imported %1").arg(displayName)
-            : QStringLiteral("Failed %1").arg(displayName);
+            : (result.error.empty()
+                ? QStringLiteral("Failed %1").arg(displayName)
+                : QStringLiteral("Failed %1: %2").arg(displayName, QString::fromStdString(result.error)));
         updateAssetImportPanel(message, activeAssetImports_ > 0, 100);
     });
     QPointer<MainWindow> window(this);

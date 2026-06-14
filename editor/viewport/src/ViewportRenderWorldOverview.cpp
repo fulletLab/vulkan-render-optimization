@@ -191,8 +191,7 @@ struct CachedOverviewModel {
 
 [[nodiscard]] bool overviewScreenEligible(
     bool worldBoundsValid,
-    math::Vec3 worldBoundsCenter,
-    float worldBoundsRadius,
+    const ViewportWorldBounds& worldBounds,
     const ViewportRenderWorldCamera& camera,
     int viewportHeight,
     std::uint64_t visibleInstanceReferences,
@@ -203,11 +202,11 @@ struct CachedOverviewModel {
     }
     const auto lodDistance = viewportLodDistanceToBounds(
         camera.eye,
-        worldBoundsCenter,
-        worldBoundsRadius,
+        camera.forward,
+        worldBounds.corners,
         camera.nearPlane);
     const auto projectedRadius = projectedRadiusPixels(
-        worldBoundsRadius,
+        worldBounds.radius,
         lodDistance,
         camera.verticalFovRadians,
         viewportHeight);
@@ -232,8 +231,8 @@ struct CachedOverviewModel {
     }
     const auto lodDistance = viewportLodDistanceToBounds(
         camera.eye,
-        worldBounds.center,
-        worldBounds.radius,
+        camera.forward,
+        worldBounds.corners,
         camera.nearPlane);
     if (lodDistance < kClusterOverviewMinimumDistance) {
         return false;
@@ -611,8 +610,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         && overviewCoverageEnough
         && overviewScreenEligible(
             record.worldBoundsValid,
-            record.worldBounds.center,
-            record.worldBounds.radius,
+            record.worldBounds,
             camera,
             viewportHeight,
             visibleChunkInstanceReferences,

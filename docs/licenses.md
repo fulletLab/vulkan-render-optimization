@@ -44,9 +44,20 @@ References checked:
 - https://github.com/mmikk/MikkTSpace
 - https://github.com/zeux/meshoptimizer
 - https://github.com/assimp/assimp
+- https://github.com/paceholder/nodeeditor
+- https://github.com/AcademySoftwareFoundation/MaterialX
 
 ## Pending Review Before Future Integration
 
+- QtNodes (`paceholder/nodeeditor`): evaluated as the preferred material-node editor
+  spike. Upstream declares BSD-3-Clause, uses Qt Widgets/C++, and has no Dear ImGui
+  dependency. Stable tag `3.0.16` resolves to commit
+  `7c6341a66a8e46b8988140b9e60d892b6a3560b3`. It is not integrated yet. Its current
+  CMake target also links Qt OpenGL, which must be reviewed or isolated because the
+  ProjectUnity material preview remains Vulkan.
+- MaterialX: upstream declares Apache-2.0. It is evaluated only as a future optional
+  material interchange and shader-generation backend, not as the ProjectUnity graph UI
+  or authoritative internal graph representation.
 - HighMap: must be reviewed carefully before use because GPL-style licensing would be incompatible with a closed commercial engine distribution unless isolated or replaced.
 - KDDockWidgets: not selected for Phase 1 due GPL/commercial licensing risk compared with ADS.
 - All rendering, physics, navigation, asset, UI runtime, security, and baking libraries must be checked before being vendored or fetched.

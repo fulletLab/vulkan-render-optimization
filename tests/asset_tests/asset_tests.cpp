@@ -465,9 +465,28 @@ void appendFloat(std::vector<std::uint8_t>& bytes, float value)
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
     using namespace projectunity::assets;
+
+    if (argc > 1 && argv[1] != nullptr) {
+        const auto sourcePath = std::filesystem::path(argv[1]);
+        const auto cacheRoot = std::filesystem::temp_directory_path() / "projectunity_asset_import_probe" / "Cache" / "Assets";
+        AssetManager manager(cacheRoot);
+        const auto result = manager.importModel(sourcePath, [](const AssetImportProgress& progress) {
+            std::cout << progress.percent << "% " << progress.stage << '\n';
+        });
+        if (!result.success) {
+            std::cerr << "Import probe failed: " << result.error << '\n';
+            return EXIT_FAILURE;
+        }
+        std::cout << "Import probe ok: "
+                  << result.record.displayName
+                  << " vertices=" << result.record.vertexCount
+                  << " indices=" << result.record.indexCount
+                  << " textures=" << result.record.textureCount << '\n';
+        return EXIT_SUCCESS;
+    }
 
     const auto root = std::filesystem::temp_directory_path() / "projectunity_asset_tests";
     std::error_code errorCode;

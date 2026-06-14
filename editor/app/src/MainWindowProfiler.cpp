@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 103;
+constexpr int kProfilerRowCount = 107;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -122,6 +122,8 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("lastHitchCommandRecordUs"),
         QStringLiteral("lastHitchMeshDraws"),
         QStringLiteral("lastHitchVkDrawIndexed"),
+        QStringLiteral("lastHitchMeshUploadBytes"),
+        QStringLiteral("lastHitchTextureUploadBytes"),
         QStringLiteral("lastHitchStaticUploadBytes"),
         QStringLiteral("shadowCandidates"),
         QStringLiteral("shadowSubmitted"),
@@ -130,6 +132,8 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("shadowGpuMs"),
         QStringLiteral("shadowRejectedByPolicy"),
         QStringLiteral("shadowRejectedByCasterCull"),
+        QStringLiteral("lastFrameMeshUploadBytes"),
+        QStringLiteral("lastFrameTextureUploadBytes"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -192,7 +196,11 @@ void MainWindow::updateProfilerPanel()
         const auto hitchText = QStringLiteral("H %1 MAX %2ms")
             .arg(compactCounter(stats.hitchFrameCount))
             .arg(static_cast<double>(stats.recentMaxFrameCpuTimeUs) / 1000.0, 0, 'f', 1);
-        performanceStatus_->setText(QStringLiteral("%1 FPS %2 %3 | %4 %5 %6 %7 | D %8/%9 B %10 | VKD %11 BIND %12 | T %13 SUB %14 | LOD %15 -%16 HLOD %17/%18 -%19 | OCC %20/%21/%22 | SH %23 %24/%25 | %26 %27")
+        const auto uploadText = QStringLiteral("UP M%1 T%2 %3")
+            .arg(compactCounter(stats.lastFrameMeshUploadCount))
+            .arg(compactCounter(stats.lastFrameTextureUploadCount))
+            .arg(compactCounter(stats.lastFrameStaticUploadBytes));
+        const auto statusText = QStringLiteral("%1 FPS %2 %3 | %4 %5 %6 %7 | D %8/%9 B %10 | VKD %11 BIND %12 | T %13 SUB %14 | LOD %15 -%16 HLOD %17/%18 -%19 | OCC %20/%21/%22 | SH %23 %24/%25 | %26 %27")
             .arg(sceneStatsAvailable ? QStringLiteral("Scene") : QStringLiteral("Renderer"))
             .arg(stats.FPS, 0, 'f', 1)
             .arg(hitchText)
@@ -219,14 +227,17 @@ void MainWindow::updateProfilerPanel()
             .arg(compactCounter(stats.lastFrameShadowViewCount))
             .arg(compactCounter(stats.shadowBatchesSubmitted))
             .arg(gpuMeshText)
-            .arg(gpuShadowText));
-        performanceStatus_->setToolTip(QStringLiteral("%1 | max CPU %2ms | last hitch CPU %3ms GPU %4ms RES %5ms CMD %6ms upload %7 | editor %8ms | color %9us | cull %10")
+            .arg(gpuShadowText);
+        performanceStatus_->setText(statusText + QStringLiteral(" | %1").arg(uploadText));
+        performanceStatus_->setToolTip(QStringLiteral("%1 | max CPU %2ms | last hitch CPU %3ms GPU %4ms RES %5ms CMD %6ms upload M%7 T%8 total %9 | editor %10ms | color %11us | cull %12")
             .arg(gpuFrameText)
             .arg(static_cast<double>(stats.recentMaxFrameCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<double>(stats.lastHitchCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<double>(stats.lastHitchGpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<double>(stats.lastHitchResourcePrepareCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<double>(stats.lastHitchCommandRecordCpuTimeUs) / 1000.0, 0, 'f', 1)
+            .arg(compactCounter(stats.lastHitchMeshUploadBytes))
+            .arg(compactCounter(stats.lastHitchTextureUploadBytes))
             .arg(compactCounter(stats.lastHitchStaticUploadBytes))
             .arg(static_cast<double>(stats.lastFrameEditorBuildCpuTimeUs) / 1000.0, 0, 'f', 1)
             .arg(static_cast<qulonglong>(stats.lastFrameColorRecordCpuTimeUs))
@@ -338,14 +349,18 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 92, QString::number(static_cast<qulonglong>(stats.lastHitchCommandRecordCpuTimeUs)));
     setTableValue(profilerTable_, 93, QString::number(static_cast<qulonglong>(stats.lastHitchMeshDrawCount)));
     setTableValue(profilerTable_, 94, QString::number(static_cast<qulonglong>(stats.lastHitchVkDrawIndexed)));
-    setTableValue(profilerTable_, 95, QString::number(static_cast<qulonglong>(stats.lastHitchStaticUploadBytes)));
-    setTableValue(profilerTable_, 96, QString::number(static_cast<qulonglong>(stats.shadowCandidates)));
-    setTableValue(profilerTable_, 97, QString::number(static_cast<qulonglong>(stats.shadowSubmitted)));
-    setTableValue(profilerTable_, 98, QString::number(static_cast<qulonglong>(stats.shadowTriangles)));
-    setTableValue(profilerTable_, 99, QStringLiteral("%1").arg(stats.shadowCpuMs, 0, 'f', 3));
-    setTableValue(profilerTable_, 100, stats.lastFrameGpuTimestampsValid ? QStringLiteral("%1").arg(stats.shadowGpuMs, 0, 'f', 3) : QStringLiteral("-"));
-    setTableValue(profilerTable_, 101, QString::number(static_cast<qulonglong>(stats.shadowRejectedByPolicy)));
-    setTableValue(profilerTable_, 102, QString::number(static_cast<qulonglong>(stats.shadowRejectedByCasterCull)));
+    setTableValue(profilerTable_, 95, QString::number(static_cast<qulonglong>(stats.lastHitchMeshUploadBytes)));
+    setTableValue(profilerTable_, 96, QString::number(static_cast<qulonglong>(stats.lastHitchTextureUploadBytes)));
+    setTableValue(profilerTable_, 97, QString::number(static_cast<qulonglong>(stats.lastHitchStaticUploadBytes)));
+    setTableValue(profilerTable_, 98, QString::number(static_cast<qulonglong>(stats.shadowCandidates)));
+    setTableValue(profilerTable_, 99, QString::number(static_cast<qulonglong>(stats.shadowSubmitted)));
+    setTableValue(profilerTable_, 100, QString::number(static_cast<qulonglong>(stats.shadowTriangles)));
+    setTableValue(profilerTable_, 101, QStringLiteral("%1").arg(stats.shadowCpuMs, 0, 'f', 3));
+    setTableValue(profilerTable_, 102, stats.lastFrameGpuTimestampsValid ? QStringLiteral("%1").arg(stats.shadowGpuMs, 0, 'f', 3) : QStringLiteral("-"));
+    setTableValue(profilerTable_, 103, QString::number(static_cast<qulonglong>(stats.shadowRejectedByPolicy)));
+    setTableValue(profilerTable_, 104, QString::number(static_cast<qulonglong>(stats.shadowRejectedByCasterCull)));
+    setTableValue(profilerTable_, 105, QString::number(static_cast<qulonglong>(stats.lastFrameMeshUploadBytes)));
+    setTableValue(profilerTable_, 106, QString::number(static_cast<qulonglong>(stats.lastFrameTextureUploadBytes)));
 }
 
 } // namespace projectunity::editor

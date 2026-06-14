@@ -43,6 +43,7 @@ add_library(projectunity_assets STATIC
     src/KtxTextureImport.hpp
     src/KtxTextureImportLibktx.cpp
     src/KtxTextureImportLibktx.hpp
+    src/MaterialGraphAsset.cpp
     src/MeshBounds.cpp
     src/MeshBounds.hpp
     src/MeshLodGenerator.cpp
@@ -59,6 +60,7 @@ add_library(projectunity_assets STATIC
     src/StbTextureImport.hpp
     src/TinyGltfImplementation.cpp
     include/projectunity/assets/AssetManager.hpp
+    include/projectunity/assets/MaterialGraphAsset.hpp
 )
 
 add_library(ProjectUnity::Assets ALIAS projectunity_assets)

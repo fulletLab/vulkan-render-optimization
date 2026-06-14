@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <fstream>
+#include <new>
 #include <span>
 #include <string>
 #include <utility>
@@ -38,7 +39,13 @@ inline void setError(std::string* errorMessage, std::string message)
     }
     file.seekg(0, std::ios::beg);
 
-    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
+    std::vector<std::uint8_t> bytes;
+    try {
+        bytes.resize(static_cast<std::size_t>(end));
+    } catch (const std::bad_alloc&) {
+        setError(errorMessage, "Not enough memory to read asset source file");
+        return {};
+    }
     if (bytes.empty()) {
         setError(errorMessage, "Asset source file is empty");
         return {};

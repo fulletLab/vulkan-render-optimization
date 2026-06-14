@@ -2,6 +2,7 @@
 
 #include "AssetImportUtils.hpp"
 #include "KtxTextureImport.hpp"
+#include "StbTextureImport.hpp"
 
 #include <tiny_gltf.h>
 
@@ -27,6 +28,11 @@ namespace {
 [[nodiscard]] bool isKtxMimeType(const std::string& mimeType)
 {
     return mimeType == "image/ktx" || mimeType == "image/ktx2";
+}
+
+[[nodiscard]] bool hasDecodedPixels(const tinygltf::Image& image)
+{
+    return image.width > 0 && image.height > 0 && image.component > 0 && !image.image.empty();
 }
 
 [[nodiscard]] bool convertDecodedImage(
@@ -90,6 +96,34 @@ namespace {
     return output.id.isValid();
 }
 
+[[nodiscard]] bool importBufferViewStb(
+    const tinygltf::Model& gltf,
+    const tinygltf::Image& image,
+    std::string name,
+    TextureAsset& output,
+    std::string* errorMessage)
+{
+    if (image.bufferView < 0 || static_cast<std::size_t>(image.bufferView) >= gltf.bufferViews.size()) {
+        return false;
+    }
+    const auto& view = gltf.bufferViews[static_cast<std::size_t>(image.bufferView)];
+    if (view.buffer < 0 || static_cast<std::size_t>(view.buffer) >= gltf.buffers.size()) {
+        setError(errorMessage, "glTF texture buffer view references an invalid buffer");
+        return false;
+    }
+    const auto& buffer = gltf.buffers[static_cast<std::size_t>(view.buffer)];
+    if (view.byteOffset + view.byteLength > buffer.data.size()) {
+        setError(errorMessage, "glTF texture buffer view is out of range");
+        return false;
+    }
+    const std::span<const std::uint8_t> bytes {
+        buffer.data.data() + static_cast<std::ptrdiff_t>(view.byteOffset),
+        view.byteLength,
+    };
+    output = importStbTexture(std::filesystem::path(name.empty() ? std::string {"Texture"} : std::move(name)), bytes, errorMessage);
+    return output.id.isValid();
+}
+
 } // namespace
 
 bool importGltfTexture(
@@ -117,8 +151,16 @@ bool importGltfTexture(
         }
         return importBufferViewKtx(gltf, image, std::move(name), output, errorMessage);
     }
-    if (!image.image.empty()) {
+    if (hasDecodedPixels(image)) {
         return convertDecodedImage(image, std::move(name), output, errorMessage);
+    }
+    if (!image.image.empty()) {
+        const auto decodedName = name.empty() ? (image.uri.empty() ? std::string {"Texture"} : image.uri) : std::move(name);
+        output = importStbTexture(std::filesystem::path(decodedName), image.image, errorMessage);
+        return output.id.isValid();
+    }
+    if (image.bufferView >= 0 && importBufferViewStb(gltf, image, std::move(name), output, errorMessage)) {
+        return true;
     }
     if (image.bufferView >= 0 && importBufferViewKtx(gltf, image, std::move(name), output, errorMessage)) {
         return true;

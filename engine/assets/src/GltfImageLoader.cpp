@@ -22,7 +22,7 @@ constexpr std::array<unsigned char, 12> kKtx2Identifier {{
         && std::equal(identifier.begin(), identifier.end(), bytes);
 }
 
-bool loadImageKeepingKtx(
+bool loadImageKeepingEncodedBytes(
     tinygltf::Image* image,
     int imageIndex,
     std::string* error,
@@ -33,6 +33,24 @@ bool loadImageKeepingKtx(
     int size,
     void* userData)
 {
+    (void)imageIndex;
+    (void)error;
+    (void)warning;
+    (void)requestedWidth;
+    (void)requestedHeight;
+    (void)userData;
+
+    if (bytes == nullptr || size <= 0) {
+        return false;
+    }
+    if (image != nullptr && image->bufferView >= 0) {
+        image->width = 0;
+        image->height = 0;
+        image->component = 0;
+        image->bits = 8;
+        return true;
+    }
+
     if (hasIdentifier(bytes, size, kKtx1Identifier) || hasIdentifier(bytes, size, kKtx2Identifier)) {
         image->image.assign(bytes, bytes + size);
         image->width = 0;
@@ -41,14 +59,20 @@ bool loadImageKeepingKtx(
         image->bits = 8;
         return true;
     }
-    return tinygltf::LoadImageData(image, imageIndex, error, warning, requestedWidth, requestedHeight, bytes, size, userData);
+
+    image->image.assign(bytes, bytes + size);
+    image->width = 0;
+    image->height = 0;
+    image->component = 0;
+    image->bits = 8;
+    return true;
 }
 
 } // namespace
 
 void configureGltfImageLoader(tinygltf::TinyGLTF& loader)
 {
-    loader.SetImageLoader(loadImageKeepingKtx, nullptr);
+    loader.SetImageLoader(loadImageKeepingEncodedBytes, nullptr);
 }
 
 } // namespace projectunity::assets::detail

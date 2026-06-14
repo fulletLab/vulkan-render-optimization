@@ -329,8 +329,9 @@ struct VulkanRenderer::Impl {
             stats.colorMeshDrawsPresented += stats.lastFrameColorMeshDrawCount;
             stats.lastFrameMeshUploadCount = meshCache.uploadCount() - meshUploadsBefore;
             stats.lastFrameTextureUploadCount = textureCache.uploadCount() - textureUploadsBefore;
-            stats.lastFrameStaticUploadBytes = (meshCache.uploadedBytes() - meshBytesBefore)
-                + (textureCache.uploadedBytes() - textureBytesBefore);
+            stats.lastFrameMeshUploadBytes = meshCache.uploadedBytes() - meshBytesBefore;
+            stats.lastFrameTextureUploadBytes = textureCache.uploadedBytes() - textureBytesBefore;
+            stats.lastFrameStaticUploadBytes = stats.lastFrameMeshUploadBytes + stats.lastFrameTextureUploadBytes;
             if (stats.viewportFramesPresented % 120U == 1U) {
                 stats.recentMaxFrameCpuTimeUs = stats.lastFrameRenderCpuTimeUs;
                 stats.recentMaxFrameGpuTimeUs = stats.lastFrameGpuTimeUs;
@@ -355,6 +356,8 @@ struct VulkanRenderer::Impl {
                 stats.lastHitchCommandRecordCpuTimeUs = stats.lastFrameCommandRecordCpuTimeUs;
                 stats.lastHitchMeshDrawCount = stats.lastFrameMeshDrawCount;
                 stats.lastHitchVkDrawIndexed = stats.vkDrawIndexed;
+                stats.lastHitchMeshUploadBytes = stats.lastFrameMeshUploadBytes;
+                stats.lastHitchTextureUploadBytes = stats.lastFrameTextureUploadBytes;
                 stats.lastHitchStaticUploadBytes = stats.lastFrameStaticUploadBytes;
             }
             stats.lastFrameColorUploadBytes = dynamicColorBytes;

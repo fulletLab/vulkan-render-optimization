@@ -15,6 +15,11 @@ Phase 6 covers:
   texture data.
 - Imported textured mesh visibility in the editor viewport.
 
+The next multi-format import and material-editing work is tracked in
+`docs/asset_import_pipeline_roadmap.md`. That roadmap keeps GLB/glTF as the primary path,
+uses Assimp as a secondary/offline adapter, routes `.blend` through Blender headless, and
+preserves the existing ModelAsset/FFULT/Vulkan boundary.
+
 ## Status
 
 Status: PARCIAL / OPTIMIZATION A MEDIA

@@ -40,6 +40,18 @@ using detail::gltfToEngineInstanceMatrix;
 using detail::gltfNodeMatrix;
 using detail::identityGltfMatrix;
 using detail::multiplyGltfMatrices;
+
+constexpr std::string_view kModelCookCacheSalt = "projectunity-model-cook-legacy-2x2-v1";
+
+[[nodiscard]] AssetId makeModelCookId(std::span<const std::uint8_t> sourceBytes)
+{
+    const auto saltBytes = std::span<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(kModelCookCacheSalt.data()),
+        kModelCookCacheSalt.size());
+    const std::array<std::uint8_t, 1> typeBytes {static_cast<std::uint8_t>(AssetType::Model)};
+    return AssetId(detail::hashBytes(sourceBytes, detail::hashBytes(typeBytes, detail::hashBytes(saltBytes, detail::kFnvOffsetBasis))));
+}
+
 struct ImportedModel {
     std::shared_ptr<ModelAsset> asset;
     AssetRecord record;
@@ -554,7 +566,7 @@ void optimizePrimitive(MeshPrimitive& primitive)
     }
     reportProgress(progress, 30, "Importing textures");
     auto model = std::make_shared<ModelAsset>();
-    model->id = makeId(sourceBytes, AssetType::Model);
+    model->id = makeModelCookId(sourceBytes);
     model->name = sourcePath.stem().string().empty() ? "Imported Model" : sourcePath.stem().string();
     std::vector<int> textureMap(gltf.textures.size(), -1);
     detail::GltfSidecarTextureCatalog sidecarTextures(sourcePath.parent_path(), sourcePath.stem().string());
@@ -753,7 +765,7 @@ AssetImportResult AssetManager::importModel(
     reportProgress(progress, 12, "Source file loaded");
     const auto batchComparisonMode = detail::meshPrimitiveBatchComparisonModeEnabled();
     if (!batchComparisonMode) {
-        if (auto cached = tryImportFfultModelCache(sourcePath, makeId(bytes, AssetType::Model), progress); cached.has_value()) {
+        if (auto cached = tryImportFfultModelCache(sourcePath, makeModelCookId(bytes), progress); cached.has_value()) {
             return *cached;
         }
     }

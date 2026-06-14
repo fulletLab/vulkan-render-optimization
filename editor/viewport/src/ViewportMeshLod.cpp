@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace projectunity::editor {
 namespace {
@@ -29,17 +30,59 @@ constexpr float kMaximumLodErrorPixels = 1.25F;
 
 float viewportLodDistanceToBounds(
     math::Vec3 eye,
-    math::Vec3 boundsCenter,
-    float boundsRadius,
+    math::Vec3 forward,
+    const std::array<math::Vec3, 8>& boundsCorners,
     float nearPlane) noexcept
 {
     const auto minimumDistance = std::max(nearPlane, 0.001F);
-    const auto centerDistance = (boundsCenter - eye).length();
-    if (!std::isfinite(centerDistance)) {
+    const auto viewDirection = forward.normalized();
+    if (!std::isfinite(viewDirection.x)
+        || !std::isfinite(viewDirection.y)
+        || !std::isfinite(viewDirection.z)
+        || viewDirection.lengthSquared() <= 0.0F) {
         return minimumDistance;
     }
-    const auto radius = std::isfinite(boundsRadius) ? std::max(boundsRadius, 0.0F) : 0.0F;
-    return std::max(centerDistance - radius, minimumDistance);
+    auto minimum = boundsCorners.front();
+    auto maximum = boundsCorners.front();
+    auto nearestForwardDepth = std::numeric_limits<float>::max();
+    for (const auto corner : boundsCorners) {
+        if (!std::isfinite(corner.x) || !std::isfinite(corner.y) || !std::isfinite(corner.z)) {
+            return minimumDistance;
+        }
+        const auto depth = math::dot(corner - eye, viewDirection);
+        if (depth > minimumDistance) {
+            nearestForwardDepth = std::min(nearestForwardDepth, depth);
+        }
+        minimum.x = std::min(minimum.x, corner.x);
+        minimum.y = std::min(minimum.y, corner.y);
+        minimum.z = std::min(minimum.z, corner.z);
+        maximum.x = std::max(maximum.x, corner.x);
+        maximum.y = std::max(maximum.y, corner.y);
+        maximum.z = std::max(maximum.z, corner.z);
+    }
+    const auto axisDistance = [](float value, float axisMinimum, float axisMaximum) noexcept {
+        if (value < axisMinimum) {
+            return axisMinimum - value;
+        }
+        return value > axisMaximum ? value - axisMaximum : 0.0F;
+    };
+    const math::Vec3 distance {
+        axisDistance(eye.x, minimum.x, maximum.x),
+        axisDistance(eye.y, minimum.y, maximum.y),
+        axisDistance(eye.z, minimum.z, maximum.z),
+    };
+    const auto closestDistance = distance.length();
+    if (!std::isfinite(closestDistance)) {
+        return minimumDistance;
+    }
+    if (closestDistance > minimumDistance) {
+        return closestDistance;
+    }
+    if (nearestForwardDepth != std::numeric_limits<float>::max()
+        && std::isfinite(nearestForwardDepth)) {
+        return std::max(nearestForwardDepth, minimumDistance);
+    }
+    return minimumDistance;
 }
 
 std::size_t indexCountForViewportLod(const assets::MeshPrimitive& primitive, std::uint32_t lodIndex)

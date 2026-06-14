@@ -233,21 +233,44 @@ int main()
     constexpr auto fov = 1.04719755F;
     constexpr auto viewportHeight = 1080.0F;
 
-    const auto nearBoundsDistance = viewportLodDistanceToBounds(
+    const std::array<projectunity::math::Vec3, 8> flatTerrainCorners {{
+        {-100.0F, -1.0F, 100.0F},
+        {100.0F, -1.0F, 100.0F},
+        {-100.0F, 1.0F, 100.0F},
+        {100.0F, 1.0F, 100.0F},
+        {-100.0F, -1.0F, 200.0F},
+        {100.0F, -1.0F, 200.0F},
+        {-100.0F, 1.0F, 200.0F},
+        {100.0F, 1.0F, 200.0F},
+    }};
+    const auto flatTerrainDistance = viewportLodDistanceToBounds(
         {0.0F, 0.0F, 0.0F},
-        {0.0F, 0.0F, 100.0F},
-        90.0F,
+        {0.0F, 0.0F, 1.0F},
+        flatTerrainCorners,
         0.05F);
-    if (std::abs(nearBoundsDistance - 10.0F) > 0.001F) {
-        return fail("Viewport LOD distance did not use the closest point of a large bound");
+    if (std::abs(flatTerrainDistance - 100.0F) > 0.001F) {
+        return fail("Viewport LOD distance treated a distant flat terrain bound as nearby");
     }
+    const std::array<projectunity::math::Vec3, 8> surroundingCorners {{
+        {-10.0F, -10.0F, -10.0F},
+        {10.0F, -10.0F, -10.0F},
+        {-10.0F, 10.0F, -10.0F},
+        {10.0F, 10.0F, -10.0F},
+        {-10.0F, -10.0F, 10.0F},
+        {10.0F, -10.0F, 10.0F},
+        {-10.0F, 10.0F, 10.0F},
+        {10.0F, 10.0F, 10.0F},
+    }};
     const auto insideBoundsDistance = viewportLodDistanceToBounds(
         {0.0F, 0.0F, 0.0F},
-        {0.0F, 0.0F, 5.0F},
-        10.0F,
+        {0.0F, 0.0F, 1.0F},
+        surroundingCorners,
         0.05F);
-    if (std::abs(insideBoundsDistance - 0.05F) > 0.001F) {
-        return fail("Viewport LOD distance did not preserve full detail inside a bound");
+    if (std::abs(insideBoundsDistance - 10.0F) > 0.001F) {
+        return fail("Viewport LOD distance forced an enclosing bound to near-plane distance");
+    }
+    if (selectViewportMeshLod(primitive, 20.0F, insideBoundsDistance, fov, viewportHeight, false) != 0U) {
+        return fail("Viewport LOD did not preserve full detail inside a close bound");
     }
 
     if (selectViewportMeshLod(primitive, 20.0F, 100.0F, fov, viewportHeight, false) != 2U) {

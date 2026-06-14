@@ -730,8 +730,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 const auto sortDepth = math::dot(instance.worldBounds.center - camera.eye, camera.forward);
                 const auto lodDistance = viewportLodDistanceToBounds(
                     camera.eye,
-                    instance.worldBounds.center,
-                    instance.worldBounds.radius,
+                    camera.forward,
+                    instance.worldBounds.corners,
                     camera.nearPlane);
                 const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 visibleSourceTriangleCount += sourceTriangleCount;

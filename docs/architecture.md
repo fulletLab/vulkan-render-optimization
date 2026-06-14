@@ -41,6 +41,13 @@
 ## Phase 6 Asset Pipeline
 
 - `engine/assets` owns asset import records, CPU-side texture/model data, cache metadata, `IAssetManager`, and the concrete `AssetManager`.
+- The multi-format import direction, parser evaluation gates, material/provenance contract,
+  and offline conversion phases are defined in
+  `docs/asset_import_pipeline_roadmap.md`.
+- The future material graph uses an engine-owned, Qt-free `MaterialGraphAsset`; QtNodes or
+  a native Qt Graphics View implementation is editor presentation only. The serialization,
+  preview, compilation, and optional MaterialX boundaries are defined in
+  `docs/material_graph_architecture.md`.
 - Scene entities store a `MeshRendererComponent` with only a stable model asset ID; `engine/scene` does not import files or know TinyGLTF internals.
 - TinyGLTF and its single compiled stb image implementation load glTF/GLB scenes, nodes, meshes, images, punctual lights, and cameras. glTF node transforms are applied before MikkTSpace generates imported tangent bases, and meshoptimizer reorders indices/vertices and emits simplification LOD data when a primitive has enough indices.
 - The Qt editor imports assets asynchronously from Project Browser. Imported model records create mesh-renderer entities and the viewport resolves model/material data through `IAssetManager`.

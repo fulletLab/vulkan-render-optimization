@@ -103,6 +103,8 @@ struct RendererStats {
     std::uint64_t lastHitchCommandRecordCpuTimeUs {0};
     std::uint64_t lastHitchMeshDrawCount {0};
     std::uint64_t lastHitchVkDrawIndexed {0};
+    std::uint64_t lastHitchMeshUploadBytes {0};
+    std::uint64_t lastHitchTextureUploadBytes {0};
     std::uint64_t lastHitchStaticUploadBytes {0};
     std::uint64_t lastFrameLargeRenderChunkCount {0};
     std::uint64_t lastFrameLargestRenderChunkTriangleCount {0};
@@ -134,6 +136,8 @@ struct RendererStats {
     std::uint64_t lastFrameColorGpuTimeUs {0};
     std::uint64_t lastFrameMeshUploadCount {0};
     std::uint64_t lastFrameTextureUploadCount {0};
+    std::uint64_t lastFrameMeshUploadBytes {0};
+    std::uint64_t lastFrameTextureUploadBytes {0};
     std::uint64_t lastFrameStaticUploadBytes {0};
     std::uint64_t lastFrameColorUploadBytes {0};
     std::uint64_t residentMeshCount {0};

@@ -7,6 +7,9 @@ add_executable(projectunity_sidecar_texture_tests
 add_executable(projectunity_spatial_batch_tests
     spatial_batch_tests.cpp
 )
+add_executable(projectunity_material_graph_tests
+    material_graph_tests.cpp
+)
 
 target_link_libraries(projectunity_asset_tests
     PRIVATE
@@ -20,6 +23,10 @@ target_link_libraries(projectunity_spatial_batch_tests
     PRIVATE
         ProjectUnity::Assets
 )
+target_link_libraries(projectunity_material_graph_tests
+    PRIVATE
+        ProjectUnity::Assets
+)
 
 target_compile_definitions(projectunity_asset_tests
     PRIVATE
@@ -29,7 +36,9 @@ target_compile_definitions(projectunity_asset_tests
 projectunity_configure_target(projectunity_asset_tests)
 projectunity_configure_target(projectunity_sidecar_texture_tests)
 projectunity_configure_target(projectunity_spatial_batch_tests)
+projectunity_configure_target(projectunity_material_graph_tests)
 
 add_test(NAME projectunity_asset_tests COMMAND projectunity_asset_tests)
 add_test(NAME projectunity_sidecar_texture_tests COMMAND projectunity_sidecar_texture_tests)
 add_test(NAME projectunity_spatial_batch_tests COMMAND projectunity_spatial_batch_tests)
+add_test(NAME projectunity_material_graph_tests COMMAND projectunity_material_graph_tests)

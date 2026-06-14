@@ -227,7 +227,7 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
     char* rawValue = nullptr;
     std::size_t valueLength = 0;
     if (_dupenv_s(&rawValue, &valueLength, "PROJECTUNITY_BATCH_GRID_MODE") != 0 || rawValue == nullptr) {
-        return BatchGridMode::Adaptive;
+        return BatchGridMode::Legacy;
     }
     const std::string modeValue(rawValue);
     std::free(rawValue);
@@ -235,7 +235,7 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
 #else
     const auto* value = std::getenv("PROJECTUNITY_BATCH_GRID_MODE");
     if (value == nullptr) {
-        return BatchGridMode::Adaptive;
+        return BatchGridMode::Legacy;
     }
     const std::string_view mode(value);
 #endif
@@ -246,6 +246,21 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
         return BatchGridMode::Physical;
     }
     return BatchGridMode::Adaptive;
+}
+
+[[nodiscard]] bool batchGridModeOverrideEnabled() noexcept
+{
+#if defined(_MSC_VER)
+    char* rawValue = nullptr;
+    std::size_t valueLength = 0;
+    if (_dupenv_s(&rawValue, &valueLength, "PROJECTUNITY_BATCH_GRID_MODE") != 0 || rawValue == nullptr) {
+        return false;
+    }
+    std::free(rawValue);
+    return valueLength > 0U;
+#else
+    return std::getenv("PROJECTUNITY_BATCH_GRID_MODE") != nullptr;
+#endif
 }
 
 [[nodiscard]] const char* batchGridModeName(BatchGridMode mode) noexcept
@@ -268,7 +283,7 @@ struct SpatialBatchSelection {
     std::size_t candidateBatchCount {0};
     std::size_t legacyBatchCount {0};
     std::size_t finalBatchCount {0};
-    BatchGridMode mode {BatchGridMode::Adaptive};
+    BatchGridMode mode {BatchGridMode::Legacy};
 };
 
 [[nodiscard]] SpatialBatchSelection selectSpatialBatchGrid(const ModelAsset& model)
@@ -435,7 +450,7 @@ void deduplicateMaterials(ModelAsset& model)
 
 bool meshPrimitiveBatchComparisonModeEnabled() noexcept
 {
-    return requestedBatchGridMode() != BatchGridMode::Adaptive;
+    return batchGridModeOverrideEnabled();
 }
 
 MeshPrimitiveBatchStats batchModelPrimitives(ModelAsset& model)
