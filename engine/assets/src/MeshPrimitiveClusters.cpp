@@ -12,8 +12,7 @@ namespace {
 
 constexpr std::size_t kClusterMinInstances = 128;
 constexpr std::size_t kClusterTargetInstances = 8;
-constexpr std::size_t kClusterMaxGridSide = 96;
-constexpr float kClusterTargetPhysicalExtent = 10.0F;
+constexpr std::size_t kClusterMaxGridSide = 64;
 
 [[nodiscard]] float component(math::Vec3 value, int axis) noexcept
 {
@@ -67,20 +66,6 @@ void includeBounds(MeshBounds& bounds, const MeshBounds& next, bool& initialized
         kClusterMaxGridSide);
 }
 
-[[nodiscard]] std::size_t gridSideForPhysicalExtent(const MeshBounds& bounds, int axisA, int axisB) noexcept
-{
-    const auto extentA = std::fabs(component(bounds.maximum, axisA) - component(bounds.minimum, axisA));
-    const auto extentB = std::fabs(component(bounds.maximum, axisB) - component(bounds.minimum, axisB));
-    const auto largestExtent = std::max(extentA, extentB);
-    if (!std::isfinite(largestExtent) || largestExtent <= kClusterTargetPhysicalExtent) {
-        return 1U;
-    }
-    return std::clamp(
-        static_cast<std::size_t>(std::ceil(largestExtent / kClusterTargetPhysicalExtent)),
-        std::size_t {1U},
-        kClusterMaxGridSide);
-}
-
 [[nodiscard]] std::size_t gridCoordinate(float value, float minimum, float extent, std::size_t side) noexcept
 {
     if (side <= 1U || extent <= 0.0001F || !std::isfinite(value)) {
@@ -109,12 +94,7 @@ void buildPrimitiveClusters(ModelAsset& model)
     }
 
     const auto axes = clusterAxes(sceneBounds);
-    const auto side = std::clamp(
-        std::max(
-            gridSideForInstanceCount(model.primitiveInstances.size()),
-            gridSideForPhysicalExtent(sceneBounds, axes[0], axes[1])),
-        std::size_t {1U},
-        kClusterMaxGridSide);
+    const auto side = gridSideForInstanceCount(model.primitiveInstances.size());
     const auto minA = component(sceneBounds.minimum, axes[0]);
     const auto minB = component(sceneBounds.minimum, axes[1]);
     const auto extentA = component(sceneBounds.maximum, axes[0]) - minA;

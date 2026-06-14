@@ -41,7 +41,7 @@ using detail::gltfNodeMatrix;
 using detail::identityGltfMatrix;
 using detail::multiplyGltfMatrices;
 
-constexpr std::string_view kModelCookCacheSalt = "projectunity-model-cook-legacy-2x2-v1";
+constexpr std::string_view kModelCookCacheSalt = "projectunity-model-cook-stable-batch-v2";
 
 [[nodiscard]] AssetId makeModelCookId(std::span<const std::uint8_t> sourceBytes)
 {

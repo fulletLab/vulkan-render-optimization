@@ -33,6 +33,7 @@ struct PlayRuntimeSnapshotStats {
     std::uint64_t runtimeCameras {0};
     std::uint64_t runtimeLights {0};
     std::uint64_t runtimeScripts {0};
+    bool injectedRuntimeFlyPlayer {false};
 };
 
 [[nodiscard]] bool isEditablePrimitiveProxy(const scene::Entity& entity) noexcept
@@ -109,7 +110,9 @@ struct PlayRuntimeSnapshotStats {
     return
         "// ProjectUnity gameplay script asset.\n"
         "// This script is bound by name through Script: FlyPlayerController.\n"
-        "// Play mode runs it on a runtime scene snapshot, not on editor proxy entities.\n\n"
+        "// Play mode runs it on a runtime scene snapshot, not on editor proxy entities.\n"
+        "// Current runtime: the engine executes the Script component values natively.\n"
+        "// This C++ file is the project asset placeholder until native script hot-reload lands.\n\n"
         "struct FlyPlayerController {\n"
         "    float moveSpeed = 7.5f;\n"
         "    float fastMultiplier = 3.0f;\n"
@@ -248,6 +251,16 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
             }
         }
     }
+    if (playRuntimeCameraEntityId_.isValid()) {
+        auto* runtimeCamera = playRuntimeScene_.findEntity(playRuntimeCameraEntityId_);
+        if (runtimeCamera != nullptr && !runtimeCamera->script.has_value()) {
+            scene::ScriptComponent script;
+            script.scriptName = "FlyPlayerController";
+            (void)playRuntimeScene_.setScript(playRuntimeCameraEntityId_, script);
+            ++stats.runtimeScripts;
+            stats.injectedRuntimeFlyPlayer = true;
+        }
+    }
 
     std::ostringstream message;
     message << "Play runtime snapshot cooked"
@@ -261,6 +274,7 @@ bool MainWindow::buildPlayRuntimeSnapshot(scene::EntityId sourceCameraEntityId)
             << " runtimeCameras=" << stats.runtimeCameras
             << " runtimeLights=" << stats.runtimeLights
             << " runtimeScripts=" << stats.runtimeScripts
+            << " injectedRuntimeFlyPlayer=" << (stats.injectedRuntimeFlyPlayer ? 1 : 0)
             << " runtimeCameraId=" << playRuntimeCameraEntityId_.value();
     core::logInfo(core::LogCategory::Editor, message.str());
 
@@ -328,11 +342,13 @@ void MainWindow::startPlayMode()
         gameViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
         gameViewport_->setGameInputEnabled(true);
         gameViewport_->setGameRuntimeSnapshotEnabled(true);
+        gameViewport_->update();
     }
     activateGameViewDock();
     progress.setValue(100);
     statusBar()->showMessage(QStringLiteral("Play runtime active"));
     core::logInfo(core::LogCategory::Editor, "Play mode started with runtime scene snapshot");
+    appendPendingLogs();
 }
 
 void MainWindow::stopPlayMode()
@@ -348,6 +364,7 @@ void MainWindow::stopPlayMode()
     playRuntimeScene_.clear();
     playRuntimeCameraEntityId_ = {};
     statusBar()->showMessage(QStringLiteral("Play stopped"));
+    appendPendingLogs();
 }
 
 scene::EntityId MainWindow::findPlayableCameraEntity() const

@@ -15,10 +15,8 @@ namespace projectunity::assets::detail {
 namespace {
 
 constexpr std::size_t kLargePrimitiveTriangleThreshold = 32'768;
-constexpr std::size_t kSpatialPrimitiveTriangleThreshold = 512;
 constexpr std::size_t kTargetTrianglesPerChunk = 16'384;
-constexpr std::size_t kMaxChunkGridSide = 32;
-constexpr float kTargetPhysicalChunkExtent = 12.0F;
+constexpr std::size_t kMaxChunksPerPrimitive = 128;
 constexpr std::uint32_t kInvalidVertex = std::numeric_limits<std::uint32_t>::max();
 
 [[nodiscard]] float component(math::Vec3 value, int axis) noexcept
@@ -103,41 +101,18 @@ void includePoint(MeshBounds& bounds, math::Vec3 point) noexcept
     return std::min(static_cast<std::size_t>(normalized * static_cast<float>(gridSide)), gridSide - 1U);
 }
 
-[[nodiscard]] std::size_t gridSideForPrimitive(
-    const MeshPrimitive& primitive,
-    std::size_t triangleCount,
-    int axisA,
-    int axisB) noexcept
+[[nodiscard]] std::size_t gridSideForTriangleCount(std::size_t triangleCount) noexcept
 {
-    const auto wantedTriangleChunks = std::max<std::size_t>(
-        1U,
-        (triangleCount + kTargetTrianglesPerChunk - 1U) / kTargetTrianglesPerChunk);
-    const auto triangleSide = static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedTriangleChunks))));
-    const auto extentA = std::fabs(component(primitive.bounds.maximum, axisA) - component(primitive.bounds.minimum, axisA));
-    const auto extentB = std::fabs(component(primitive.bounds.maximum, axisB) - component(primitive.bounds.minimum, axisB));
-    const auto physicalSide = static_cast<std::size_t>(std::ceil(std::max(extentA, extentB) / kTargetPhysicalChunkExtent));
-    return std::clamp(
-        std::max({std::size_t {2U}, triangleSide, physicalSide}),
+    const auto wantedChunks = std::clamp(
+        (triangleCount + kTargetTrianglesPerChunk - 1U) / kTargetTrianglesPerChunk,
         std::size_t {2U},
-        kMaxChunkGridSide);
+        kMaxChunksPerPrimitive);
+    return static_cast<std::size_t>(std::ceil(std::sqrt(static_cast<float>(wantedChunks))));
 }
 
 [[nodiscard]] bool primitiveMayNeedSplitting(const MeshPrimitive& primitive) noexcept
 {
-    if (primitive.vertices.empty()) {
-        return false;
-    }
-    const auto triangleCount = primitive.indices.size() / 3U;
-    if (triangleCount > kLargePrimitiveTriangleThreshold) {
-        return true;
-    }
-    if (triangleCount < kSpatialPrimitiveTriangleThreshold) {
-        return false;
-    }
-    const auto axes = chunkAxes(primitive.bounds);
-    const auto extentA = std::fabs(component(primitive.bounds.maximum, axes[0]) - component(primitive.bounds.minimum, axes[0]));
-    const auto extentB = std::fabs(component(primitive.bounds.maximum, axes[1]) - component(primitive.bounds.minimum, axes[1]));
-    return std::max(extentA, extentB) > kTargetPhysicalChunkExtent * 1.5F;
+    return primitive.indices.size() / 3U > kLargePrimitiveTriangleThreshold && !primitive.vertices.empty();
 }
 
 [[nodiscard]] std::vector<MeshPrimitive> splitPrimitive(const MeshPrimitive& source)
@@ -158,7 +133,7 @@ void includePoint(MeshBounds& bounds, math::Vec3 point) noexcept
         return {};
     }
 
-    const auto gridSide = gridSideForPrimitive(source, triangleCount, axisA, axisB);
+    const auto gridSide = gridSideForTriangleCount(triangleCount);
     const auto bucketCount = gridSide * gridSide;
     std::vector<std::vector<std::uint32_t>> buckets(bucketCount);
     for (std::uint32_t index = 2; index < source.indices.size(); index += 3U) {

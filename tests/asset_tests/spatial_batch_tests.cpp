@@ -130,6 +130,68 @@ bool writeDenseSpatialGlb(const std::filesystem::path& path)
     return writeBinary(path, glb);
 }
 
+bool writeRepeatedPrimitiveGlb(const std::filesystem::path& path)
+{
+    std::vector<std::uint8_t> binary;
+
+    const auto posOffset = align4(binary);
+    const std::array<float, 9> positions {{0.0F, 0.0F, 0.0F, 0.8F, 0.0F, 0.0F, 0.0F, 0.6F, 0.8F}};
+    for (const auto value : positions) {
+        appendFloat(binary, value);
+    }
+    const auto normalOffset = align4(binary);
+    for (std::uint32_t vertex = 0; vertex < 3U; ++vertex) {
+        appendFloat(binary, 0.0F); appendFloat(binary, 1.0F); appendFloat(binary, 0.0F);
+    }
+    const auto uvOffset = align4(binary);
+    for (const auto value : std::array<float, 6> {{0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F}}) {
+        appendFloat(binary, value);
+    }
+    const auto indexOffset = align4(binary);
+    appendU16(binary, 0); appendU16(binary, 1); appendU16(binary, 2);
+
+    std::ostringstream nodes;
+    std::ostringstream sceneNodes;
+    const auto comma = [](std::uint32_t index) { return index == 0U ? "" : ","; };
+    for (std::uint32_t index = 0; index < kPrimitiveCount; ++index) {
+        const auto column = index % 40U;
+        const auto row = index / 40U;
+        const auto x = static_cast<float>(column) * 2.0F;
+        const auto z = static_cast<float>(row) * 2.0F;
+        nodes << comma(index) << "{\"mesh\":0,\"translation\":[" << x << ",0," << z << "]}";
+        sceneNodes << comma(index) << index;
+    }
+
+    const auto json = std::string("{\"asset\":{\"version\":\"2.0\"},\"buffers\":[{\"byteLength\":")
+        + std::to_string(binary.size()) + "}],\"bufferViews\":["
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(posOffset) + ",\"byteLength\":36},"
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(normalOffset) + ",\"byteLength\":36},"
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(uvOffset) + ",\"byteLength\":24},"
+        + "{\"buffer\":0,\"byteOffset\":" + std::to_string(indexOffset) + ",\"byteLength\":6}],"
+        + "\"accessors\":["
+        + "{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[0.8,0.6,0.8]},"
+        + "{\"bufferView\":1,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\"},"
+        + "{\"bufferView\":2,\"componentType\":5126,\"count\":3,\"type\":\"VEC2\"},"
+        + "{\"bufferView\":3,\"componentType\":5123,\"count\":3,\"type\":\"SCALAR\"}],"
+        + "\"materials\":[{\"pbrMetallicRoughness\":{\"baseColorFactor\":[0.4,0.4,0.4,1]}}],"
+        + "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"TEXCOORD_0\":2},\"indices\":3,\"material\":0}]}],"
+        + "\"nodes\":[" + nodes.str() + "],\"scenes\":[{\"nodes\":[" + sceneNodes.str() + "]}],\"scene\":0}";
+
+    std::vector<std::uint8_t> jsonBytes(json.begin(), json.end());
+    while (jsonBytes.size() % 4U != 0U) {
+        jsonBytes.push_back(static_cast<std::uint8_t>(' '));
+    }
+    align4(binary);
+    std::vector<std::uint8_t> glb;
+    appendU32(glb, 0x46546c67U); appendU32(glb, 2U);
+    appendU32(glb, static_cast<std::uint32_t>(12U + 8U + jsonBytes.size() + 8U + binary.size()));
+    appendU32(glb, static_cast<std::uint32_t>(jsonBytes.size())); appendU32(glb, 0x4e4f534aU);
+    glb.insert(glb.end(), jsonBytes.begin(), jsonBytes.end());
+    appendU32(glb, static_cast<std::uint32_t>(binary.size())); appendU32(glb, 0x004e4942U);
+    glb.insert(glb.end(), binary.begin(), binary.end());
+    return writeBinary(path, glb);
+}
+
 bool writeWideSinglePrimitiveGlb(const std::filesystem::path& path)
 {
     constexpr std::uint32_t columns = 40U;
@@ -225,13 +287,32 @@ int main()
     if (model->editorInstances.size() != kPrimitiveCount) {
         return fail("dense spatial GLB lost editable source instances");
     }
-    if (model->primitiveInstances.size() < 48U || model->primitiveInstances.size() > 160U) {
+    if (model->primitiveInstances.size() != 16U) {
         std::cerr << "primitiveInstances=" << model->primitiveInstances.size() << '\n';
-        return fail("dense spatial batching is too coarse or too fragmented for runtime LOD");
+        return fail("dense spatial batching did not preserve the stable 2x2-era runtime batch count");
     }
     if (model->primitiveInstances.size() >= 128U
         && (model->primitiveClusters.empty() || model->primitiveClusters.size() >= model->primitiveInstances.size())) {
         return fail("dense spatial batching did not build a useful cluster hierarchy");
+    }
+
+    const auto repeatedPath = root / "repeated_primitive.glb";
+    if (!writeRepeatedPrimitiveGlb(repeatedPath)) {
+        return fail("unable to write repeated primitive GLB fixture");
+    }
+    AssetManager repeatedManager(root / "RepeatedCache" / "Assets");
+    const auto repeatedResult = repeatedManager.importModel(repeatedPath);
+    const auto repeatedModel = repeatedManager.model(repeatedResult.record.id);
+    if (!repeatedResult.success || repeatedModel == nullptr) {
+        std::cerr << repeatedResult.error << '\n';
+        return fail("repeated primitive GLB import failed");
+    }
+    if (repeatedModel->editorInstances.size() != kPrimitiveCount) {
+        return fail("repeated primitive GLB lost editable source instances");
+    }
+    if (repeatedModel->primitiveInstances.size() != kPrimitiveCount) {
+        std::cerr << "repeatedPrimitiveInstances=" << repeatedModel->primitiveInstances.size() << '\n';
+        return fail("repeated primitive GLB should keep the stable import-safe path instead of geometry-fusing source instances");
     }
 
     const auto widePath = root / "wide_single_primitive.glb";
@@ -248,9 +329,9 @@ int main()
     if (wideModel->editorInstances.size() != 1U) {
         return fail("wide single primitive GLB lost its editable source instance");
     }
-    if (wideModel->primitiveInstances.size() < 24U || wideModel->primitiveInstances.size() > 128U) {
+    if (wideModel->primitiveInstances.size() != 1U) {
         std::cerr << "widePrimitiveInstances=" << wideModel->primitiveInstances.size() << '\n';
-        return fail("wide single primitive was not split into local physical chunks");
+        return fail("wide medium primitive should not be split by physical extent in the stable cooker path");
     }
     std::filesystem::remove_all(root, errorCode);
     return EXIT_SUCCESS;

@@ -1,6 +1,8 @@
 // ProjectUnity gameplay script asset.
 // This script is bound by name through Script: FlyPlayerController.
 // Play mode runs it on a runtime scene snapshot, not on editor proxy entities.
+// Current runtime: the engine executes the Script component values natively.
+// This C++ file is the project asset placeholder until native script hot-reload lands.
 
 struct FlyPlayerController {
     float moveSpeed = 7.5f;
