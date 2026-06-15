@@ -39,6 +39,7 @@ add_library(projectunity_assets STATIC
     src/GltfSidecarTextureImport.hpp
     src/GltfTextureImport.cpp
     src/GltfTextureImport.hpp
+    src/GeneratedModelBuilder.cpp
     src/KtxTextureImport.cpp
     src/KtxTextureImport.hpp
     src/KtxTextureImportLibktx.cpp
@@ -59,8 +60,11 @@ add_library(projectunity_assets STATIC
     src/StbTextureImport.cpp
     src/StbTextureImport.hpp
     src/TinyGltfImplementation.cpp
+    src/TerrainAsset.cpp
     include/projectunity/assets/AssetManager.hpp
+    include/projectunity/assets/GeneratedModelBuilder.hpp
     include/projectunity/assets/MaterialGraphAsset.hpp
+    include/projectunity/assets/TerrainAsset.hpp
 )
 
 add_library(ProjectUnity::Assets ALIAS projectunity_assets)
@@ -74,6 +78,7 @@ target_link_libraries(projectunity_assets
     PUBLIC
         ProjectUnity::Core
         ProjectUnity::Math
+        ProjectUnity::Terrain
     PRIVATE
         ${PROJECTUNITY_TINYGLTF_TARGET}
         ${PROJECTUNITY_MIKKTSPACE_TARGET}

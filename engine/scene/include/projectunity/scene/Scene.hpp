@@ -2,6 +2,7 @@
 
 #include <projectunity/core/StableId.hpp>
 #include <projectunity/math/Vec3.hpp>
+#include <projectunity/terrain/TerrainTypes.hpp>
 
 #include <array>
 #include <cstdint>
@@ -14,6 +15,7 @@
 namespace projectunity::scene {
 
 using EntityId = core::StableId;
+using ScriptInstanceId = core::StableId;
 
 struct TransformComponent {
     math::Vec3 position {0.0F, 0.0F, 0.0F};
@@ -76,12 +78,67 @@ struct CameraComponent {
     float farPlane {4000.0F};
 };
 
+struct ScriptField {
+    std::string name;
+    float value {0.0F};
+};
+
 struct ScriptComponent {
+    ScriptInstanceId instanceId;
     std::string scriptName {"FlyPlayerController"};
+    std::string scriptAsset {"Assets/Scripts/FlyPlayerController.cpp"};
     bool enabled {true};
-    float moveSpeed {7.5F};
-    float fastMultiplier {3.0F};
-    float lookSensitivity {0.0035F};
+    std::vector<ScriptField> fields;
+};
+
+[[nodiscard]] ScriptField* findScriptField(ScriptComponent& component, std::string_view name) noexcept;
+[[nodiscard]] const ScriptField* findScriptField(const ScriptComponent& component, std::string_view name) noexcept;
+[[nodiscard]] float scriptFieldValue(const ScriptComponent& component, std::string_view name, float fallback) noexcept;
+void setScriptFieldValue(ScriptComponent& component, std::string name, float value);
+
+enum class ComponentType : std::uint8_t {
+    Transform,
+    MeshRenderer,
+    Light,
+    Camera,
+    Script,
+    Terrain,
+    Rigidbody,
+    Collider,
+};
+
+struct ComponentOrderEntry {
+    ComponentType type {ComponentType::Transform};
+    ScriptInstanceId scriptInstanceId;
+};
+
+struct TerrainComponent {
+    terrain::TerrainSettings settings;
+    std::vector<terrain::TerrainMaterialLayer> materialLayers {{}};
+    std::vector<float> heightmap;
+    core::StableId generatedModelAssetId;
+};
+
+struct RigidbodyComponent {
+    float mass {1.0F};
+    float linearDrag {0.0F};
+    float angularDrag {0.05F};
+    bool useGravity {true};
+    bool kinematic {false};
+};
+
+enum class ColliderShape : std::uint8_t {
+    Box,
+    Sphere,
+    Mesh,
+    Terrain,
+};
+
+struct ColliderComponent {
+    ColliderShape shape {ColliderShape::Box};
+    math::Vec3 size {1.0F, 1.0F, 1.0F};
+    float radius {0.5F};
+    bool trigger {false};
 };
 
 struct Entity {
@@ -93,8 +150,15 @@ struct Entity {
     std::optional<MeshRendererComponent> meshRenderer;
     std::optional<LightComponent> light;
     std::optional<CameraComponent> camera;
-    std::optional<ScriptComponent> script;
+    std::vector<ScriptComponent> scripts;
+    std::optional<TerrainComponent> terrain;
+    std::optional<RigidbodyComponent> rigidbody;
+    std::optional<ColliderComponent> collider;
+    std::vector<ComponentOrderEntry> componentOrder {{ComponentType::Transform, {}}};
 };
+
+[[nodiscard]] ScriptComponent* findScript(Entity& entity, ScriptInstanceId instanceId) noexcept;
+[[nodiscard]] const ScriptComponent* findScript(const Entity& entity, ScriptInstanceId instanceId) noexcept;
 
 class Scene final {
 public:
@@ -117,7 +181,13 @@ public:
     [[nodiscard]] bool setMeshRenderer(EntityId id, std::optional<MeshRendererComponent> component);
     [[nodiscard]] bool setLight(EntityId id, std::optional<LightComponent> component);
     [[nodiscard]] bool setCamera(EntityId id, std::optional<CameraComponent> component);
+    [[nodiscard]] std::optional<ScriptInstanceId> addScript(EntityId id, ScriptComponent component);
+    [[nodiscard]] bool updateScript(EntityId id, ScriptComponent component);
+    [[nodiscard]] bool removeScript(EntityId id, ScriptInstanceId instanceId);
     [[nodiscard]] bool setScript(EntityId id, std::optional<ScriptComponent> component);
+    [[nodiscard]] bool setTerrain(EntityId id, std::optional<TerrainComponent> component);
+    [[nodiscard]] bool setRigidbody(EntityId id, std::optional<RigidbodyComponent> component);
+    [[nodiscard]] bool setCollider(EntityId id, std::optional<ColliderComponent> component);
 
     [[nodiscard]] std::vector<EntityId> rootEntities() const;
     [[nodiscard]] const std::vector<Entity>& entities() const noexcept;
@@ -133,17 +203,20 @@ public:
 
 private:
     [[nodiscard]] EntityId allocateId();
+    [[nodiscard]] ScriptInstanceId allocateScriptInstanceId();
     [[nodiscard]] Entity* findEntityMutable(EntityId id) noexcept;
     [[nodiscard]] const Entity* findEntityInternal(EntityId id) const noexcept;
     [[nodiscard]] bool wouldCreateCycle(EntityId childId, EntityId candidateParentId) const noexcept;
     [[nodiscard]] bool removeChildReference(EntityId parentId, EntityId childId);
     [[nodiscard]] Entity* duplicateEntityRecursive(EntityId sourceId, std::optional<EntityId> parentOverride);
     void collectDescendants(EntityId id, std::vector<EntityId>& output) const;
+    void rebuildComponentOrder(Entity& entity);
     void rebuildNextId();
 
     std::string name_ {"Untitled Scene"};
     std::vector<Entity> entities_;
     core::StableIdGenerator idGenerator_;
+    core::StableIdGenerator scriptIdGenerator_;
 };
 
 } // namespace projectunity::scene

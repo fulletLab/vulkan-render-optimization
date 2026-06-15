@@ -1,5 +1,6 @@
 #include <projectunity/editor/MainWindow.hpp>
 
+#include <projectunity/editor/ProjectBrowserWidget.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 
@@ -16,7 +17,6 @@
 #include <QPlainTextEdit>
 #include <QPointF>
 #include <QScreen>
-#include <QTableWidget>
 #include <QTemporaryDir>
 
 #include <algorithm>
@@ -266,10 +266,10 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     const auto assetExamplePath = pathToQString(
         std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "examples" / "basic_assets" / "TexturedTriangle.gltf");
     const auto imported = importAssetFromPath(assetExamplePath, true);
-    if (!imported.success || assetTable_ == nullptr || assetTable_->rowCount() == 0) {
-        return fail(QStringLiteral("Project Browser model import smoke failed: success=%1 rows=%2 error=%3")
+    if (!imported.success || projectBrowser_ == nullptr || projectBrowser_->rootAssetCount() == 0U) {
+        return fail(QStringLiteral("Project Browser model import smoke failed: success=%1 rootAssets=%2 error=%3")
             .arg(imported.success)
-            .arg(assetTable_ == nullptr ? -1 : assetTable_->rowCount())
+            .arg(projectBrowser_ == nullptr ? -1 : static_cast<int>(projectBrowser_->rootAssetCount()))
             .arg(QString::fromStdString(imported.error)));
     }
 
@@ -342,8 +342,8 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
             || splitRoot == nullptr
             || !splitRoot->meshRenderer.has_value()
             || !splitRoot->meshRenderer->renderable
-            || !splitHasPartChild) {
-            return fail(QStringLiteral("Imported multi-instance model did not create selectable render-instance part children"));
+            || splitHasPartChild) {
+            return fail(QStringLiteral("Imported multi-instance model polluted the main Hierarchy with internal mesh part children"));
         }
     }
     const auto cameraImportPath = std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
@@ -394,7 +394,9 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     if (!environmentImport.success || environmentImport.record.type != assets::AssetType::Texture2D) {
         return fail(QStringLiteral("Environment texture import failed: %1").arg(QString::fromStdString(environmentImport.error)));
     }
-    assetTable_->setCurrentCell(assetTable_->rowCount() - 1, 0);
+    if (projectBrowser_ == nullptr || !projectBrowser_->selectAsset(environmentImport.record.id)) {
+        return fail(QStringLiteral("Project Browser did not select the imported environment texture"));
+    }
     useSelectedTextureAsEnvironment();
     if (environmentTexture_ == nullptr || environmentTextureId_ != environmentImport.record.id) {
         return fail(QStringLiteral("Lighting panel did not assign the selected texture environment"));

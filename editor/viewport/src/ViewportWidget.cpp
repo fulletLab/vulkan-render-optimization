@@ -28,6 +28,7 @@ namespace {
 constexpr float kNearPlane = 0.05F;
 constexpr float kGridExtent = 20.0F;
 constexpr float kMaxCameraDistance = 500.0F;
+constexpr float kTwoPi = 6.28318530718F;
 
 [[nodiscard]] bool isFinite(math::Vec3 value)
 {
@@ -146,6 +147,29 @@ void ViewportWidget::setSelectionCallback(std::function<void(scene::EntityId)> c
     selectionCallback_ = std::move(callback);
 }
 
+void ViewportWidget::setPickResultCallback(std::function<void(ViewportPickResult)> callback)
+{
+    pickResultCallback_ = std::move(callback);
+}
+
+void ViewportWidget::setPickMode(ViewportPickMode mode)
+{
+    if (pickMode_ == mode) {
+        return;
+    }
+    pickMode_ = mode;
+    core::logInfo(
+        core::LogCategory::Editor,
+        pickMode_ == ViewportPickMode::AssetOwner
+            ? "Viewport picking mode: Asset Owner"
+            : "Viewport picking mode: Sub-Object");
+}
+
+ViewportPickMode ViewportWidget::pickMode() const noexcept
+{
+    return pickMode_;
+}
+
 const renderer::RendererStats* ViewportWidget::lastRendererStats() const noexcept
 {
     return lastRendererStats_.has_value() ? &*lastRendererStats_ : nullptr;
@@ -154,6 +178,33 @@ const renderer::RendererStats* ViewportWidget::lastRendererStats() const noexcep
 void ViewportWidget::setTransformEditedCallback(std::function<void(scene::EntityId)> callback)
 {
     transformEditedCallback_ = std::move(callback);
+}
+
+void ViewportWidget::setTerrainBrushCallback(
+    std::function<std::optional<math::Vec3>(const ViewportTerrainBrushEvent&)> callback)
+{
+    terrainBrushCallback_ = std::move(callback);
+}
+
+void ViewportWidget::setTerrainBrushEnabled(bool enabled)
+{
+    terrainBrushEnabled_ = enabled;
+    terrainBrushDragging_ = false;
+    if (!enabled) {
+        terrainBrushHit_.reset();
+    }
+    update();
+}
+
+bool ViewportWidget::terrainBrushEnabled() const noexcept
+{
+    return terrainBrushEnabled_;
+}
+
+void ViewportWidget::setTerrainBrushRadius(float radius)
+{
+    terrainBrushRadius_ = std::max(radius, 0.01F);
+    update();
 }
 
 void ViewportWidget::setTool(ViewportTool tool)
@@ -305,6 +356,19 @@ void ViewportWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
 
+    if (event->button() == Qt::LeftButton && terrainBrushEnabled_ && terrainBrushCallback_) {
+        terrainBrushDragging_ = true;
+        const ViewportTerrainBrushEvent brushEvent {
+            screenPointToRay(event->position()),
+            ViewportTerrainBrushPhase::Begin,
+            event->modifiers().testFlag(Qt::ShiftModifier),
+        };
+        terrainBrushHit_ = terrainBrushCallback_(brushEvent);
+        update();
+        event->accept();
+        return;
+    }
+
     if (event->button() == Qt::LeftButton) {
         gizmoMouseLeft_ = true;
         if (updateGizmoFrame()) {
@@ -315,7 +379,13 @@ void ViewportWidget::mousePressEvent(QMouseEvent* event)
             return;
         }
 
-        const auto picked = pickEntityAt(event->position());
+        const auto pickResult = pickResultAt(event->position());
+        const auto picked = pickResult.has_value()
+            ? std::optional<scene::EntityId> {pickResult->selectedEntityId}
+            : std::nullopt;
+        if (pickResult.has_value() && pickResultCallback_) {
+            pickResultCallback_(*pickResult);
+        }
         if (selectionCallback_) {
             selectionCallback_(picked.value_or(scene::EntityId {}));
         }
@@ -361,6 +431,23 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
+    if (terrainBrushEnabled_ && terrainBrushCallback_) {
+        const auto phase = terrainBrushDragging_ && event->buttons().testFlag(Qt::LeftButton)
+            ? ViewportTerrainBrushPhase::Drag
+            : ViewportTerrainBrushPhase::Hover;
+        const ViewportTerrainBrushEvent brushEvent {
+            screenPointToRay(event->position()),
+            phase,
+            event->modifiers().testFlag(Qt::ShiftModifier),
+        };
+        terrainBrushHit_ = terrainBrushCallback_(brushEvent);
+        update();
+        if (phase == ViewportTerrainBrushPhase::Drag) {
+            event->accept();
+            return;
+        }
+    }
+
     QWidget::mouseMoveEvent(event);
 }
 
@@ -385,6 +472,20 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent* event)
     }
 
     if (event->button() == Qt::LeftButton) {
+        if (terrainBrushDragging_) {
+            terrainBrushDragging_ = false;
+            if (terrainBrushCallback_) {
+                const ViewportTerrainBrushEvent brushEvent {
+                    screenPointToRay(event->position()),
+                    ViewportTerrainBrushPhase::End,
+                    event->modifiers().testFlag(Qt::ShiftModifier),
+                };
+                terrainBrushHit_ = terrainBrushCallback_(brushEvent);
+            }
+            update();
+            event->accept();
+            return;
+        }
         const bool endedGizmoInteraction = gizmoCaptured_;
         gizmoMouseLeft_ = false;
         gizmoCaptured_ = false;
@@ -629,6 +730,21 @@ debug::DebugDrawList ViewportWidget::createDebugDrawList() const
                     {1.0F, 0.84F, 0.34F, 0.76F},
                     1.6F);
             }
+        }
+    }
+
+    if (terrainBrushEnabled_ && terrainBrushHit_.has_value()) {
+        constexpr int segmentCount = 48;
+        const auto center = *terrainBrushHit_ + math::Vec3 {0.0F, 0.035F, 0.0F};
+        const debug::DebugColor color {0.22F, 0.92F, 0.42F, 0.95F};
+        for (int segment = 0; segment < segmentCount; ++segment) {
+            const auto angle0 = kTwoPi * static_cast<float>(segment) / static_cast<float>(segmentCount);
+            const auto angle1 = kTwoPi * static_cast<float>(segment + 1) / static_cast<float>(segmentCount);
+            const auto point0 = center + math::Vec3 {
+                std::cos(angle0) * terrainBrushRadius_, 0.0F, std::sin(angle0) * terrainBrushRadius_};
+            const auto point1 = center + math::Vec3 {
+                std::cos(angle1) * terrainBrushRadius_, 0.0F, std::sin(angle1) * terrainBrushRadius_};
+            (void)draw.line(point0, point1, color, 2.2F);
         }
     }
 

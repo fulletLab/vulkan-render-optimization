@@ -30,28 +30,16 @@ constexpr float kMaximumLodErrorPixels = 1.25F;
 
 float viewportLodDistanceToBounds(
     math::Vec3 eye,
-    math::Vec3 forward,
+    math::Vec3 /*forward*/,
     const std::array<math::Vec3, 8>& boundsCorners,
     float nearPlane) noexcept
 {
     const auto minimumDistance = std::max(nearPlane, 0.001F);
-    const auto viewDirection = forward.normalized();
-    if (!std::isfinite(viewDirection.x)
-        || !std::isfinite(viewDirection.y)
-        || !std::isfinite(viewDirection.z)
-        || viewDirection.lengthSquared() <= 0.0F) {
-        return minimumDistance;
-    }
     auto minimum = boundsCorners.front();
     auto maximum = boundsCorners.front();
-    auto nearestForwardDepth = std::numeric_limits<float>::max();
     for (const auto corner : boundsCorners) {
         if (!std::isfinite(corner.x) || !std::isfinite(corner.y) || !std::isfinite(corner.z)) {
             return minimumDistance;
-        }
-        const auto depth = math::dot(corner - eye, viewDirection);
-        if (depth > minimumDistance) {
-            nearestForwardDepth = std::min(nearestForwardDepth, depth);
         }
         minimum.x = std::min(minimum.x, corner.x);
         minimum.y = std::min(minimum.y, corner.y);
@@ -78,11 +66,17 @@ float viewportLodDistanceToBounds(
     if (closestDistance > minimumDistance) {
         return closestDistance;
     }
-    if (nearestForwardDepth != std::numeric_limits<float>::max()
-        && std::isfinite(nearestForwardDepth)) {
-        return std::max(nearestForwardDepth, minimumDistance);
-    }
-    return minimumDistance;
+    const auto nearestFaceDistance = std::min({
+        eye.x - minimum.x,
+        maximum.x - eye.x,
+        eye.y - minimum.y,
+        maximum.y - eye.y,
+        eye.z - minimum.z,
+        maximum.z - eye.z,
+    });
+    return std::isfinite(nearestFaceDistance)
+        ? std::max(nearestFaceDistance, minimumDistance)
+        : minimumDistance;
 }
 
 std::size_t indexCountForViewportLod(const assets::MeshPrimitive& primitive, std::uint32_t lodIndex)
@@ -94,35 +88,42 @@ std::size_t indexCountForViewportLod(const assets::MeshPrimitive& primitive, std
     return indices.empty() ? primitive.indices.size() : indices.size();
 }
 
-std::uint32_t selectViewportMeshLod(
+ViewportMeshLodSelection evaluateViewportMeshLod(
     const assets::MeshPrimitive& primitive,
     float boundsRadius,
-    float depth,
+    float distanceToCenter,
     float verticalFovRadians,
     float viewportHeight,
-    bool forceFullResolution) noexcept
+    bool forceFullResolution,
+    float lodBias,
+    std::optional<std::uint32_t> previousLodIndex,
+    float hysteresisRatio) noexcept
 {
+    ViewportMeshLodSelection result;
+    result.hadPreviousSelection = previousLodIndex.has_value();
+    result.previousLodIndex = previousLodIndex.value_or(0U);
     if (forceFullResolution
         || primitive.lods.empty()
         || primitive.indices.empty()
         || primitive.bounds.radius <= 0.0F
         || !std::isfinite(primitive.bounds.radius)
-        || !validProjectionInputs(boundsRadius, depth, verticalFovRadians, viewportHeight)) {
-        return 0U;
+        || !validProjectionInputs(boundsRadius, distanceToCenter, verticalFovRadians, viewportHeight)) {
+        return result;
     }
 
     const auto tangent = std::tan(verticalFovRadians * 0.5F);
     if (!std::isfinite(tangent) || tangent <= 0.0F) {
-        return 0U;
+        return result;
     }
 
     const auto worldScale = boundsRadius / primitive.bounds.radius;
     const auto projectionScale = (viewportHeight * 0.5F) / tangent;
     if (!std::isfinite(worldScale) || worldScale <= 0.0F
         || !std::isfinite(projectionScale) || projectionScale <= 0.0F) {
-        return 0U;
+        return result;
     }
 
+    const auto maximumErrorPixels = kMaximumLodErrorPixels * std::clamp(lodBias, 0.25F, 8.0F);
     auto selectedLod = 0U;
     auto selectedIndexCount = primitive.indices.size();
     for (std::size_t lodOffset = 0; lodOffset < primitive.lods.size(); ++lodOffset) {
@@ -134,15 +135,58 @@ std::uint32_t selectViewportMeshLod(
             continue;
         }
 
-        const auto projectedErrorPixels = lod.error * worldScale * projectionScale / depth;
-        if (!std::isfinite(projectedErrorPixels) || projectedErrorPixels > kMaximumLodErrorPixels) {
+        const auto projectedErrorPixels = lod.error * worldScale * projectionScale / distanceToCenter;
+        if (!std::isfinite(projectedErrorPixels) || projectedErrorPixels > maximumErrorPixels) {
             continue;
         }
 
         selectedLod = static_cast<std::uint32_t>(lodOffset + 1U);
         selectedIndexCount = lod.indices.size();
     }
-    return selectedLod;
+    result.lodIndex = selectedLod;
+    result.reason = selectedLod == 0U ? ViewportMeshLodReason::FullResolution : ViewportMeshLodReason::ScreenError;
+    if (selectedLod > 0U) {
+        result.projectedErrorPixels = primitive.lods[selectedLod - 1U].error * worldScale * projectionScale / distanceToCenter;
+    }
+    const auto previous = previousLodIndex.value_or(selectedLod);
+    if (!previousLodIndex.has_value() || previous > primitive.lods.size() || previous == selectedLod) {
+        return result;
+    }
+    const auto previousError = previous == 0U ? std::numeric_limits<float>::max()
+        : primitive.lods[previous - 1U].error * worldScale * projectionScale / distanceToCenter;
+    const auto hysteresis = std::clamp(hysteresisRatio, 0.0F, 0.45F);
+    const auto holdPrevious = selectedLod > previous
+        ? result.lodIndex > 0U
+            && primitive.lods[result.lodIndex - 1U].error * worldScale * projectionScale / distanceToCenter
+                > maximumErrorPixels * (1.0F - hysteresis)
+        : std::isfinite(previousError) && previousError <= maximumErrorPixels * (1.0F + hysteresis);
+    if (holdPrevious) {
+        result.lodIndex = previous;
+        result.projectedErrorPixels = std::isfinite(previousError) ? previousError : 0.0F;
+        result.hysteresisActive = true;
+        result.reason = ViewportMeshLodReason::HysteresisHold;
+        return result;
+    }
+    return result;
+}
+
+std::uint32_t selectViewportMeshLod(
+    const assets::MeshPrimitive& primitive,
+    float boundsRadius,
+    float depth,
+    float verticalFovRadians,
+    float viewportHeight,
+    bool forceFullResolution,
+    float lodBias) noexcept
+{
+    return evaluateViewportMeshLod(
+        primitive,
+        boundsRadius,
+        depth,
+        verticalFovRadians,
+        viewportHeight,
+        forceFullResolution,
+        lodBias).lodIndex;
 }
 
 } // namespace projectunity::editor

@@ -48,6 +48,48 @@ const std::filesystem::path& AssetManager::cacheRoot() const noexcept
     return cacheRoot_;
 }
 
+AssetRecord AssetManager::registerGeneratedModel(ModelAsset model)
+{
+    std::scoped_lock lock(mutex_);
+    if (!model.id.isValid()) {
+        do {
+            model.id = AssetId(nextGeneratedAssetId_++);
+        } while (std::any_of(models_.begin(), models_.end(), [&model](const auto& existing) {
+            return existing != nullptr && existing->id == model.id;
+        }));
+    }
+
+    auto stored = std::make_shared<ModelAsset>(std::move(model));
+    auto existing = std::find_if(models_.begin(), models_.end(), [&stored](const auto& candidate) {
+        return candidate != nullptr && candidate->id == stored->id;
+    });
+    if (existing == models_.end()) {
+        models_.push_back(stored);
+    } else {
+        *existing = stored;
+    }
+
+    AssetRecord record;
+    record.id = stored->id;
+    record.type = AssetType::Model;
+    record.displayName = stored->name;
+    record.sourceName = "Generated";
+    record.textureCount = stored->textures.size();
+    for (const auto& primitive : stored->primitives) {
+        record.vertexCount += primitive.vertices.size();
+        record.indexCount += primitive.indices.size();
+    }
+    auto recordIt = std::find_if(records_.begin(), records_.end(), [&record](const auto& item) {
+        return item.id == record.id && item.type == record.type;
+    });
+    if (recordIt == records_.end()) {
+        records_.push_back(record);
+    } else {
+        *recordIt = record;
+    }
+    return record;
+}
+
 bool AssetManager::writeCacheRecord(const AssetRecord& record, std::string* errorMessage) const
 {
     if (cacheRoot_.empty()) {

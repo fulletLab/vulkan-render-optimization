@@ -9,6 +9,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 add_library(projectunity_scene STATIC
     src/Scene.cpp
+    src/SceneScriptSerialization.cpp
     src/SceneSerialization.cpp
 )
 
@@ -23,6 +24,7 @@ target_link_libraries(projectunity_scene
     PUBLIC
         ProjectUnity::Core
         ProjectUnity::Math
+        ProjectUnity::Terrain
     PRIVATE
         nlohmann_json::nlohmann_json
 )

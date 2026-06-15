@@ -1,5 +1,7 @@
 #include <projectunity/editor/MainWindow.hpp>
 
+#include <projectunity/editor/ProjectBrowserWidget.hpp>
+#include <projectunity/editor/SceneHierarchyWidget.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
 
 #include <DockAreaWidget.h>
@@ -10,6 +12,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -35,26 +38,19 @@
 #include <QVBoxLayout>
 
 #include <array>
+#include <algorithm>
+#include <filesystem>
+#include <string>
 #include <utility>
 
 namespace projectunity::editor {
 namespace {
-
-constexpr int kEntityIdRole = Qt::UserRole + 1;
 
 [[nodiscard]] QPushButton* makeToolButton(const QString& text)
 {
     auto* button = new QPushButton(text);
     button->setMinimumHeight(28);
     return button;
-}
-
-[[nodiscard]] scene::EntityId entityIdFromItem(const QTreeWidgetItem* item)
-{
-    if (item == nullptr) {
-        return {};
-    }
-    return scene::EntityId(item->data(0, kEntityIdRole).toULongLong());
 }
 
 } // namespace
@@ -75,32 +71,86 @@ void MainWindow::createMenus()
         saveSceneAs();
     });
     fileMenu->addSeparator();
+    fileMenu->addAction(QStringLiteral("Build Settings"), this, [] {
+        core::logInfo(core::LogCategory::Editor, "Build Settings is not implemented yet");
+    });
+    fileMenu->addSeparator();
     fileMenu->addAction(QStringLiteral("Exit"), qApp, &QApplication::quit);
 
-    menuBar()->addMenu(QStringLiteral("&Edit"));
-    menuBar()->addMenu(QStringLiteral("&Assets"));
+    auto* editMenu = menuBar()->addMenu(QStringLiteral("&Edit"));
+    editMenu->addAction(QStringLiteral("Undo"));
+    editMenu->addAction(QStringLiteral("Redo"));
+    editMenu->addSeparator();
+    editMenu->addAction(QStringLiteral("Delete"), this, [this] { deleteSelectedEntity(); });
+    editMenu->addAction(QStringLiteral("Duplicate"), this, [this] { duplicateSelectedEntity(); });
+    editMenu->addSeparator();
+    editMenu->addAction(QStringLiteral("Preferences"));
+
+    auto* assetsMenu = menuBar()->addMenu(QStringLiteral("&Assets"));
+    assetsMenu->addAction(QStringLiteral("Import Asset"), this, [this] { importAsset(); });
+    assetsMenu->addAction(QStringLiteral("Create Material"));
+    assetsMenu->addAction(QStringLiteral("Create Texture Placeholder"));
+    assetsMenu->addAction(QStringLiteral("Create Script"), this, [this] { ensureFlyPlayerScriptAsset(); });
+    assetsMenu->addSeparator();
+    assetsMenu->addAction(QStringLiteral("Refresh"), this, [this] { rebuildAssetBrowser(); });
+    assetsMenu->addAction(QStringLiteral("Reimport Selected"));
+
     auto* gameObjectMenu = menuBar()->addMenu(QStringLiteral("&GameObject"));
     gameObjectMenu->addAction(QStringLiteral("Create Empty"), this, [this] {
         createEmptyEntity(QStringLiteral("GameObject"));
     });
+    auto* object3dMenu = gameObjectMenu->addMenu(QStringLiteral("3D Object"));
+    object3dMenu->addAction(QStringLiteral("Cube"), this, [this] { createCubeEntity(); });
+    object3dMenu->addAction(QStringLiteral("Sphere"), this, [this] { createSphereEntity(); });
+    object3dMenu->addAction(QStringLiteral("Plane"), this, [this] { createPlaneEntity(); });
+    object3dMenu->addAction(QStringLiteral("Terrain"), this, [this] { createTerrainEntity(); });
+    auto* lightMenu = gameObjectMenu->addMenu(QStringLiteral("Light"));
+    lightMenu->addAction(QStringLiteral("Directional Light"), this, [this] {
+        createLightEntity(scene::LightComponentType::Directional);
+    });
+    lightMenu->addAction(QStringLiteral("Point Light"), this, [this] {
+        createLightEntity(scene::LightComponentType::Point);
+    });
+    lightMenu->addAction(QStringLiteral("Spot Light"), this, [this] {
+        createLightEntity(scene::LightComponentType::Spot);
+    });
+    gameObjectMenu->addAction(QStringLiteral("Camera"), this, [this] { createCameraEntity(); });
     gameObjectMenu->addAction(QStringLiteral("Player"), this, [this] {
         createPlayerEntity();
     });
+    gameObjectMenu->addSeparator();
     gameObjectMenu->addAction(QStringLiteral("Duplicate"), this, [this] {
         duplicateSelectedEntity();
     });
     gameObjectMenu->addAction(QStringLiteral("Delete"), this, [this] {
         deleteSelectedEntity();
     });
-    menuBar()->addMenu(QStringLiteral("&Component"));
+
+    auto* componentMenu = menuBar()->addMenu(QStringLiteral("&Component"));
+    componentMenu->addAction(QStringLiteral("Add Component"), this, [this] {
+        showAddComponentMenu(nullptr);
+    });
+
     windowMenu_ = menuBar()->addMenu(QStringLiteral("&Window"));
     windowMenu_->addAction(QStringLiteral("Reset Layout"), this, [this] {
         resetEditorLayout();
     });
     windowMenu_->addSeparator();
-    menuBar()->addMenu(QStringLiteral("&Tools"));
-    menuBar()->addMenu(QStringLiteral("&Build"));
-    menuBar()->addMenu(QStringLiteral("&Help"));
+
+    auto* toolsMenu = menuBar()->addMenu(QStringLiteral("&Tools"));
+    toolsMenu->addAction(QStringLiteral("Terrain Generator"), this, [this] {
+        createTerrainEntity();
+    });
+    toolsMenu->addAction(QStringLiteral("Terrain Brush (PARCIAL)"));
+    toolsMenu->addAction(QStringLiteral("Lighting/Bake"));
+    toolsMenu->addAction(QStringLiteral("NavMesh Bake"));
+    toolsMenu->addAction(QStringLiteral("Physics Debug"));
+
+    auto* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
+    helpMenu->addAction(QStringLiteral("About"), this, [] {
+        core::logInfo(core::LogCategory::Editor, "ProjectUnity Editor");
+    });
+    helpMenu->addAction(QStringLiteral("Documentation"));
 }
 
 void MainWindow::createToolbar()
@@ -234,9 +284,7 @@ void MainWindow::createDockLayout()
     auto* projectDock = createDockWidget(QStringLiteral("Project / Assets / Packages"), createProjectPanel());
     auto* bottomDock = createDockWidget(QStringLiteral("Console / Profiler / Network"), createBottomPanel());
     auto* importDock = createDockWidget(QStringLiteral("Asset Import"), createAssetImportPanel());
-    auto* terrainDock = createDockWidget(QStringLiteral("Terrain"), createTextPanel(
-        QStringLiteral("Terrain"),
-        {QStringLiteral("Generator"), QStringLiteral("Brushes"), QStringLiteral("Chunks and LOD")}));
+    auto* terrainDock = createDockWidget(QStringLiteral("Terrain"), createTerrainPanel());
     auto* lightingDock = createDockWidget(QStringLiteral("Lighting / Bake"), createLightingPanel());
     auto* physicsDock = createDockWidget(QStringLiteral("Physics Debug"), createTextPanel(
         QStringLiteral("Physics Debug"),
@@ -353,9 +401,24 @@ QWidget* MainWindow::createHierarchyPanel()
     buttonRow->addWidget(deleteButton);
     layout->addLayout(buttonRow);
 
-    auto* tree = new QTreeWidget;
-    tree->setHeaderLabel(QStringLiteral("GameObjects"));
-    tree->setSelectionMode(QAbstractItemView::SingleSelection);
+    auto* tree = new SceneHierarchyWidget;
+    tree->setScene(&scene_);
+    tree->setAssetManager(&assetManager_);
+    tree->setAssetDropCallback([this](assets::AssetId assetId, const std::filesystem::path& path) {
+        if (assetId.isValid()) {
+            const auto records = assetManager_.records();
+            const auto record = std::find_if(records.begin(), records.end(), [assetId](const assets::AssetRecord& candidate) {
+                return candidate.id == assetId;
+            });
+            if (record != records.end() && record->type == assets::AssetType::Model) {
+                createImportedModelEntity(*record);
+                return;
+            }
+        }
+        if (!path.empty()) {
+            (void)importAssetFromPath(QString::fromStdWString(path.wstring()), true);
+        }
+    });
     layout->addWidget(tree);
 
     hierarchyTree_ = tree;
@@ -369,12 +432,8 @@ QWidget* MainWindow::createHierarchyPanel()
         deleteSelectedEntity();
     });
     connect(tree, &QTreeWidget::itemSelectionChanged, this, [this] {
-        const auto selectedItems = hierarchyTree_->selectedItems();
-        if (selectedItems.isEmpty()) {
-            clearSelection();
-            return;
-        }
-        selectedEntityId_ = entityIdFromItem(selectedItems.front());
+        auto* hierarchy = dynamic_cast<SceneHierarchyWidget*>(hierarchyTree_);
+        selectedEntityId_ = hierarchy == nullptr ? scene::EntityId {} : hierarchy->selectedSceneEntity();
         updateInspector();
         refreshViewports();
     });
@@ -419,18 +478,29 @@ QWidget* MainWindow::createInspectorPanel()
     componentSummary_ = new QLabel(QStringLiteral("-"));
     componentSummary_->setWordWrap(true);
     form->addRow(QStringLiteral("Components"), componentSummary_);
+    scriptComponentCombo_ = new QComboBox;
+    form->addRow(QStringLiteral("Script Component"), scriptComponentCombo_);
+    scriptAssetCombo_ = new QComboBox;
+    form->addRow(QStringLiteral("Script Asset"), scriptAssetCombo_);
+    scriptEnabledCheck_ = new QCheckBox(QStringLiteral("Script Enabled"));
+    form->addRow(QStringLiteral("Enabled"), scriptEnabledCheck_);
+    scriptFieldsTable_ = new QTableWidget;
+    scriptFieldsTable_->setColumnCount(2);
+    scriptFieldsTable_->setHorizontalHeaderLabels({QStringLiteral("Field"), QStringLiteral("Value")});
+    scriptFieldsTable_->horizontalHeader()->setStretchLastSection(true);
+    scriptFieldsTable_->verticalHeader()->setVisible(false);
+    scriptFieldsTable_->setMinimumHeight(140);
+    form->addRow(QStringLiteral("Fields"), scriptFieldsTable_);
+    scriptStatusLabel_ = new QLabel;
+    scriptStatusLabel_->setWordWrap(true);
+    form->addRow(QStringLiteral("Status"), scriptStatusLabel_);
+    removeScriptButton_ = makeToolButton(QStringLiteral("Remove Script Component"));
+    form->addRow(QString(), removeScriptButton_);
     layout->addLayout(form);
 
     auto* addComponent = makeToolButton(QStringLiteral("Add Component"));
     connect(addComponent, &QPushButton::clicked, this, [this, addComponent] {
-        QMenu menu(addComponent);
-        menu.addAction(QStringLiteral("FlyPlayerController"), this, [this] {
-            attachFlyPlayerControllerToSelection();
-        });
-        menu.addAction(QStringLiteral("Remove Script"), this, [this] {
-            removeScriptFromSelection();
-        });
-        menu.exec(addComponent->mapToGlobal(QPoint(0, addComponent->height())));
+        showAddComponentMenu(addComponent);
     });
     addComponentButton_ = addComponent;
     layout->addWidget(addComponent);
@@ -440,6 +510,44 @@ QWidget* MainWindow::createInspectorPanel()
         applyInspectorToSelection();
     });
     connect(entityNameEdit_, &QLineEdit::editingFinished, this, [this] {
+        applyInspectorToSelection();
+    });
+    connect(scriptEnabledCheck_, &QCheckBox::toggled, this, [this](bool) {
+        applyInspectorToSelection();
+    });
+    connect(scriptComponentCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (inspectorUpdating_ || index < 0) {
+            return;
+        }
+        inspectedScriptInstanceId_ = scene::ScriptInstanceId(
+            scriptComponentCombo_->itemData(index).toULongLong());
+        updateInspector();
+    });
+    connect(scriptAssetCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (inspectorUpdating_ || index < 0 || !inspectedScriptInstanceId_.isValid()) {
+            return;
+        }
+        auto* entity = scene_.findEntity(selectedEntityId_);
+        auto* script = entity == nullptr ? nullptr : scene::findScript(*entity, inspectedScriptInstanceId_);
+        if (script == nullptr) {
+            return;
+        }
+        auto replacement = *script;
+        std::string error;
+        if (!scriptRegistry_.replaceComponentAsset(
+                replacement,
+                scriptAssetCombo_->itemData(index).toString().toStdString(),
+                &error)) {
+            scriptStatusLabel_->setText(QString::fromStdString(error));
+            return;
+        }
+        (void)scene_.updateScript(selectedEntityId_, std::move(replacement));
+        updateInspector();
+    });
+    connect(removeScriptButton_, &QPushButton::clicked, this, [this] {
+        removeScriptFromSelection();
+    });
+    connect(scriptFieldsTable_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem*) {
         applyInspectorToSelection();
     });
 
@@ -465,19 +573,29 @@ QWidget* MainWindow::createProjectPanel()
     assetsLayout->setContentsMargins(6, 6, 6, 6);
     auto* importButton = makeToolButton(QStringLiteral("Import Asset"));
     assetsLayout->addWidget(importButton, 0, Qt::AlignLeft);
-    assetTable_ = new QTableWidget(0, 5);
-    assetTable_->setHorizontalHeaderLabels({
-        QStringLiteral("Name"),
-        QStringLiteral("Type"),
-        QStringLiteral("Source"),
-        QStringLiteral("Cache"),
-        QStringLiteral("Vertices"),
+    projectBrowser_ = new ProjectBrowserWidget;
+    projectBrowser_->setObjectName(QStringLiteral("ProjectBrowser"));
+    projectBrowser_->setAssetManager(&assetManager_);
+    projectBrowser_->setProjectRoot(std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets");
+    projectBrowser_->setSelectionChangedCallback([](const ProjectBrowserSelection& selection) {
+        core::logInfo(
+            core::LogCategory::Assets,
+            "Project Browser selected assetId=" + std::to_string(selection.assetId.value())
+                + " subAssetId=" + std::to_string(selection.subAssetId));
     });
-    assetTable_->horizontalHeader()->setStretchLastSection(true);
-    assetTable_->verticalHeader()->setVisible(false);
-    assetTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    assetTable_->setSelectionMode(QAbstractItemView::SingleSelection);
-    assetsLayout->addWidget(assetTable_);
+    projectBrowser_->setAssetActivatedCallback([this](const ProjectBrowserSelection& selection) {
+        if (selection.subAssetId != 0U) {
+            return;
+        }
+        const auto records = assetManager_.records();
+        const auto record = std::find_if(records.begin(), records.end(), [selection](const assets::AssetRecord& candidate) {
+            return candidate.id == selection.assetId;
+        });
+        if (record != records.end() && record->type == assets::AssetType::Model) {
+            createImportedModelEntity(*record);
+        }
+    });
+    assetsLayout->addWidget(projectBrowser_);
     connect(importButton, &QPushButton::clicked, this, [this] {
         importAsset();
     });

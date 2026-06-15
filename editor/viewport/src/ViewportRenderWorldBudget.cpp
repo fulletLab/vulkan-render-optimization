@@ -33,10 +33,9 @@ struct LodBudgetCandidate {
 
 [[nodiscard]] std::uint64_t viewportTriangleBudget(
     std::uint64_t visibleTriangles,
-    std::uint64_t candidateTriangles) noexcept
+    const ViewportAssetLodSettings& settings) noexcept
 {
-    (void)candidateTriangles;
-    return visibleTriangles;
+    return std::min<std::uint64_t>(visibleTriangles, settings.maxDetailedTriangles);
 }
 
 [[nodiscard]] std::uint32_t coarserViewportLod(const assets::MeshPrimitive& primitive, std::uint32_t currentLod) noexcept
@@ -72,10 +71,11 @@ void applyViewportTriangleBudget(
     scene::EntityId selectedEntityId,
     const ViewportRenderWorldCamera& camera,
     int viewportHeight,
+    const ViewportAssetLodSettings& settings,
     ViewportRenderWorldStats& stats)
 {
     auto visibleTriangles = currentVisibleTriangles(meshDraws);
-    const auto budget = viewportTriangleBudget(visibleTriangles, stats.candidateTriangleCount);
+    const auto budget = viewportTriangleBudget(visibleTriangles, settings);
     if (visibleTriangles <= budget) {
         return;
     }
@@ -127,6 +127,7 @@ void applyViewportTriangleBudget(
             ++stats.lodMeshDrawCount;
         }
         draw.lodIndex = candidate.lodIndex;
+        ++stats.budgetDegradedDrawCount;
         const auto saved = candidate.currentTriangles - candidate.budgetTriangles;
         stats.lodTriangleReductionCount += saved;
         visibleTriangles = visibleTriangles > saved ? visibleTriangles - saved : 0U;

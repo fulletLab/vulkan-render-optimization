@@ -1,0 +1,11 @@
+Assets/Hierarchy/Imports orientation renderer pass complete.
+
+Scope completed:
+- Added real flipped-winding Vulkan mesh pipelines instead of using double-sided/no-cull for negative determinant instances.
+- Added transparent flipped-winding mesh pipeline variant.
+- Added flipped-winding shadow pipeline variant.
+- Preserved material glTF doubleSided as the only path to no-cull rendering.
+- Preserved Vulkan pipeline/material switch counters in ViewportTarget/Shadow paths.
+- Adjusted TexturedMesh tangent handedness with instance determinant so tangent.w remains correct under mirrored transforms.
+
+Editor final build intentionally not run from this pass per coordination request.

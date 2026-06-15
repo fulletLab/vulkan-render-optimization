@@ -2,6 +2,7 @@
 
 #include "ViewportRenderWorldProxy.hpp"
 
+#include <projectunity/assets/AssetSubAssetId.hpp>
 #include <projectunity/core/Log.hpp>
 
 #include <algorithm>
@@ -180,16 +181,23 @@ enum class PickSource {
 }
 
 struct PickCandidate {
-    scene::EntityId id;
+    scene::EntityId ownerEntityId;
+    scene::EntityId selectedEntityId;
+    assets::AssetId assetId;
+    std::optional<std::uint32_t> subObjectIndex;
+    std::uint64_t subObjectId {0};
     float priority {0.0F};
     float distance {0.0F};
     PickSource source {PickSource::MeshExact};
 };
 
 struct DeferredMeshPick {
-    scene::EntityId id;
+    scene::EntityId ownerEntityId;
+    scene::EntityId hitEntityId;
+    assets::AssetId assetId;
     const assets::ModelAsset* model {nullptr};
     std::uint32_t primitiveInstanceIndex {0};
+    assets::SubAssetKind subAssetKind {assets::SubAssetKind::Node};
     renderer::RenderMatrix4 matrix;
     float distance {0.0F};
 };
@@ -216,6 +224,52 @@ struct DeferredMeshPick {
         && !entity.meshRenderer->renderable
         && (entity.meshRenderer->primitiveInstanceIndex.has_value()
             || entity.meshRenderer->editorInstanceIndex.has_value());
+}
+
+[[nodiscard]] const scene::Entity* assetOwner(
+    const scene::Scene& scene,
+    const scene::Entity& entity)
+{
+    if (!entity.meshRenderer.has_value()) {
+        return &entity;
+    }
+    const auto modelAssetId = entity.meshRenderer->modelAssetId;
+    const auto* current = &entity;
+    while (current->parent.has_value()) {
+        const auto* parent = scene.findEntity(*current->parent);
+        if (parent == nullptr) {
+            break;
+        }
+        if (parent->meshRenderer.has_value()
+            && parent->meshRenderer->renderable
+            && parent->meshRenderer->modelAssetId == modelAssetId) {
+            return parent;
+        }
+        current = parent;
+    }
+    return &entity;
+}
+
+[[nodiscard]] scene::EntityId selectedPickEntity(
+    ViewportPickMode mode,
+    const scene::Entity& hitEntity,
+    const scene::Entity& owner) noexcept
+{
+    return mode == ViewportPickMode::SubObject && isPrimitiveProxy(hitEntity)
+        ? hitEntity.id
+        : owner.id;
+}
+
+[[nodiscard]] ViewportPickResult viewportPickResult(const PickCandidate& candidate)
+{
+    return {
+        candidate.ownerEntityId,
+        candidate.selectedEntityId,
+        candidate.assetId,
+        candidate.subObjectId,
+        candidate.subObjectIndex,
+        candidate.distance,
+    };
 }
 
 [[nodiscard]] bool hasPrimitiveProxyChildren(const scene::Scene& scene, const scene::Entity& entity)
@@ -395,7 +449,7 @@ struct DeferredMeshPick {
 
 } // namespace
 
-std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
+std::optional<ViewportPickResult> ViewportWidget::pickResultAt(QPointF point) const
 {
     if (scene_ == nullptr) {
         return std::nullopt;
@@ -416,28 +470,59 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
                 << " exactTests=" << meshExactTests
                 << " exactHits=" << meshExactHits;
         if (pick.has_value()) {
-            message << " result=" << pick->id.value()
+            message << " selectedObjectId=" << pick->selectedEntityId.value()
+                    << " ownerObjectId=" << pick->ownerEntityId.value()
                     << " source=" << pickSourceName(pick->source)
-                    << " distance=" << pick->distance;
+                    << " distance=" << pick->distance
+                    << " mode=" << (pickMode_ == ViewportPickMode::AssetOwner ? "asset-owner" : "sub-object");
+            if (pick->assetId.isValid()) {
+                message << " assetId=" << pick->assetId.value();
+            }
+            if (pick->subObjectId != 0U) {
+                message << " subObjectId=" << pick->subObjectId;
+            }
         } else {
-            message << " result=none";
+            message << " result=none mode="
+                    << (pickMode_ == ViewportPickMode::AssetOwner ? "asset-owner" : "sub-object");
         }
         core::logInfo(core::LogCategory::Editor, message.str());
         std::cout << message.str() << '\n';
     };
-    const auto tryCandidate = [&](scene::EntityId id, std::optional<float> distance, PickSource source) {
+    const auto tryCandidate = [&](
+        scene::EntityId ownerEntityId,
+        scene::EntityId selectedEntityId,
+        assets::AssetId assetId,
+        std::optional<std::uint32_t> subObjectIndex,
+        assets::SubAssetKind subAssetKind,
+        std::optional<float> distance,
+        PickSource source) {
         if (!distance.has_value()) {
             return;
         }
-        const PickCandidate candidate {id, 0.0F, *distance, source};
+        const auto subObjectId = assetId.isValid() && subObjectIndex.has_value()
+            ? assets::makeSubAssetId(assetId, subAssetKind, *subObjectIndex)
+            : 0U;
+        const PickCandidate candidate {
+            ownerEntityId,
+            selectedEntityId,
+            assetId,
+            subObjectIndex,
+            subObjectId,
+            0.0F,
+            *distance,
+            source,
+        };
         if (!meshPick.has_value() || betterPick(candidate, *meshPick)) {
             meshPick = candidate;
         }
     };
     const auto deferInstanceCandidate = [&](
-        scene::EntityId id,
+        scene::EntityId ownerEntityId,
+        scene::EntityId hitEntityId,
+        assets::AssetId assetId,
         const assets::ModelAsset& model,
         std::uint32_t instanceIndex,
+        assets::SubAssetKind subAssetKind,
         const renderer::RenderMatrix4& matrix) {
         if (instanceIndex >= model.primitiveInstances.size()) {
             return;
@@ -447,7 +532,16 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             return;
         }
         ++meshBroadCandidates;
-        deferredMeshPicks.push_back({id, &model, instanceIndex, matrix, *distance});
+        deferredMeshPicks.push_back({
+            ownerEntityId,
+            hitEntityId,
+            assetId,
+            &model,
+            instanceIndex,
+            subAssetKind,
+            matrix,
+            *distance,
+        });
     };
 
     if (assetManager_ != nullptr) {
@@ -462,6 +556,9 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             }
 
             const auto entityMatrix = modelMatrix(entity, *worldPosition);
+            const auto* owner = assetOwner(*scene_, entity);
+            const auto selectedEntityId = selectedPickEntity(pickMode_, entity, *owner);
+            const auto assetId = entity.meshRenderer->modelAssetId;
             if (entity.meshRenderer->editorInstanceIndex.has_value()) {
                 const auto instanceIndex = primitiveInstanceIndexForProxy(*model, *entity.meshRenderer);
                 if (instanceIndex.has_value() && *instanceIndex < model->primitiveInstances.size()) {
@@ -469,7 +566,14 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
                     const auto instanceMatrix = multiply(
                         multiply(entityMatrix, translationMatrix(instance.bounds.center * -1.0F)),
                         renderMatrix(instance.transform));
-                    deferInstanceCandidate(entity.id, *model, *instanceIndex, instanceMatrix);
+                    deferInstanceCandidate(
+                        owner->id,
+                        selectedEntityId,
+                        assetId,
+                        *model,
+                        *instanceIndex,
+                        assets::SubAssetKind::Node,
+                        instanceMatrix);
                 }
                 continue;
             }
@@ -480,7 +584,14 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
                     const auto instanceMatrix = multiply(
                         multiply(entityMatrix, translationMatrix(instance.bounds.center * -1.0F)),
                         renderMatrix(instance.transform));
-                    deferInstanceCandidate(entity.id, *model, index, instanceMatrix);
+                    deferInstanceCandidate(
+                        owner->id,
+                        selectedEntityId,
+                        assetId,
+                        *model,
+                        index,
+                        assets::SubAssetKind::Node,
+                        instanceMatrix);
                 }
                 continue;
             }
@@ -490,17 +601,32 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             if (!model->primitiveInstances.empty()) {
                 for (std::uint32_t index = 0; index < model->primitiveInstances.size(); ++index) {
                     const auto& instance = model->primitiveInstances[index];
-                    deferInstanceCandidate(entity.id, *model, index, multiply(entityMatrix, renderMatrix(instance.transform)));
+                    deferInstanceCandidate(
+                        owner->id,
+                        selectedEntityId,
+                        assetId,
+                        *model,
+                        index,
+                        assets::SubAssetKind::Node,
+                        multiply(entityMatrix, renderMatrix(instance.transform)));
                 }
             } else {
-                for (const auto& primitive : model->primitives) {
+                for (std::uint32_t index = 0; index < model->primitives.size(); ++index) {
+                    const auto& primitive = model->primitives[index];
                     ++meshBroadCandidates;
                     ++meshExactTests;
                     const auto distance = rayPrimitiveDistance(ray, primitive, entityMatrix);
                     if (distance.has_value()) {
                         ++meshExactHits;
                     }
-                    tryCandidate(entity.id, distance, PickSource::MeshExact);
+                    tryCandidate(
+                        owner->id,
+                        selectedEntityId,
+                        assetId,
+                        index,
+                        assets::SubAssetKind::Mesh,
+                        distance,
+                        PickSource::MeshExact);
                 }
             }
         }
@@ -521,12 +647,19 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             if (distance.has_value()) {
                 ++meshExactHits;
             }
-            tryCandidate(pick.id, distance, PickSource::MeshExact);
+            tryCandidate(
+                pick.ownerEntityId,
+                pick.hitEntityId,
+                pick.assetId,
+                pick.primitiveInstanceIndex,
+                pick.subAssetKind,
+                distance,
+                PickSource::MeshExact);
         }
     }
     if (meshPick.has_value()) {
         logPick(meshPick);
-        return meshPick->id;
+        return viewportPickResult(*meshPick);
     }
 
     std::optional<PickCandidate> markerPick;
@@ -568,14 +701,23 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
             continue;
         }
 
-        const PickCandidate candidate {entity.id, priority, distance, PickSource::Marker};
+        const PickCandidate candidate {
+            entity.id,
+            entity.id,
+            {},
+            std::nullopt,
+            0U,
+            priority,
+            distance,
+            PickSource::Marker,
+        };
         if (!markerPick.has_value() || betterPick(candidate, *markerPick)) {
             markerPick = candidate;
         }
     }
     if (markerPick.has_value()) {
         logPick(markerPick);
-        return markerPick->id;
+        return viewportPickResult(*markerPick);
     }
 
     float closestShapeDistance = std::numeric_limits<float>::max();
@@ -607,63 +749,31 @@ std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
 
         if (distance >= 0.0F && distance < closestShapeDistance) {
             closestShapeDistance = distance;
-            closestShapePick = PickCandidate {entity.id, 2.0F, distance, PickSource::ShapeFallback};
+            closestShapePick = PickCandidate {
+                entity.id,
+                entity.id,
+                {},
+                std::nullopt,
+                0U,
+                2.0F,
+                distance,
+                PickSource::ShapeFallback,
+            };
         }
     }
 
     logPick(closestShapePick);
-    return closestShapePick.has_value() ? std::optional<scene::EntityId> {closestShapePick->id} : std::nullopt;
+    return closestShapePick.has_value()
+        ? std::optional<ViewportPickResult> {viewportPickResult(*closestShapePick)}
+        : std::nullopt;
 }
 
-float ViewportWidget::entityPickRadius(const scene::Entity& entity) const
+std::optional<scene::EntityId> ViewportWidget::pickEntityAt(QPointF point) const
 {
-    const auto maxScale = std::max({
-        std::fabs(entity.transform.scale.x),
-        std::fabs(entity.transform.scale.y),
-        std::fabs(entity.transform.scale.z),
-    });
-    if (assetManager_ != nullptr
-        && entity.meshRenderer.has_value()
-        && (entity.meshRenderer->primitiveInstanceIndex.has_value()
-            || entity.meshRenderer->editorInstanceIndex.has_value())) {
-        const auto model = assetManager_->model(entity.meshRenderer->modelAssetId);
-        if (model != nullptr && entity.meshRenderer->editorInstanceIndex.has_value()) {
-            const auto index = *entity.meshRenderer->editorInstanceIndex;
-            if (index < model->editorInstances.size()) {
-                return std::clamp(model->editorInstances[index].bounds.radius * maxScale, 0.35F, 80.0F);
-            }
-        }
-        if (model != nullptr && entity.meshRenderer->primitiveInstanceIndex.has_value()) {
-            const auto index = *entity.meshRenderer->primitiveInstanceIndex;
-            if (index < model->primitiveInstances.size()) {
-                return std::clamp(model->primitiveInstances[index].bounds.radius * maxScale, 0.35F, 80.0F);
-            }
-        }
-    }
-    if (assetManager_ != nullptr
-        && entity.meshRenderer.has_value()
-        && !entity.meshRenderer->primitiveInstanceIndex.has_value()) {
-        const auto model = assetManager_->model(entity.meshRenderer->modelAssetId);
-        if (model != nullptr) {
-            float radius = 0.0F;
-            if (!model->primitiveInstances.empty()) {
-                for (const auto& instance : model->primitiveInstances) {
-                    radius = std::max(radius, instance.bounds.center.length() + instance.bounds.radius);
-                }
-            } else {
-                for (const auto& primitive : model->primitives) {
-                    radius = std::max(radius, primitive.bounds.center.length() + primitive.bounds.radius);
-                }
-            }
-            if (radius > 0.0F && std::isfinite(radius)) {
-                return std::clamp(radius * maxScale, 0.35F, 160.0F);
-            }
-        }
-    }
-    if (entity.camera.has_value()) {
-        return std::clamp(maxScale * 0.85F, 0.45F, 6.0F);
-    }
-    return std::clamp(maxScale * 0.55F, 0.35F, 5.0F);
+    const auto result = pickResultAt(point);
+    return result.has_value()
+        ? std::optional<scene::EntityId> {result->selectedEntityId}
+        : std::nullopt;
 }
 
 } // namespace projectunity::editor

@@ -25,8 +25,10 @@ public:
 
     [[nodiscard]] VkRenderPass renderPass() const noexcept;
     [[nodiscard]] VkPipeline pipeline() const noexcept;
+    [[nodiscard]] VkPipeline flippedWindingPipeline() const noexcept;
     [[nodiscard]] VkPipeline doubleSidedPipeline() const noexcept;
     [[nodiscard]] VkPipeline transparentPipeline() const noexcept;
+    [[nodiscard]] VkPipeline transparentFlippedWindingPipeline() const noexcept;
     [[nodiscard]] VkPipeline transparentDoubleSidedPipeline() const noexcept;
     [[nodiscard]] VkPipeline wirePipeline() const noexcept;
     [[nodiscard]] VkPipelineLayout layout() const noexcept;
@@ -46,8 +48,10 @@ private:
     VkRenderPass renderPass_ {VK_NULL_HANDLE};
     VkPipelineLayout layout_ {VK_NULL_HANDLE};
     VkPipeline pipeline_ {VK_NULL_HANDLE};
+    VkPipeline flippedWindingPipeline_ {VK_NULL_HANDLE};
     VkPipeline doubleSidedPipeline_ {VK_NULL_HANDLE};
     VkPipeline transparentPipeline_ {VK_NULL_HANDLE};
+    VkPipeline transparentFlippedWindingPipeline_ {VK_NULL_HANDLE};
     VkPipeline transparentDoubleSidedPipeline_ {VK_NULL_HANDLE};
     VkPipeline wirePipeline_ {VK_NULL_HANDLE};
 };

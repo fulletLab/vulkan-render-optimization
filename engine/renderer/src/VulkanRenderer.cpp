@@ -45,6 +45,15 @@ namespace {
     return breakdown;
 }
 
+[[nodiscard]] std::uint64_t triangleCountForDraws(std::span<const RenderMeshDraw> draws) noexcept
+{
+    std::uint64_t total = 0;
+    for (const auto& draw : draws) {
+        total += renderMeshDrawTriangleCount(draw);
+    }
+    return total;
+}
+
 [[nodiscard]] std::string hlodReason(const RenderFrame& frame)
 {
     if (frame.hlodMeshDrawCount > 0U) {
@@ -288,6 +297,9 @@ struct VulkanRenderer::Impl {
             stats.lastFrameHlodRejectedCoverageCount = frame.hlodRejectedCoverageCount;
             stats.lastFrameHlodRejectedScreenCount = frame.hlodRejectedScreenCount;
             stats.lastFrameHlodRejectedClusterScreenCount = frame.hlodRejectedClusterScreenCount;
+            stats.lastFrameHlodCollapsedChunkCount = frame.hlodCollapsedChunkCount;
+            stats.lastFrameHlodScreenCoverage = frame.hlodScreenCoverage;
+            stats.lastFrameHlodCameraDistance = frame.hlodCameraDistance;
             stats.lastFrameHlodReason = hlodReason(frame);
             stats.lastFrameOcclusionTestedChunkCount = frame.occlusionTestedChunkCount;
             stats.lastFrameOcclusionRejectedChunkCount = frame.occlusionRejectedChunkCount;
@@ -310,11 +322,11 @@ struct VulkanRenderer::Impl {
             stats.lastFrameLargestRenderChunkTriangleCount = frame.largestRenderChunkTriangleCount;
             stats.lastFrameLargestRenderChunkInstanceCount = frame.largestRenderChunkInstanceCount;
             stats.lastFrameMaxRenderChunkExtent = frame.maxRenderChunkExtent;
-            const auto visibleBeforeLod = frame.candidateTriangleCount - frame.culledTriangleCount;
-            const auto triangleReduction = frame.lodTriangleReductionCount + frame.hlodTriangleReductionCount;
-            stats.lastFrameVisibleTriangleCount = visibleBeforeLod > triangleReduction
-                ? visibleBeforeLod - triangleReduction
-                : 0U;
+            stats.lastFrameRenderWorldDrawPacketCount = frame.renderWorldDrawPacketCount;
+            stats.lastFrameRenderWorldTriangleCount = frame.renderWorldTriangleCount;
+            stats.lastFrameFinalVisibleChunkCount = frame.renderWorldFinalVisibleChunkCount;
+            stats.lastFrameBudgetDegradedDrawCount = frame.renderWorldBudgetDegradedDrawCount;
+            stats.lastFrameVisibleTriangleCount = triangleCountForDraws(frame.meshDraws);
             stats.lastFrameLightCount = static_cast<std::uint64_t>(frame.lights.size());
             stats.lastFrameShadowCasterCount = 0;
             stats.lastFrameRenderCpuTimeUs = static_cast<std::uint64_t>(std::max<std::int64_t>(frameElapsedUs, 0));
@@ -340,6 +352,7 @@ struct VulkanRenderer::Impl {
             stats.shadowVisibleInstances = profile.shadowVisibleInstances;
             stats.shadowOnlyCandidateInstances = profile.shadowOnlyCandidateInstances;
             stats.shadowOnlyRejectedInstances = profile.shadowOnlyRejectedInstances;
+            stats.shadowHlodProxyDrawCount = frame.shadowHlodProxyDrawCount;
             stats.shadowCandidates = profile.shadowCandidateInstances;
             stats.shadowSubmitted = profile.shadowBatchesSubmitted;
             stats.shadowTriangles = profile.shadowTrianglesSubmitted;
@@ -362,6 +375,10 @@ struct VulkanRenderer::Impl {
             stats.vkBindDescriptors = profile.vkBindDescriptors;
             stats.vkDrawIndexed = profile.vkDrawIndexed;
             stats.trianglesSubmitted = profile.trianglesSubmitted;
+            stats.pipelineSwitches = profile.pipelineSwitches;
+            stats.materialSwitches = profile.materialSwitches;
+            stats.shadowPipelineSwitches = profile.shadowPipelineSwitches;
+            stats.shadowMaterialSwitches = profile.shadowMaterialSwitches;
             stats.commandRecordingMs = static_cast<double>(profile.commandRecordCpuTimeUs) / 1000.0;
             stats.resourcePrepareMs = static_cast<double>(profile.resourcePrepareCpuTimeUs) / 1000.0;
             stats.FPS = frameElapsedUs > 0 ? 1'000'000.0 / static_cast<double>(frameElapsedUs) : 0.0;

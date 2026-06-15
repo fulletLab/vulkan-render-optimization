@@ -33,6 +33,18 @@ struct RendererConfig {
 constexpr std::uint32_t kRenderOverviewPrimitiveIndexBase = 0x80000000U;
 constexpr std::size_t kRenderLodCounterCount = 4U;
 
+enum class RenderLodSelectionReason : std::uint8_t {
+    Unspecified,
+    FullResolution,
+    ScreenError,
+    HysteresisHold,
+    HlodScreenSize,
+    HlodChunkBudget,
+    HlodDrawBudget,
+    HlodDebugOverride,
+    HlodHysteresisHold,
+};
+
 struct RenderLodBreakdown {
     std::array<std::uint64_t, kRenderLodCounterCount> draws {};
     std::array<std::uint64_t, kRenderLodCounterCount> triangles {};
@@ -94,6 +106,9 @@ struct RendererStats {
     std::uint64_t lastFrameHlodRejectedCoverageCount {0};
     std::uint64_t lastFrameHlodRejectedScreenCount {0};
     std::uint64_t lastFrameHlodRejectedClusterScreenCount {0};
+    std::uint64_t lastFrameHlodCollapsedChunkCount {0};
+    float lastFrameHlodScreenCoverage {0.0F};
+    float lastFrameHlodCameraDistance {0.0F};
     std::string lastFrameHlodReason;
     std::uint64_t lastFrameOcclusionTestedChunkCount {0};
     std::uint64_t lastFrameOcclusionRejectedChunkCount {0};
@@ -119,6 +134,7 @@ struct RendererStats {
     std::uint64_t shadowVisibleInstances {0};
     std::uint64_t shadowOnlyCandidateInstances {0};
     std::uint64_t shadowOnlyRejectedInstances {0};
+    std::uint64_t shadowHlodProxyDrawCount {0};
     std::uint64_t shadowCandidates {0};
     std::uint64_t shadowSubmitted {0};
     std::uint64_t shadowTriangles {0};
@@ -140,6 +156,10 @@ struct RendererStats {
     std::uint64_t vkBindDescriptors {0};
     std::uint64_t vkDrawIndexed {0};
     std::uint64_t trianglesSubmitted {0};
+    std::uint64_t pipelineSwitches {0};
+    std::uint64_t materialSwitches {0};
+    std::uint64_t shadowPipelineSwitches {0};
+    std::uint64_t shadowMaterialSwitches {0};
     double commandRecordingMs {0.0};
     double resourcePrepareMs {0.0};
     double FPS {0.0};
@@ -162,6 +182,10 @@ struct RendererStats {
     std::uint64_t lastFrameLargestRenderChunkTriangleCount {0};
     std::uint64_t lastFrameLargestRenderChunkInstanceCount {0};
     float lastFrameMaxRenderChunkExtent {0.0F};
+    std::uint64_t lastFrameRenderWorldDrawPacketCount {0};
+    std::uint64_t lastFrameRenderWorldTriangleCount {0};
+    std::uint64_t lastFrameFinalVisibleChunkCount {0};
+    std::uint64_t lastFrameBudgetDegradedDrawCount {0};
     std::uint64_t lastFrameLightCount {0};
     std::uint64_t lastFrameShadowCasterCount {0};
     std::uint64_t lastFrameShadowViewCount {0};
@@ -281,6 +305,10 @@ struct RenderMeshDraw {
     std::array<float, 3> rootBoundsHalfExtent {0.0F, 0.0F, 0.0F};
     bool cameraInsideRootBounds {false};
     bool cameraInsideChunkBounds {false};
+    std::uint32_t previousLodIndex {0};
+    float projectedLodErrorPixels {0.0F};
+    RenderLodSelectionReason lodSelectionReason {RenderLodSelectionReason::Unspecified};
+    bool lodHysteresisActive {false};
 };
 
 struct RenderColorVertex {
@@ -328,6 +356,9 @@ struct RenderFrame {
     std::uint64_t hlodRejectedCoverageCount {0};
     std::uint64_t hlodRejectedScreenCount {0};
     std::uint64_t hlodRejectedClusterScreenCount {0};
+    std::uint64_t hlodCollapsedChunkCount {0};
+    float hlodScreenCoverage {0.0F};
+    float hlodCameraDistance {0.0F};
     std::uint64_t occlusionTestedChunkCount {0};
     std::uint64_t occlusionRejectedChunkCount {0};
     std::uint64_t occlusionOccluderChunkCount {0};
@@ -355,6 +386,11 @@ struct RenderFrame {
     std::uint64_t shadowVisibleInstances {0};
     std::uint64_t shadowOnlyCandidateInstances {0};
     std::uint64_t shadowOnlyRejectedInstances {0};
+    std::uint64_t shadowHlodProxyDrawCount {0};
+    std::uint64_t renderWorldDrawPacketCount {0};
+    std::uint64_t renderWorldTriangleCount {0};
+    std::uint64_t renderWorldFinalVisibleChunkCount {0};
+    std::uint64_t renderWorldBudgetDegradedDrawCount {0};
     std::span<const RenderMeshDraw> shadowMeshDraws;
     std::span<const RenderMeshDraw> meshDraws;
     float meshDebugOpacity {1.0F};

@@ -658,6 +658,7 @@ bool VulkanViewportTarget::recordFrameCommand(
     vkCmdSetViewport(commandBuffer_, 0, 1, &viewport);
     vkCmdSetScissor(commandBuffer_, 0, 1, &scissor);
     VkPipeline activeMeshPipeline = VK_NULL_HANDLE;
+    VkDescriptorSet activeMaterialDescriptor = VK_NULL_HANDLE;
     const auto drawMeshInstances = [&](
         const VulkanMeshDrawBatch& batch,
         VkPipeline drawPipeline,
@@ -679,6 +680,7 @@ bool VulkanViewportTarget::recordFrameCommand(
         if (drawPipeline != activeMeshPipeline) {
             vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, drawPipeline);
             activeMeshPipeline = drawPipeline;
+            ++lastFrameProfile_.pipelineSwitches;
         }
         const VkDeviceSize vertexOffset = 0;
         const auto instanceOffset = static_cast<VkDeviceSize>(firstInstance) * sizeof(VulkanGpuInstance);
@@ -690,6 +692,10 @@ bool VulkanViewportTarget::recordFrameCommand(
         ++lastFrameProfile_.vkBindIndex;
         vkCmdBindDescriptorSets(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline_->layout(), 0, 1, &descriptor, 0, nullptr);
         ++lastFrameProfile_.vkBindDescriptors;
+        if (countDiagnostics && descriptor != activeMaterialDescriptor) {
+            ++lastFrameProfile_.materialSwitches;
+            activeMaterialDescriptor = descriptor;
+        }
         vkCmdPushConstants(commandBuffer_, meshPipeline_->layout(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VulkanDrawPushConstants), &push);
         vkCmdDrawIndexed(commandBuffer_, mesh->indexCount, instanceCount, 0, 0, 0);
         ++lastFrameProfile_.vkDrawIndexed;
@@ -715,11 +721,19 @@ bool VulkanViewportTarget::recordFrameCommand(
         for (const auto& batch : meshBatches_) {
             const auto& draw = *batch.draw;
             const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
-            const auto noCull = doubleSided || draw.flipsWinding;
             const auto debugTransparent = frame.meshDebugOpacity < 0.999F;
-            const auto drawPipeline = debugTransparent || isTransparentMeshDraw(draw)
-                ? (noCull ? meshPipeline_->transparentDoubleSidedPipeline() : meshPipeline_->transparentPipeline())
-                : (noCull ? meshPipeline_->doubleSidedPipeline() : meshPipeline_->pipeline());
+            VkPipeline drawPipeline = VK_NULL_HANDLE;
+            if (debugTransparent || isTransparentMeshDraw(draw)) {
+                drawPipeline = doubleSided
+                    ? meshPipeline_->transparentDoubleSidedPipeline()
+                    : (draw.flipsWinding
+                            ? meshPipeline_->transparentFlippedWindingPipeline()
+                            : meshPipeline_->transparentPipeline());
+            } else {
+                drawPipeline = doubleSided
+                    ? meshPipeline_->doubleSidedPipeline()
+                    : (draw.flipsWinding ? meshPipeline_->flippedWindingPipeline() : meshPipeline_->pipeline());
+            }
             VulkanDrawPushConstants push;
             applyMeshMaterialPush(push, draw);
             if (debugTransparent) {
@@ -777,6 +791,7 @@ bool VulkanViewportTarget::recordFrameCommand(
         lastFrameProfile_.meshRecordCpuTimeUs = elapsedUs(passStart);
     }
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, colorPipeline_->pipeline());
+    ++lastFrameProfile_.pipelineSwitches;
     {
         const auto passStart = std::chrono::steady_clock::now();
         VulkanScopedLabel colorLabel(beginDebugLabel_, endDebugLabel_, commandBuffer_, "ProjectUnity Scene Aid Pass", {0.95F, 0.70F, 0.18F, 1.0F});

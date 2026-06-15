@@ -8,6 +8,7 @@
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
+#include <projectunity/scripting/InputState.hpp>
 
 #include <array>
 #include <functional>
@@ -31,6 +32,10 @@ namespace projectunity::renderer {
 class IRenderer;
 } // namespace projectunity::renderer
 
+namespace projectunity::scripting {
+class ScriptRuntime;
+} // namespace projectunity::scripting
+
 namespace projectunity::editor {
 
 class ViewportRenderWorld;
@@ -52,9 +57,36 @@ enum class TransformSpace {
     Global,
 };
 
+enum class ViewportPickMode : std::uint8_t {
+    AssetOwner,
+    SubObject,
+};
+
 struct ViewportRay {
     math::Vec3 origin;
     math::Vec3 direction;
+};
+
+enum class ViewportTerrainBrushPhase : std::uint8_t {
+    Hover,
+    Begin,
+    Drag,
+    End,
+};
+
+struct ViewportTerrainBrushEvent {
+    ViewportRay ray;
+    ViewportTerrainBrushPhase phase {ViewportTerrainBrushPhase::Hover};
+    bool lowerModifier {false};
+};
+
+struct ViewportPickResult {
+    scene::EntityId ownerEntityId;
+    scene::EntityId selectedEntityId;
+    assets::AssetId assetId;
+    std::uint64_t subObjectId {0};
+    std::optional<std::uint32_t> subObjectIndex;
+    float distance {0.0F};
 };
 
 class ViewportWidget final : public QWidget {
@@ -71,7 +103,15 @@ public:
     void setScene(scene::Scene* scene);
     void setSelectedEntity(scene::EntityId id);
     void setSelectionCallback(std::function<void(scene::EntityId)> callback);
+    void setPickResultCallback(std::function<void(ViewportPickResult)> callback);
+    void setPickMode(ViewportPickMode mode);
+    [[nodiscard]] ViewportPickMode pickMode() const noexcept;
     void setTransformEditedCallback(std::function<void(scene::EntityId)> callback);
+    void setTerrainBrushCallback(
+        std::function<std::optional<math::Vec3>(const ViewportTerrainBrushEvent&)> callback);
+    void setTerrainBrushEnabled(bool enabled);
+    [[nodiscard]] bool terrainBrushEnabled() const noexcept;
+    void setTerrainBrushRadius(float radius);
     void setTool(ViewportTool tool);
     [[nodiscard]] ViewportTool tool() const noexcept;
     void setTransformSpace(TransformSpace space);
@@ -91,12 +131,14 @@ public:
     void focusSelected();
 
     [[nodiscard]] ViewportRay screenPointToRay(QPointF point) const;
+    [[nodiscard]] std::optional<ViewportPickResult> pickResultAt(QPointF point) const;
     [[nodiscard]] std::optional<scene::EntityId> pickEntityAt(QPointF point) const;
     [[nodiscard]] bool runSelfTest(QString* errorMessage);
     [[nodiscard]] const renderer::RendererStats* lastRendererStats() const noexcept;
     void setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians);
     void setGameInputEnabled(bool enabled);
     void setGameCameraEntity(scene::EntityId id);
+    void setGameScriptRuntime(scripting::ScriptRuntime* runtime);
     void setGameRuntimeSnapshotEnabled(bool enabled);
 
 protected:
@@ -181,7 +223,10 @@ private:
     scene::Scene* scene_ {nullptr};
     scene::EntityId selectedEntityId_;
     std::function<void(scene::EntityId)> selectionCallback_;
+    std::function<void(ViewportPickResult)> pickResultCallback_;
     std::function<void(scene::EntityId)> transformEditedCallback_;
+    std::function<std::optional<math::Vec3>(const ViewportTerrainBrushEvent&)> terrainBrushCallback_;
+    ViewportPickMode pickMode_ {ViewportPickMode::AssetOwner};
     CameraState camera_;
     ViewportTool tool_ {ViewportTool::Move};
     TransformSpace transformSpace_ {TransformSpace::Local};
@@ -192,6 +237,10 @@ private:
     std::unique_ptr<ViewportRenderWorld> renderWorld_;
     bool gizmoMouseLeft_ {false};
     bool gizmoCaptured_ {false};
+    bool terrainBrushEnabled_ {false};
+    bool terrainBrushDragging_ {false};
+    float terrainBrushRadius_ {6.0F};
+    std::optional<math::Vec3> terrainBrushHit_;
     bool pendingGizmoModePulse_ {false};
     bool pendingGizmoSpacePulse_ {false};
     void* rendererSurfaceHandle_ {nullptr};
@@ -211,9 +260,8 @@ private:
     bool gameInputEnabled_ {false};
     bool gameRuntimeSnapshotEnabled_ {false};
     bool gameMouseLook_ {false};
-    std::array<bool, 7> gameKeys_ {};
-    float gameYawRadians_ {0.0F};
-    float gamePitchRadians_ {0.0F};
+    scripting::InputState gameInputState_;
+    scripting::ScriptRuntime* gameScriptRuntime_ {nullptr};
     scene::EntityId gameCameraEntityId_;
     QTimer* gameScriptTimer_ {nullptr};
     std::uint64_t cullingLogFrameCounter_ {0};

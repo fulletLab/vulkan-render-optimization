@@ -1,0 +1,4 @@
+add_executable(projectunity_terrain_tests terrain_tests.cpp)
+target_link_libraries(projectunity_terrain_tests PRIVATE ProjectUnity::Terrain)
+projectunity_configure_target(projectunity_terrain_tests)
+add_test(NAME projectunity_terrain_tests COMMAND projectunity_terrain_tests)

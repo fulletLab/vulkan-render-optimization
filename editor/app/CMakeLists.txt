@@ -30,13 +30,21 @@ qt_add_executable(projectunity_editor
     src/MainWindow.cpp
     src/MainWindowAssets.cpp
     src/MainWindowCullingProfile.cpp
+    src/MainWindowGameObjects.cpp
     src/MainWindowLighting.cpp
     src/MainWindowPanels.cpp
     src/MainWindowPlay.cpp
     src/MainWindowProfiler.cpp
     src/MainWindowSmoke.cpp
+    src/MainWindowTerrain.cpp
+    src/ProjectAssetTreeWidget.cpp
+    src/ProjectBrowserWidget.cpp
+    src/SceneHierarchyWidget.cpp
     include/projectunity/editor/EditorApp.hpp
     include/projectunity/editor/MainWindow.hpp
+    include/projectunity/editor/ProjectAssetTreeWidget.hpp
+    include/projectunity/editor/ProjectBrowserWidget.hpp
+    include/projectunity/editor/SceneHierarchyWidget.hpp
     resources/editor_resources.qrc
 )
 
@@ -54,6 +62,7 @@ target_link_libraries(projectunity_editor
         ProjectUnity::Math
         ProjectUnity::Renderer
         ProjectUnity::Scene
+        ProjectUnity::Scripting
         ProjectUnity::EditorViewport
         Qt6::Concurrent
         Qt6::Widgets

@@ -1,5 +1,6 @@
 #include <projectunity/scene/Scene.hpp>
 
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -10,6 +11,11 @@ int fail(const char* message)
 {
     std::cerr << message << '\n';
     return EXIT_FAILURE;
+}
+
+bool closeEnough(float lhs, float rhs)
+{
+    return std::fabs(lhs - rhs) <= 0.0001F;
 }
 
 } // namespace
@@ -64,11 +70,59 @@ int main()
     }
     ScriptComponent script;
     script.scriptName = "FlyPlayerController";
-    script.moveSpeed = 12.0F;
-    script.fastMultiplier = 4.0F;
-    script.lookSensitivity = 0.005F;
+    script.scriptAsset = "Assets/Scripts/FlyPlayerController.cpp";
+    setScriptFieldValue(script, "speed", 12.0F);
+    setScriptFieldValue(script, "sprintSpeed", 48.0F);
+    setScriptFieldValue(script, "mouseSensitivity", 0.25F);
     if (!scene.setScript(childId, script)) {
         return fail("failed to set script");
+    }
+    TerrainComponent terrain;
+    terrain.settings.width = 32.0F;
+    terrain.settings.length = 24.0F;
+    terrain.settings.heightScale = 6.0F;
+    terrain.settings.resolution = 17U;
+    terrain.settings.chunkSize = 8U;
+    terrain.settings.seed = 99U;
+    terrain.settings.noiseType = projectunity::terrain::TerrainNoiseType::Ridged;
+    terrain.settings.frequency = 0.025F;
+    terrain.settings.octaves = 3U;
+    terrain.settings.persistence = 0.45F;
+    terrain.settings.lacunarity = 2.1F;
+    terrain.settings.lodLevels = 2U;
+    terrain.settings.generateCollider = true;
+    terrain.generatedModelAssetId = projectunity::core::StableId(555);
+    terrain.heightmap.assign(static_cast<std::size_t>(terrain.settings.resolution) * terrain.settings.resolution, 0.0F);
+    terrain.heightmap[terrain.heightmap.size() / 2U] = 3.25F;
+    terrain.materialLayers.clear();
+    terrain.materialLayers.push_back({"Grass"});
+    terrain.materialLayers.push_back({"Rock"});
+    terrain.materialLayers.back().heightRange = {0.45F, 1.0F};
+    terrain.materialLayers.back().slopeRange = {0.35F, 1.0F};
+    if (!scene.setTerrain(childId, terrain)) {
+        return fail("failed to set terrain");
+    }
+    RigidbodyComponent rigidbody;
+    rigidbody.mass = 3.0F;
+    rigidbody.linearDrag = 0.1F;
+    rigidbody.angularDrag = 0.2F;
+    rigidbody.useGravity = false;
+    if (!scene.setRigidbody(childId, rigidbody)) {
+        return fail("failed to set rigidbody");
+    }
+    ColliderComponent collider;
+    collider.shape = ColliderShape::Terrain;
+    collider.size = {32.0F, 6.0F, 24.0F};
+    collider.radius = 2.0F;
+    collider.trigger = true;
+    if (!scene.setCollider(childId, collider)) {
+        return fail("failed to set collider");
+    }
+    if (!scene.setCollider(childId, std::nullopt) || scene.findEntity(childId)->collider.has_value()) {
+        return fail("failed to remove collider component");
+    }
+    if (!scene.setCollider(childId, collider)) {
+        return fail("failed to restore collider component");
     }
 
     const auto* parentRead = scene.findEntity(parentId);
@@ -135,11 +189,44 @@ int main()
     }
     if (!loadedChild->script.has_value()
         || loadedChild->script->scriptName != "FlyPlayerController"
+        || loadedChild->script->scriptAsset != "Assets/Scripts/FlyPlayerController.cpp"
         || !loadedChild->script->enabled
-        || loadedChild->script->moveSpeed != 12.0F
-        || loadedChild->script->fastMultiplier != 4.0F
-        || loadedChild->script->lookSensitivity != 0.005F) {
+        || scriptFieldValue(*loadedChild->script, "speed", 0.0F) != 12.0F
+        || scriptFieldValue(*loadedChild->script, "sprintSpeed", 0.0F) != 48.0F
+        || scriptFieldValue(*loadedChild->script, "mouseSensitivity", 0.0F) != 0.25F) {
         return fail("loaded script component mismatch");
+    }
+    if (!loadedChild->terrain.has_value()) {
+        return fail("loaded terrain component was missing");
+    }
+    if (loadedChild->terrain->settings.width != 32.0F
+        || loadedChild->terrain->settings.noiseType != projectunity::terrain::TerrainNoiseType::Ridged) {
+        return fail("loaded terrain settings mismatch");
+    }
+    if (loadedChild->terrain->generatedModelAssetId.value() != 555U) {
+        return fail("loaded terrain generated asset id mismatch");
+    }
+    if (loadedChild->terrain->heightmap.size() != terrain.heightmap.size()
+        || loadedChild->terrain->heightmap[terrain.heightmap.size() / 2U] != 3.25F) {
+        return fail("loaded terrain heightmap mismatch");
+    }
+    if (loadedChild->terrain->materialLayers.size() != 2U) {
+        return fail("loaded terrain material layer count mismatch");
+    }
+    if (loadedChild->terrain->materialLayers.back().name != "Rock"
+        || !closeEnough(loadedChild->terrain->materialLayers.back().heightRange[0], 0.45F)) {
+        return fail("loaded terrain material layer data mismatch");
+    }
+    if (!loadedChild->rigidbody.has_value()
+        || loadedChild->rigidbody->mass != 3.0F
+        || loadedChild->rigidbody->useGravity) {
+        return fail("loaded rigidbody component mismatch");
+    }
+    if (!loadedChild->collider.has_value()
+        || loadedChild->collider->shape != ColliderShape::Terrain
+        || loadedChild->collider->size.x != 32.0F
+        || !loadedChild->collider->trigger) {
+        return fail("loaded collider component mismatch");
     }
 
     const auto path = std::filesystem::temp_directory_path() / "projectunity_scene_test.scene.json";

@@ -1,6 +1,7 @@
 #include "ViewportRenderWorld.hpp"
 
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldHlodPolicy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
 #include "ViewportRenderWorldShadowPolicy.hpp"
 #include "ViewportRendererCulling.hpp"
@@ -160,9 +161,94 @@ void ViewportRenderWorld::collectShadowCasters(
     if (!shadowSelection.enabled) {
         return;
     }
+    const auto lodSettings = viewportAssetLodSettingsFromEnvironment();
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {
             continue;
+        }
+        const auto recordPinned = selectedEntityId.isValid()
+            && record->entityId == selectedEntityId
+            && record->instances.size() <= 4U;
+        ViewportHlodReason shadowHlodReason = ViewportHlodReason::None;
+        const auto recordOverChunkBudget = record->chunks.size() > lodSettings.maxVisibleChunksFromFar;
+        const auto recordOverDrawBudget = record->instances.size() > lodSettings.maxDrawPackets
+            || record->sourceTriangleCount > lodSettings.maxDetailedTriangles;
+        const auto useShadowOverview = !recordPinned
+            && record->worldBoundsValid
+            && !record->overviewDraws.empty()
+            && viewportRootHlodEligible(
+                evaluateViewportHlod(record->worldBounds, camera, viewportHeight),
+                lodSettings,
+                recordOverChunkBudget,
+                recordOverDrawBudget,
+                false,
+                shadowHlodReason);
+        const auto model = record->instances.empty()
+            ? std::shared_ptr<const assets::ModelAsset> {}
+            : record->instances.front().model;
+        if (useShadowOverview && model != nullptr) {
+            auto emittedShadowProxyDraws = std::uint64_t {0};
+            const auto renderChunkId = record->entityId.value() ^ 0x5ad0c001ULL;
+            for (const auto& overview : record->overviewDraws) {
+                if (overview.primitive == nullptr || overview.primitive->materialIndex >= model->materials.size()) {
+                    continue;
+                }
+                const auto& material = model->materials[overview.primitive->materialIndex];
+                if (material.alphaMode == assets::MaterialAlphaMode::Blend) {
+                    continue;
+                }
+                const auto visibleToCamera = viewportBoundsVisible(
+                    overview.worldBounds,
+                    camera.eye,
+                    camera.right,
+                    camera.up,
+                    camera.forward,
+                    camera.verticalFovRadians,
+                    camera.aspectRatio,
+                    camera.nearPlane,
+                    camera.farPlane);
+                const auto intersectsShadowSelection = instanceIntersectsShadowSelection(shadowSelection, overview);
+                if (visibleToCamera) {
+                    ++stats.shadowVisibleInstances;
+                    if (!intersectsShadowSelection) {
+                        continue;
+                    }
+                } else {
+                    ++stats.shadowOnlyCandidateInstances;
+                    if (!offscreenDirectionalShadowMayReachCamera(shadowSelection, shadowLight, camera, overview)) {
+                        ++stats.shadowOnlyRejectedInstances;
+                        continue;
+                    }
+                }
+                const auto cameraDistance = (overview.worldBounds.center - camera.eye).length();
+                shadowMeshDraws.push_back({
+                    overview.modelAssetId,
+                    overview.primitiveIndex,
+                    0U,
+                    overview.primitive.get(),
+                    &material,
+                    modelTexture(*model, material.baseColorTexture),
+                    modelTexture(*model, material.normalTexture),
+                    modelTexture(*model, material.metallicRoughnessTexture),
+                    modelTexture(*model, material.occlusionTexture),
+                    modelTexture(*model, material.emissiveTexture),
+                    std::max(cameraDistance, camera.nearPlane),
+                    {overview.worldBounds.center.x, overview.worldBounds.center.y, overview.worldBounds.center.z},
+                    overview.worldBounds.radius,
+                    overview.modelMatrix,
+                    multiply(shadowSelection.viewProjection, overview.modelMatrix),
+                    false,
+                    true,
+                    overview.renderInstanceId,
+                    renderChunkId,
+                    record->entityId.value(),
+                });
+                ++stats.shadowHlodProxyDrawCount;
+                ++emittedShadowProxyDraws;
+            }
+            if (emittedShadowProxyDraws > 0U) {
+                continue;
+            }
         }
         for (const auto& instance : record->instances) {
             if (instance.primitiveIndex >= instance.model->primitives.size()) {
@@ -204,19 +290,20 @@ void ViewportRenderWorld::collectShadowCasters(
             }
             const auto cameraDistance = (instance.worldBounds.center - camera.eye).length();
             const auto sortDepth = std::max(cameraDistance, camera.nearPlane);
-            const auto lodDistance = viewportLodDistanceToBounds(
-                camera.eye,
-                camera.forward,
-                instance.worldBounds.corners,
-                camera.nearPlane);
             const auto forceFullResolution = instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U;
-            const auto lodIndex = selectViewportMeshLod(
+            const auto historyIt = lodSelectionHistory_.find(instance.renderInstanceId);
+            const auto lodIndex = evaluateViewportMeshLod(
                 primitive,
                 instance.worldBounds.radius,
-                lodDistance,
+                std::max(cameraDistance, camera.nearPlane),
                 camera.verticalFovRadians,
                 static_cast<float>(std::max(viewportHeight, 1)),
-                forceFullResolution);
+                forceFullResolution,
+                lodSettings.lodBias,
+                historyIt == lodSelectionHistory_.end()
+                    ? std::optional<std::uint32_t> {}
+                    : std::optional<std::uint32_t> {historyIt->second},
+                lodSettings.lodHysteresisRatio).lodIndex;
             shadowMeshDraws.push_back({
                 instance.modelAssetId,
                 instance.primitiveIndex,
@@ -241,7 +328,7 @@ void ViewportRenderWorld::collectShadowCasters(
             });
         }
     }
-    applyViewportShadowPolicy(shadowMeshDraws, selectedEntityId, camera, viewportHeight, stats);
+    applyViewportShadowPolicy(shadowMeshDraws, selectedEntityId, camera, viewportHeight, lodSettings, stats);
 }
 
 } // namespace projectunity::editor

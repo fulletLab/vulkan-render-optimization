@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ViewportRenderWorldSettings.hpp"
+
 #include <projectunity/assets/AssetManager.hpp>
 #include <projectunity/math/Vec3.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
@@ -53,6 +55,9 @@ struct ViewportRenderWorldStats {
     std::uint64_t hlodRejectedCoverageCount {0};
     std::uint64_t hlodRejectedScreenCount {0};
     std::uint64_t hlodRejectedClusterScreenCount {0};
+    std::uint64_t hlodCollapsedChunkCount {0};
+    float hlodScreenCoverage {0.0F};
+    float hlodCameraDistance {0.0F};
     std::uint64_t occlusionTestedChunkCount {0};
     std::uint64_t occlusionRejectedChunkCount {0};
     std::uint64_t occlusionOccluderChunkCount {0};
@@ -67,6 +72,11 @@ struct ViewportRenderWorldStats {
     std::uint64_t shadowVisibleInstances {0};
     std::uint64_t shadowOnlyCandidateInstances {0};
     std::uint64_t shadowOnlyRejectedInstances {0};
+    std::uint64_t shadowHlodProxyDrawCount {0};
+    std::uint64_t finalDrawPacketCount {0};
+    std::uint64_t finalTriangleCount {0};
+    std::uint64_t finalVisibleChunkCount {0};
+    std::uint64_t budgetDegradedDrawCount {0};
     std::uint64_t largeRenderChunkCount {0};
     std::uint64_t largestRenderChunkTriangleCount {0};
     std::uint64_t largestRenderChunkInstanceCount {0};
@@ -137,6 +147,7 @@ private:
         const ViewportRenderWorldCamera& camera,
         const renderer::RenderMatrix4& viewProjection,
         int viewportHeight,
+        const ViewportAssetLodSettings& lodSettings,
         const ViewportOcclusionBuffer* occlusionBuffer,
         const std::unordered_set<std::uint64_t>* occluderChunkIds,
         bool countVisibleChunks,
@@ -144,7 +155,7 @@ private:
         ViewportRenderWorldStats& stats,
         ViewportFrameBounds& visibleBounds,
         std::uint64_t& visibleSourceTriangleCount,
-        std::unordered_set<std::uint64_t>* overviewCoveredChunkIds = nullptr) const;
+        std::unordered_set<std::uint64_t>* overviewCoveredChunkIds = nullptr);
 
     const scene::Scene* scene_ {nullptr};
     const assets::IAssetManager* assetManager_ {nullptr};
@@ -152,6 +163,9 @@ private:
     bool runtimeSnapshot_ {false};
     std::uint64_t lastDebugSignature_ {0};
     std::unordered_map<std::uint64_t, std::shared_ptr<EntityRecord>> records_;
+    std::unordered_map<std::uint64_t, std::uint32_t> lodSelectionHistory_;
+    std::unordered_map<std::uint64_t, bool> rootHlodHistory_;
+    std::unordered_map<std::uint64_t, bool> chunkHlodHistory_;
     std::vector<const EntityRecord*> orderedRecords_;
     std::vector<std::shared_ptr<EntityRecord>> overviewRecords_;
 };

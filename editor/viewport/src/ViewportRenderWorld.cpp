@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -238,29 +239,22 @@ namespace {
     return (frame.maximum - frame.minimum) * 0.5F;
 }
 
-[[nodiscard]] float viewportBoundsDistanceToPoint(math::Vec3 point, const std::array<math::Vec3, 8>& corners)
-{
-    const auto frame = viewportBoundsFrame(corners);
-    if (!frame.valid) {
-        return 0.0F;
-    }
-    const auto axisDistance = [](float value, float minimum, float maximum) noexcept {
-        if (value < minimum) {
-            return minimum - value;
-        }
-        return value > maximum ? value - maximum : 0.0F;
-    };
-    const math::Vec3 distance {
-        axisDistance(point.x, frame.minimum.x, frame.maximum.x),
-        axisDistance(point.y, frame.minimum.y, frame.maximum.y),
-        axisDistance(point.z, frame.minimum.z, frame.maximum.z),
-    };
-    return distance.length();
-}
-
 [[nodiscard]] std::array<float, 3> vec3Array(math::Vec3 value) noexcept
 {
     return {value.x, value.y, value.z};
+}
+
+[[nodiscard]] renderer::RenderLodSelectionReason renderLodReason(ViewportMeshLodReason reason) noexcept
+{
+    switch (reason) {
+    case ViewportMeshLodReason::FullResolution:
+        return renderer::RenderLodSelectionReason::FullResolution;
+    case ViewportMeshLodReason::ScreenError:
+        return renderer::RenderLodSelectionReason::ScreenError;
+    case ViewportMeshLodReason::HysteresisHold:
+        return renderer::RenderLodSelectionReason::HysteresisHold;
+    }
+    return renderer::RenderLodSelectionReason::Unspecified;
 }
 
 [[nodiscard]] float renderWorldProjectedRadiusPixels(
@@ -498,6 +492,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         assetManager_ = assetManager;
         return result;
     }
+    const auto lodSettings = viewportAssetLodSettingsFromEnvironment();
     result.stats.sceneNodeCount = scene->entityCount();
     const ViewportSceneEntityLookup entityLookup(*scene);
     bool recordsChanged = false;
@@ -505,6 +500,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         records_.clear();
         orderedRecords_.clear();
         overviewRecords_.clear();
+        lodSelectionHistory_.clear();
+        rootHlodHistory_.clear();
+        chunkHlodHistory_.clear();
         scene_ = scene;
         assetManager_ = assetManager;
         runtimeSnapshot_ = runtimeSnapshot;
@@ -697,6 +695,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 camera,
                 viewProjection,
                 viewportHeight,
+                lodSettings,
                 &occlusionBuffer,
                 &occluderChunkIds,
                 true,
@@ -743,11 +742,12 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     chunkModelAssetId = firstInstance.modelAssetId.isValid() ? firstInstance.modelAssetId.value() : 0U;
                 }
                 const auto chunkFrame = viewportBoundsFrame(chunk.worldBounds.corners);
-                const auto chunkDistance = viewportLodDistanceToBounds(
+                const auto chunkDistanceToBounds = viewportLodDistanceToBounds(
                     camera.eye,
                     camera.forward,
                     chunk.worldBounds.corners,
                     camera.nearPlane);
+                const auto chunkDistanceToCenter = (chunk.worldBounds.center - camera.eye).length();
                 ViewportRenderWorldChunkLogRow row;
                 row.sceneNodeId = chunk.sceneNodeId.value();
                 row.modelAssetId = chunkModelAssetId;
@@ -757,10 +757,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 row.boundsMinimum = chunkFrame.valid ? chunkFrame.minimum : chunk.worldBounds.center;
                 row.boundsMaximum = chunkFrame.valid ? chunkFrame.maximum : chunk.worldBounds.center;
                 row.maxExtent = chunkExtent;
-                row.distanceToCamera = chunkDistance;
+                row.distanceToCamera = chunkDistanceToCenter;
+                row.distanceToBounds = chunkDistanceToBounds;
                 row.projectedRadiusPixels = renderWorldProjectedRadiusPixels(
                     chunk.worldBounds.radius,
-                    chunkDistance,
+                    std::max(chunkDistanceToCenter, camera.nearPlane),
                     camera.verticalFovRadians,
                     viewportHeight);
                 row.visible = chunkVisible;
@@ -822,6 +823,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 camera,
                 viewProjection,
                 viewportHeight,
+                lodSettings,
                 &occlusionBuffer,
                 &occluderChunkIds,
                 false,
@@ -871,7 +873,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 visibleBounds.includeSphere(instance.worldBounds.center, instance.worldBounds.radius);
                 const auto& material = instance.model->materials[primitive.materialIndex];
                 const auto sortDepth = math::dot(instance.worldBounds.center - camera.eye, camera.forward);
-                const auto lodDistance = viewportLodDistanceToBounds(
+                const auto distanceToCenter = (instance.worldBounds.center - camera.eye).length();
+                const auto distanceToBounds = viewportLodDistanceToBounds(
                     camera.eye,
                     camera.forward,
                     instance.worldBounds.corners,
@@ -882,13 +885,21 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     ? (selectedPrimitiveModel == instance.modelAssetId
                         && selectedPrimitiveIndex == instance.primitiveInstanceIndex)
                     : (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U);
-                const auto lodIndex = selectViewportMeshLod(
+                const auto historyIt = lodSelectionHistory_.find(instance.renderInstanceId);
+                const auto lodSelection = evaluateViewportMeshLod(
                     primitive,
                     instance.worldBounds.radius,
-                    lodDistance,
+                    std::max(distanceToCenter, camera.nearPlane),
                     camera.verticalFovRadians,
                     static_cast<float>(std::max(viewportHeight, 1)),
-                    forceFullResolution);
+                    forceFullResolution,
+                    lodSettings.lodBias,
+                    historyIt == lodSelectionHistory_.end()
+                        ? std::optional<std::uint32_t> {}
+                        : std::optional<std::uint32_t> {historyIt->second},
+                    lodSettings.lodHysteresisRatio);
+                const auto lodIndex = lodSelection.lodIndex;
+                lodSelectionHistory_.insert_or_assign(instance.renderInstanceId, lodIndex);
                 const auto selectedTriangleCount = static_cast<std::uint64_t>(indexCountForViewportLod(primitive, lodIndex) / 3U);
                 if (collectChunkDebug) {
                     const auto rowIt = chunkDebugRowById.find(chunk.renderChunkId);
@@ -901,10 +912,13 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                         } else {
                             ++row.lod2PlusDrawCount;
                         }
-                        if (lodDistance < row.nearestInstanceDistance) {
+                        if (distanceToBounds < row.nearestInstanceDistance) {
                             row.nearestRenderInstanceId = instance.renderInstanceId;
-                            row.nearestInstanceDistance = lodDistance;
+                            row.nearestInstanceDistance = distanceToBounds;
                             row.nearestSelectedLod = lodIndex;
+                            row.nearestPreviousLod = lodSelection.previousLodIndex;
+                            row.nearestHysteresisActive = lodSelection.hysteresisActive;
+                            row.nearestSelectionReason = renderLodReason(lodSelection.reason);
                             row.modelAssetId = instance.modelAssetId.isValid() ? instance.modelAssetId.value() : row.modelAssetId;
                         }
                     }
@@ -935,10 +949,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     chunk.renderChunkId,
                     instance.sceneNodeId.value(),
                 };
-                const auto distanceToCenter = (instance.worldBounds.center - camera.eye).length();
                 draw.worldBoundsHalfExtent = vec3Array(viewportBoundsHalfExtent(instance.worldBounds.corners));
                 draw.distanceToCameraCenter = std::isfinite(distanceToCenter) ? distanceToCenter : 0.0F;
-                draw.distanceToCameraBounds = viewportBoundsDistanceToPoint(camera.eye, instance.worldBounds.corners);
+                draw.distanceToCameraBounds = distanceToBounds;
                 draw.projectedRadiusPixels = renderWorldProjectedRadiusPixels(
                     instance.worldBounds.radius,
                     std::max(draw.distanceToCameraCenter, camera.nearPlane),
@@ -950,6 +963,10 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 draw.cameraInsideRootBounds = record->worldBoundsValid
                     && pointInsideViewportBounds(camera.eye, record->worldBounds.corners);
                 draw.cameraInsideChunkBounds = pointInsideViewportBounds(camera.eye, instance.worldBounds.corners);
+                draw.previousLodIndex = lodSelection.previousLodIndex;
+                draw.projectedLodErrorPixels = lodSelection.projectedErrorPixels;
+                draw.lodSelectionReason = renderLodReason(lodSelection.reason);
+                draw.lodHysteresisActive = lodSelection.hysteresisActive;
                 meshDraws.push_back(draw);
             }
         }
@@ -967,9 +984,23 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             visibleSourceTriangleCount);
     }
 
-    applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, result.stats);
+    applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, lodSettings, result.stats);
 
-    logRenderWorldChunkDiagnostics(result.stats, chunkDebugRows, lastDebugSignature_);
+    std::unordered_set<std::uint64_t> finalChunkIds;
+    finalChunkIds.reserve(meshDraws.size());
+    for (const auto& draw : meshDraws) {
+        ++result.stats.finalDrawPacketCount;
+        result.stats.finalTriangleCount += renderer::renderMeshDrawTriangleCount(draw);
+        if (draw.renderChunkId != 0U) {
+            finalChunkIds.insert(draw.renderChunkId);
+        }
+    }
+    result.stats.finalVisibleChunkCount = static_cast<std::uint64_t>(finalChunkIds.size());
+    if (result.stats.visibleRenderChunkCount > result.stats.finalVisibleChunkCount) {
+        result.stats.hlodCollapsedChunkCount = std::max(
+            result.stats.hlodCollapsedChunkCount,
+            result.stats.visibleRenderChunkCount - result.stats.finalVisibleChunkCount);
+    }
 
     if (visibleBounds.valid) {
         result.visibleBoundsValid = true;
@@ -982,7 +1013,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     result.stats.culledTriangleCount = result.stats.candidateTriangleCount > visibleSourceTriangleCount
         ? result.stats.candidateTriangleCount - visibleSourceTriangleCount
         : 0U;
-    applyViewportShadowPolicy(meshDraws, selectedEntityId, camera, viewportHeight, result.stats);
+    applyViewportShadowPolicy(meshDraws, selectedEntityId, camera, viewportHeight, lodSettings, result.stats);
+    logRenderWorldChunkDiagnostics(result.stats, chunkDebugRows, meshDraws, camera, lastDebugSignature_);
     return result;
 }
 

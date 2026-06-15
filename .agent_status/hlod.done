@@ -1,0 +1,30 @@
+Estado: listo para build coordinator
+
+Qué hice:
+- Estabilicé LOD/HLOD para que no dependa agresivamente del pitch de cámara.
+- Cambié la métrica hacia distancia/radio de bounding sphere y distancia estable a bounds.
+- Añadí hysteresis para LOD y HLOD, evitando saltos por pequeños cambios de ángulo.
+- Añadí diagnósticos por draw/chunk con assetId, instanceId, chunkId, distancias, screen/projection size, LOD, mesh/proxy, razón, cámara, ndcRect y hysteresis.
+- Añadí tests de estabilidad angular y hysteresis.
+
+Archivos tocados:
+- editor/viewport/src/ViewportMeshLod.hpp
+- editor/viewport/src/ViewportMeshLod.cpp
+- editor/viewport/src/ViewportRenderWorldSettings.hpp
+- editor/viewport/src/ViewportRenderWorldHlodPolicy.hpp
+- editor/viewport/src/ViewportRenderWorld.hpp
+- editor/viewport/src/ViewportRenderWorld.cpp
+- editor/viewport/src/ViewportRenderWorldOverview.cpp
+- editor/viewport/src/ViewportRenderWorldShadowCasters.cpp
+- editor/viewport/src/ViewportRenderWorldDiagnostics.hpp
+- editor/viewport/src/ViewportRenderWorldDiagnostics.cpp
+- editor/viewport/src/ViewportWidgetRenderer.cpp
+- engine/renderer/include/projectunity/renderer/RendererTypes.hpp
+- tests/editor_viewport_tests/viewport_render_world_hlod_tests.cpp
+
+Qué quedó parcial:
+- No ejecuté build final después de la regla nueva de no compilar.
+- El build coordinator debe validar el editor final.
+
+Bloqueos:
+- Externos reportados previamente: ejecutable Release bloqueado por proceso externo y source-rule global en archivos grandes ajenos/concurrentes.

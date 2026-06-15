@@ -19,6 +19,7 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportWidgetGameScripts.cpp
     src/ViewportWidget.cpp
     src/ViewportWidgetDraw.cpp
+    src/ViewportWidgetPickRadius.cpp
     src/ViewportWidgetPicking.cpp
     src/ViewportDrawDebugOverlay.cpp
     src/ViewportDrawDebugOverlay.hpp
@@ -75,6 +76,7 @@ target_link_libraries(projectunity_editor_viewport
         ProjectUnity::Math
         ProjectUnity::Renderer
         ProjectUnity::Scene
+        ProjectUnity::Scripting
         ${PROJECTUNITY_IM3D_TARGET}
         ${PROJECTUNITY_TINYGIZMO_TARGET}
         Qt6::Widgets

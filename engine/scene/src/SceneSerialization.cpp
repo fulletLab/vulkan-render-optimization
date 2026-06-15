@@ -2,6 +2,8 @@
 
 #include <projectunity/core/Log.hpp>
 
+#include "SceneScriptSerialization.hpp"
+
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -156,6 +158,160 @@ constexpr int kSceneFormatVersion = 1;
     return false;
 }
 
+[[nodiscard]] const char* terrainNoiseTypeToString(terrain::TerrainNoiseType type) noexcept
+{
+    return type == terrain::TerrainNoiseType::Ridged ? "ridged" : "value";
+}
+
+[[nodiscard]] bool terrainNoiseTypeFromJson(const nlohmann::json& json, terrain::TerrainNoiseType& output)
+{
+    if (!json.is_string()) {
+        return false;
+    }
+    const auto type = json.get<std::string>();
+    if (type == "value") {
+        output = terrain::TerrainNoiseType::Value;
+        return true;
+    }
+    if (type == "ridged") {
+        output = terrain::TerrainNoiseType::Ridged;
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] const char* colliderShapeToString(ColliderShape shape) noexcept
+{
+    switch (shape) {
+    case ColliderShape::Box:
+        return "box";
+    case ColliderShape::Sphere:
+        return "sphere";
+    case ColliderShape::Mesh:
+        return "mesh";
+    case ColliderShape::Terrain:
+        return "terrain";
+    }
+    return "box";
+}
+
+[[nodiscard]] bool colliderShapeFromJson(const nlohmann::json& json, ColliderShape& output)
+{
+    if (!json.is_string()) {
+        return false;
+    }
+    const auto shape = json.get<std::string>();
+    if (shape == "box") {
+        output = ColliderShape::Box;
+        return true;
+    }
+    if (shape == "sphere") {
+        output = ColliderShape::Sphere;
+        return true;
+    }
+    if (shape == "mesh") {
+        output = ColliderShape::Mesh;
+        return true;
+    }
+    if (shape == "terrain") {
+        output = ColliderShape::Terrain;
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] nlohmann::json rangeToJson(const std::array<float, 2>& value)
+{
+    return nlohmann::json::array({value[0], value[1]});
+}
+
+[[nodiscard]] bool rangeFromJson(const nlohmann::json& json, std::array<float, 2>& output)
+{
+    if (!json.is_array() || json.size() != 2U || !json.at(0).is_number() || !json.at(1).is_number()) {
+        return false;
+    }
+    output = {json.at(0).get<float>(), json.at(1).get<float>()};
+    return output[0] <= output[1];
+}
+
+[[nodiscard]] nlohmann::json terrainSettingsToJson(const terrain::TerrainSettings& settings)
+{
+    return {
+        {"width", settings.width},
+        {"length", settings.length},
+        {"heightScale", settings.heightScale},
+        {"resolution", settings.resolution},
+        {"chunkSize", settings.chunkSize},
+        {"seed", settings.seed},
+        {"noiseType", terrainNoiseTypeToString(settings.noiseType)},
+        {"frequency", settings.frequency},
+        {"octaves", settings.octaves},
+        {"persistence", settings.persistence},
+        {"lacunarity", settings.lacunarity},
+        {"generateNormals", settings.generateNormals},
+        {"generateTangents", settings.generateTangents},
+        {"lodLevels", settings.lodLevels},
+        {"generateCollider", settings.generateCollider},
+    };
+}
+
+[[nodiscard]] bool terrainSettingsFromJson(const nlohmann::json& json, terrain::TerrainSettings& output)
+{
+    if (!json.is_object() || !terrainNoiseTypeFromJson(json.at("noiseType"), output.noiseType)) {
+        return false;
+    }
+    output.width = json.value("width", output.width);
+    output.length = json.value("length", output.length);
+    output.heightScale = json.value("heightScale", output.heightScale);
+    output.resolution = json.value("resolution", output.resolution);
+    output.chunkSize = json.value("chunkSize", output.chunkSize);
+    output.seed = json.value("seed", output.seed);
+    output.frequency = json.value("frequency", output.frequency);
+    output.octaves = json.value("octaves", output.octaves);
+    output.persistence = json.value("persistence", output.persistence);
+    output.lacunarity = json.value("lacunarity", output.lacunarity);
+    output.generateNormals = json.value("generateNormals", output.generateNormals);
+    output.generateTangents = json.value("generateTangents", output.generateTangents);
+    output.lodLevels = json.value("lodLevels", output.lodLevels);
+    output.generateCollider = json.value("generateCollider", output.generateCollider);
+    return output.width > 0.0F && output.length > 0.0F && output.heightScale >= 0.0F
+        && output.resolution >= 2U && output.chunkSize > 0U && output.octaves > 0U;
+}
+
+[[nodiscard]] nlohmann::json terrainLayerToJson(const terrain::TerrainMaterialLayer& layer)
+{
+    return {
+        {"name", layer.name},
+        {"baseColorTextureId", layer.baseColorTextureId.value()},
+        {"normalTextureId", layer.normalTextureId.value()},
+        {"metallic", layer.metallic},
+        {"roughness", layer.roughness},
+        {"tiling", layer.tiling},
+        {"strength", layer.strength},
+        {"heightRange", rangeToJson(layer.heightRange)},
+        {"slopeRange", rangeToJson(layer.slopeRange)},
+    };
+}
+
+[[nodiscard]] bool terrainLayerFromJson(const nlohmann::json& json, terrain::TerrainMaterialLayer& output)
+{
+    if (!json.is_object()) {
+        return false;
+    }
+    output.name = json.value("name", std::string {"Layer"});
+    output.baseColorTextureId = core::StableId(json.value("baseColorTextureId", std::uint64_t {0}));
+    output.normalTextureId = core::StableId(json.value("normalTextureId", std::uint64_t {0}));
+    output.metallic = json.value("metallic", output.metallic);
+    output.roughness = json.value("roughness", output.roughness);
+    output.tiling = json.value("tiling", output.tiling);
+    output.strength = json.value("strength", output.strength);
+    return !output.name.empty()
+        && output.tiling > 0.0F
+        && output.strength >= 0.0F
+        && rangeFromJson(json.at("heightRange"), output.heightRange)
+        && rangeFromJson(json.at("slopeRange"), output.slopeRange);
+}
+
 void setError(std::string* errorMessage, std::string message)
 {
     if (errorMessage != nullptr) {
@@ -226,15 +382,41 @@ std::string Scene::serialize(std::string* errorMessage) const
                     {"farPlane", entity.camera->farPlane},
                 };
             }
-            if (entity.script.has_value()) {
-                item["script"] = {
-                    {"name", entity.script->scriptName},
-                    {"enabled", entity.script->enabled},
-                    {"moveSpeed", entity.script->moveSpeed},
-                    {"fastMultiplier", entity.script->fastMultiplier},
-                    {"lookSensitivity", entity.script->lookSensitivity},
+            if (!entity.scripts.empty()) {
+                item["scripts"] = serialization::scriptsToJson(entity.scripts);
+            }
+            if (entity.terrain.has_value()) {
+                nlohmann::json layers = nlohmann::json::array();
+                for (const auto& layer : entity.terrain->materialLayers) {
+                    layers.push_back(terrainLayerToJson(layer));
+                }
+                item["terrain"] = {
+                    {"settings", terrainSettingsToJson(entity.terrain->settings)},
+                    {"generatedModelAssetId", entity.terrain->generatedModelAssetId.value()},
+                    {"materialLayers", std::move(layers)},
+                    {"heightmap", entity.terrain->heightmap},
                 };
             }
+            if (entity.rigidbody.has_value()) {
+                item["rigidbody"] = {
+                    {"mass", entity.rigidbody->mass},
+                    {"linearDrag", entity.rigidbody->linearDrag},
+                    {"angularDrag", entity.rigidbody->angularDrag},
+                    {"useGravity", entity.rigidbody->useGravity},
+                    {"kinematic", entity.rigidbody->kinematic},
+                    {"partial", true},
+                };
+            }
+            if (entity.collider.has_value()) {
+                item["collider"] = {
+                    {"shape", colliderShapeToString(entity.collider->shape)},
+                    {"size", vecToJson(entity.collider->size)},
+                    {"radius", entity.collider->radius},
+                    {"trigger", entity.collider->trigger},
+                    {"partial", true},
+                };
+            }
+            item["componentOrder"] = serialization::componentOrderToJson(entity.componentOrder);
             root["entities"].push_back(std::move(item));
         }
 
@@ -270,6 +452,7 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
         std::vector<Entity> loadedEntities;
         loadedEntities.reserve(entitiesJson.size());
         std::unordered_map<std::uint64_t, std::size_t> indexById;
+        std::unordered_map<std::uint64_t, bool> hasSerializedComponentOrder;
 
         for (const auto& item : entitiesJson) {
             if (!item.is_object()) {
@@ -395,23 +578,100 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                 entity.camera = camera;
             }
 
-            if (item.contains("script")) {
-                const auto& scriptJson = item.at("script");
-                if (!scriptJson.is_object()) {
-                    setError(errorMessage, "Scene script must be an object");
+            std::string scriptError;
+            if (!serialization::scriptsFromJson(item, entity.scripts, scriptError)) {
+                setError(errorMessage, std::move(scriptError));
+                return false;
+            }
+            if (item.contains("componentOrder")
+                && !serialization::componentOrderFromJson(item.at("componentOrder"), entity.componentOrder, scriptError)) {
+                setError(errorMessage, std::move(scriptError));
+                return false;
+            }
+            hasSerializedComponentOrder.emplace(entity.id.value(), item.contains("componentOrder"));
+
+            if (item.contains("terrain")) {
+                const auto& terrainJson = item.at("terrain");
+                if (!terrainJson.is_object()) {
+                    setError(errorMessage, "Scene terrain must be an object");
                     return false;
                 }
-                ScriptComponent script;
-                script.scriptName = scriptJson.value("name", std::string {});
-                script.enabled = scriptJson.value("enabled", script.enabled);
-                script.moveSpeed = scriptJson.value("moveSpeed", script.moveSpeed);
-                script.fastMultiplier = scriptJson.value("fastMultiplier", script.fastMultiplier);
-                script.lookSensitivity = scriptJson.value("lookSensitivity", script.lookSensitivity);
-                if (script.scriptName.empty()) {
-                    setError(errorMessage, "Scene script name must be non-empty");
+                TerrainComponent terrainComponent;
+                if (!terrainSettingsFromJson(terrainJson.at("settings"), terrainComponent.settings)
+                    || !terrainJson.at("materialLayers").is_array()) {
+                    setError(errorMessage, "Scene terrain settings are invalid");
                     return false;
                 }
-                entity.script = std::move(script);
+                terrainComponent.generatedModelAssetId = core::StableId(terrainJson.value("generatedModelAssetId", std::uint64_t {0}));
+                if (terrainJson.contains("heightmap")) {
+                    const auto& heightmapJson = terrainJson.at("heightmap");
+                    if (!heightmapJson.is_array()) {
+                        setError(errorMessage, "Scene terrain heightmap must be an array");
+                        return false;
+                    }
+                    terrainComponent.heightmap = heightmapJson.get<std::vector<float>>();
+                    const auto expectedHeightCount = static_cast<std::size_t>(terrainComponent.settings.resolution)
+                        * terrainComponent.settings.resolution;
+                    if (!terrainComponent.heightmap.empty() && terrainComponent.heightmap.size() != expectedHeightCount) {
+                        setError(errorMessage, "Scene terrain heightmap size does not match resolution");
+                        return false;
+                    }
+                }
+                terrainComponent.materialLayers.clear();
+                for (const auto& layerJson : terrainJson.at("materialLayers")) {
+                    terrain::TerrainMaterialLayer layer;
+                    if (!terrainLayerFromJson(layerJson, layer)) {
+                        setError(errorMessage, "Scene terrain material layer is invalid");
+                        return false;
+                    }
+                    terrainComponent.materialLayers.push_back(std::move(layer));
+                }
+                if (terrainComponent.materialLayers.empty() || terrainComponent.materialLayers.size() > 8U) {
+                    setError(errorMessage, "Scene terrain must have one to eight material layers");
+                    return false;
+                }
+                entity.terrain = std::move(terrainComponent);
+            }
+
+            if (item.contains("rigidbody")) {
+                const auto& rigidbodyJson = item.at("rigidbody");
+                if (!rigidbodyJson.is_object()) {
+                    setError(errorMessage, "Scene rigidbody must be an object");
+                    return false;
+                }
+                RigidbodyComponent rigidbody;
+                rigidbody.mass = rigidbodyJson.value("mass", rigidbody.mass);
+                rigidbody.linearDrag = rigidbodyJson.value("linearDrag", rigidbody.linearDrag);
+                rigidbody.angularDrag = rigidbodyJson.value("angularDrag", rigidbody.angularDrag);
+                rigidbody.useGravity = rigidbodyJson.value("useGravity", rigidbody.useGravity);
+                rigidbody.kinematic = rigidbodyJson.value("kinematic", rigidbody.kinematic);
+                if (!(rigidbody.mass > 0.0F) || rigidbody.linearDrag < 0.0F || rigidbody.angularDrag < 0.0F) {
+                    setError(errorMessage, "Scene rigidbody values are invalid");
+                    return false;
+                }
+                entity.rigidbody = rigidbody;
+            }
+
+            if (item.contains("collider")) {
+                const auto& colliderJson = item.at("collider");
+                if (!colliderJson.is_object()) {
+                    setError(errorMessage, "Scene collider must be an object");
+                    return false;
+                }
+                ColliderComponent collider;
+                if (!colliderShapeFromJson(colliderJson.at("shape"), collider.shape)
+                    || !vecFromJson(colliderJson.at("size"), collider.size)) {
+                    setError(errorMessage, "Scene collider shape or size is invalid");
+                    return false;
+                }
+                collider.radius = colliderJson.value("radius", collider.radius);
+                collider.trigger = colliderJson.value("trigger", collider.trigger);
+                if (collider.size.x <= 0.0F || collider.size.y <= 0.0F || collider.size.z <= 0.0F
+                    || collider.radius <= 0.0F) {
+                    setError(errorMessage, "Scene collider values are invalid");
+                    return false;
+                }
+                entity.collider = collider;
             }
 
             indexById.emplace(entity.id.value(), loadedEntities.size());
@@ -430,6 +690,55 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
         }
 
         entities_ = std::move(loadedEntities);
+        std::uint64_t nextScriptId = 1;
+        std::unordered_map<std::uint64_t, bool> usedScriptIds;
+        for (const auto& entity : entities_) {
+            for (const auto& script : entity.scripts) {
+                if (script.instanceId.isValid()) {
+                    nextScriptId = std::max(nextScriptId, script.instanceId.value() + 1);
+                }
+            }
+        }
+        for (auto& entity : entities_) {
+            for (auto& script : entity.scripts) {
+                if (!script.instanceId.isValid()) {
+                    while (usedScriptIds.contains(nextScriptId)) {
+                        ++nextScriptId;
+                    }
+                    script.instanceId = ScriptInstanceId(nextScriptId++);
+                }
+                if (!usedScriptIds.emplace(script.instanceId.value(), true).second) {
+                    setError(errorMessage, "Scene contains duplicate script instance ids");
+                    entities_.clear();
+                    return false;
+                }
+            }
+            if (!hasSerializedComponentOrder[entity.id.value()]) {
+                rebuildComponentOrder(entity);
+                continue;
+            }
+            if (entity.componentOrder.empty()
+                || entity.componentOrder.front().type != ComponentType::Transform) {
+                setError(errorMessage, "Scene component order must begin with Transform");
+                entities_.clear();
+                return false;
+            }
+            for (const auto& entry : entity.componentOrder) {
+                const bool present = entry.type == ComponentType::Transform
+                    || (entry.type == ComponentType::MeshRenderer && entity.meshRenderer.has_value())
+                    || (entry.type == ComponentType::Light && entity.light.has_value())
+                    || (entry.type == ComponentType::Camera && entity.camera.has_value())
+                    || (entry.type == ComponentType::Script && findScript(entity, entry.scriptInstanceId) != nullptr)
+                    || (entry.type == ComponentType::Terrain && entity.terrain.has_value())
+                    || (entry.type == ComponentType::Rigidbody && entity.rigidbody.has_value())
+                    || (entry.type == ComponentType::Collider && entity.collider.has_value());
+                if (!present) {
+                    setError(errorMessage, "Scene component order references a missing component");
+                    entities_.clear();
+                    return false;
+                }
+            }
+        }
         setName(root.value("name", "Untitled Scene"));
         rebuildNextId();
         core::logInfo(core::LogCategory::Core, "Scene deserialized");

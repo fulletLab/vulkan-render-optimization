@@ -67,6 +67,11 @@ VkPipeline VulkanShadowPipeline::pipeline() const noexcept
     return pipeline_;
 }
 
+VkPipeline VulkanShadowPipeline::flippedWindingPipeline() const noexcept
+{
+    return flippedWindingPipeline_;
+}
+
 VkPipeline VulkanShadowPipeline::doubleSidedPipeline() const noexcept
 {
     return doubleSidedPipeline_;
@@ -381,6 +386,11 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan shadow graphics pipeline");
         }
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &flippedWindingPipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan flipped-winding shadow graphics pipeline");
+        }
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         raster.cullMode = VK_CULL_MODE_NONE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &doubleSidedPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan double-sided shadow graphics pipeline");
@@ -396,13 +406,17 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
 
 void VulkanShadowPipeline::destroy() noexcept
 {
-    if (pipeline_ != VK_NULL_HANDLE) {
-        vkDestroyPipeline(context_.device, pipeline_, nullptr);
-        pipeline_ = VK_NULL_HANDLE;
-    }
     if (doubleSidedPipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, doubleSidedPipeline_, nullptr);
         doubleSidedPipeline_ = VK_NULL_HANDLE;
+    }
+    if (flippedWindingPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, flippedWindingPipeline_, nullptr);
+        flippedWindingPipeline_ = VK_NULL_HANDLE;
+    }
+    if (pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, pipeline_, nullptr);
+        pipeline_ = VK_NULL_HANDLE;
     }
     if (layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(context_.device, layout_, nullptr);

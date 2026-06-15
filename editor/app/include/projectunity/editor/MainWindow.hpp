@@ -4,9 +4,11 @@
 #include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
+#include <projectunity/scripting/ScriptRuntime.hpp>
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <QMainWindow>
@@ -16,14 +18,17 @@
 
 class QAction;
 class QActionGroup;
+class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QMenu;
 class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
+class QSpinBox;
 class QTableWidget;
 class QTimer;
 class QTreeWidget;
@@ -42,6 +47,8 @@ class IRenderer;
 namespace projectunity::editor {
 
 class ViewportWidget;
+class ProjectBrowserWidget;
+struct ViewportTerrainBrushEvent;
 
 class MainWindow final : public QMainWindow {
 public:
@@ -73,11 +80,20 @@ private:
     bool saveSceneToPath(const QString& path);
     bool loadSceneFromPath(const QString& path);
     projectunity::scene::EntityId createEmptyEntity(const QString& name);
+    projectunity::scene::EntityId createPrimitiveEntity(const QString& name, assets::ModelAsset model);
+    projectunity::scene::EntityId createCubeEntity();
+    projectunity::scene::EntityId createSphereEntity();
+    projectunity::scene::EntityId createPlaneEntity();
+    projectunity::scene::EntityId createCameraEntity();
+    projectunity::scene::EntityId createLightEntity(projectunity::scene::LightComponentType type);
+    projectunity::scene::EntityId createTerrainEntity();
     projectunity::scene::EntityId createPlayerEntity();
     void deleteSelectedEntity();
     void duplicateSelectedEntity();
     void selectEntity(projectunity::scene::EntityId id);
     void clearSelection();
+    void ensureBuiltInGeneratedModels();
+    void rebuildGeneratedSceneAssets();
     void startPlayMode();
     void stopPlayMode();
     [[nodiscard]] projectunity::scene::EntityId findPlayableCameraEntity() const;
@@ -86,6 +102,19 @@ private:
     void attachFlyPlayerControllerToSelection();
     void removeScriptFromSelection();
     void ensureFlyPlayerScriptAsset();
+    void showAddComponentMenu(QWidget* anchor);
+    void addMeshRendererToSelection();
+    void addCameraToSelection();
+    void addLightToSelection(projectunity::scene::LightComponentType type);
+    void addTerrainToSelection();
+    void addRigidbodyToSelection();
+    void addColliderToSelection(projectunity::scene::ColliderShape shape);
+    void removeMeshRendererFromSelection();
+    void removeCameraFromSelection();
+    void removeLightFromSelection();
+    void removeTerrainFromSelection();
+    void removeRigidbodyFromSelection();
+    void removeColliderFromSelection();
     void rebuildHierarchy();
     void addEntityToHierarchy(QTreeWidgetItem* parentItem, projectunity::scene::EntityId id);
     void updateInspector();
@@ -102,6 +131,7 @@ private:
     [[nodiscard]] QWidget* createBottomPanel();
     [[nodiscard]] QWidget* createProfilerPanel();
     [[nodiscard]] QWidget* createLightingPanel();
+    [[nodiscard]] QWidget* createTerrainPanel();
     [[nodiscard]] QWidget* createTextPanel(const QString& title, const QStringList& lines) const;
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
     void updateProfilerPanel();
@@ -117,6 +147,19 @@ private:
     void resetLightingDefaults();
     void refreshEnvironmentTextureLabel();
     void updateEditorSunFromControls();
+    void syncTerrainPanelFromSelection();
+    void regenerateSelectedTerrain();
+    void clearSelectedTerrain();
+    void saveSelectedTerrainAsset();
+    void addTerrainLayer();
+    void removeSelectedTerrainLayer();
+    [[nodiscard]] std::optional<math::Vec3> handleTerrainBrushEvent(
+        const ViewportTerrainBrushEvent& event);
+    [[nodiscard]] bool uploadTerrainMesh(
+        scene::EntityId id,
+        scene::TerrainComponent& component,
+        const terrain::TerrainGenerationResult& generated,
+        bool logDetails);
 
     ads::CDockManager* dockManager_ {nullptr};
     ads::CDockWidget* gameDock_ {nullptr};
@@ -134,11 +177,17 @@ private:
     QDoubleSpinBox* scaleY_ {nullptr};
     QDoubleSpinBox* scaleZ_ {nullptr};
     QLabel* componentSummary_ {nullptr};
+    QComboBox* scriptComponentCombo_ {nullptr};
+    QComboBox* scriptAssetCombo_ {nullptr};
+    QCheckBox* scriptEnabledCheck_ {nullptr};
+    QTableWidget* scriptFieldsTable_ {nullptr};
+    QLabel* scriptStatusLabel_ {nullptr};
+    QPushButton* removeScriptButton_ {nullptr};
     QPushButton* deleteEntityButton_ {nullptr};
     QPushButton* duplicateEntityButton_ {nullptr};
     QPushButton* addComponentButton_ {nullptr};
     QPlainTextEdit* consoleView_ {nullptr};
-    QTableWidget* assetTable_ {nullptr};
+    ProjectBrowserWidget* projectBrowser_ {nullptr};
     QLabel* assetImportStatus_ {nullptr};
     QLabel* performanceStatus_ {nullptr};
     QProgressBar* assetImportProgress_ {nullptr};
@@ -161,6 +210,32 @@ private:
     QPushButton* useEnvironmentTextureButton_ {nullptr};
     QPushButton* clearEnvironmentTextureButton_ {nullptr};
     QPushButton* resetLightingButton_ {nullptr};
+    QDoubleSpinBox* terrainWidth_ {nullptr};
+    QDoubleSpinBox* terrainLength_ {nullptr};
+    QDoubleSpinBox* terrainHeightScale_ {nullptr};
+    QSpinBox* terrainResolution_ {nullptr};
+    QSpinBox* terrainChunkSize_ {nullptr};
+    QSpinBox* terrainSeed_ {nullptr};
+    QComboBox* terrainNoiseType_ {nullptr};
+    QDoubleSpinBox* terrainFrequency_ {nullptr};
+    QSpinBox* terrainOctaves_ {nullptr};
+    QDoubleSpinBox* terrainPersistence_ {nullptr};
+    QDoubleSpinBox* terrainLacunarity_ {nullptr};
+    QSpinBox* terrainLodLevels_ {nullptr};
+    QCheckBox* terrainGenerateNormals_ {nullptr};
+    QCheckBox* terrainGenerateTangents_ {nullptr};
+    QCheckBox* terrainGenerateCollider_ {nullptr};
+    QListWidget* terrainLayerList_ {nullptr};
+    QCheckBox* terrainBrushEnabled_ {nullptr};
+    QComboBox* terrainBrushMode_ {nullptr};
+    QDoubleSpinBox* terrainBrushSize_ {nullptr};
+    QDoubleSpinBox* terrainBrushStrength_ {nullptr};
+    QDoubleSpinBox* terrainBrushFalloff_ {nullptr};
+    QDoubleSpinBox* terrainFlattenHeight_ {nullptr};
+    QLabel* terrainStatus_ {nullptr};
+    QPushButton* terrainRegenerateButton_ {nullptr};
+    QPushButton* terrainClearButton_ {nullptr};
+    std::optional<math::Vec3> terrainLastBrushPoint_;
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
     ViewportWidget* playRuntimeViewport_ {nullptr};
@@ -171,6 +246,8 @@ private:
     scene::Scene playRuntimeScene_;
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
+    scripting::ScriptRegistry scriptRegistry_;
+    scripting::ScriptRuntime scriptRuntime_;
     renderer::RenderEnvironmentSettings environmentSettings_;
     renderer::RenderLight editorSunLight_;
     float editorSunAzimuthDegrees_ {38.0F};
@@ -179,6 +256,7 @@ private:
     std::shared_ptr<const assets::TextureAsset> environmentTexture_;
     assets::AssetId environmentTextureId_;
     scene::EntityId selectedEntityId_;
+    scene::ScriptInstanceId inspectedScriptInstanceId_;
     scene::EntityId playRuntimeCameraEntityId_;
     std::filesystem::path currentScenePath_;
     QByteArray defaultDockState_;

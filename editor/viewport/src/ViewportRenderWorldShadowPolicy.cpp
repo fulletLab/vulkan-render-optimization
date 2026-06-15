@@ -32,9 +32,10 @@ void applyViewportShadowPolicy(
     scene::EntityId selectedEntityId,
     const ViewportRenderWorldCamera& camera,
     int viewportHeight,
+    const ViewportAssetLodSettings& settings,
     ViewportRenderWorldStats& stats)
 {
-    constexpr std::size_t kShadowCasterBudget = 512;
+    const auto shadowCasterBudget = settings.maxShadowCasters;
     stats.shadowCandidateInstances = static_cast<std::uint64_t>(std::count_if(
         meshDraws.begin(),
         meshDraws.end(),
@@ -87,7 +88,7 @@ void applyViewportShadowPolicy(
             : projectedRadius * 8.0F + draw.worldBoundsRadius * 0.5F + lodBonus;
         candidates.push_back({index, score, pinned});
     }
-    if (candidates.size() <= kShadowCasterBudget) {
+    if (candidates.size() <= shadowCasterBudget) {
         updateRejectedCount();
         return;
     }
@@ -102,7 +103,7 @@ void applyViewportShadowPolicy(
     std::size_t kept = 0;
     for (const auto& candidate : candidates) {
         auto& draw = meshDraws[candidate.index];
-        if (candidate.pinned || kept < kShadowCasterBudget) {
+        if (candidate.pinned || kept < shadowCasterBudget) {
             draw.castsShadow = true;
             if (!candidate.pinned) {
                 ++kept;

@@ -55,7 +55,8 @@ void main()
     outTexCoord = inTexCoord;
     outNormal = normalize(normalMatrix * inNormal);
     outColorFactor = inColor;
-    outTangent = vec4(normalize(mat3(instanceModel) * inTangent.xyz), inTangent.w);
+    float instanceHandedness = determinant(mat3(instanceModel)) < 0.0 ? -1.0 : 1.0;
+    outTangent = vec4(normalize(mat3(instanceModel) * inTangent.xyz), inTangent.w * instanceHandedness);
     outWorldPosition = worldPosition.xyz;
     outMaterialFactors = inMaterialFactors;
 }

@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <optional>
 #include <sstream>
 #include <unordered_map>
@@ -40,7 +39,6 @@ struct PlayRuntimeCookStats {
     std::uint64_t runtimeCameras {0};
     std::uint64_t runtimeLights {0};
     std::uint64_t runtimeScripts {0};
-    bool injectedRuntimeFlyPlayer {false};
 };
 
 [[nodiscard]] bool isEditablePrimitiveProxy(const scene::Entity& entity) noexcept
@@ -114,7 +112,7 @@ struct PlayRuntimeCookStats {
 
 [[nodiscard]] bool hasRuntimeGameplayState(const scene::Entity& entity) noexcept
 {
-    return entity.light.has_value() || entity.camera.has_value() || entity.script.has_value();
+    return entity.light.has_value() || entity.camera.has_value() || !entity.scripts.empty();
 }
 
 [[nodiscard]] bool requiresRuntimeEntity(const scene::Entity& entity) noexcept
@@ -174,39 +172,9 @@ void copyRuntimeComponents(
     if (source.camera.has_value()) {
         (void)runtimeScene.setCamera(runtimeId, source.camera);
     }
-    if (source.script.has_value()) {
-        (void)runtimeScene.setScript(runtimeId, source.script);
+    for (const auto& script : source.scripts) {
+        (void)runtimeScene.addScript(runtimeId, script);
     }
-}
-
-[[nodiscard]] std::string flyPlayerScriptTemplate()
-{
-    return
-        "// ProjectUnity gameplay script asset.\n"
-        "// This script is bound by name through Script: FlyPlayerController.\n"
-        "// Play mode runs it on a runtime scene snapshot, not on editor proxy entities.\n"
-        "// Current runtime: the engine executes the Script component values natively.\n"
-        "// This C++ file is the project asset placeholder until native script hot-reload lands.\n\n"
-        "struct FlyPlayerController {\n"
-        "    float moveSpeed = 7.5f;\n"
-        "    float fastMultiplier = 3.0f;\n"
-        "    float lookSensitivity = 0.0035f;\n\n"
-        "    // Runtime API draft:\n"
-        "    // - Right mouse: look\n"
-        "    // - W/S: forward/back\n"
-        "    // - A/D: strafe\n"
-        "    // - Q/E: down/up\n"
-        "    // - Shift: fast move\n"
-        "    void onUpdate(auto& ctx) {\n"
-        "        const float speed = moveSpeed * (ctx.keyDown(\"Shift\") ? fastMultiplier : 1.0f);\n"
-        "        ctx.lookWithMouse(lookSensitivity);\n"
-        "        ctx.moveLocal({\n"
-        "            (ctx.keyDown(\"D\") ? 1.0f : 0.0f) - (ctx.keyDown(\"A\") ? 1.0f : 0.0f),\n"
-        "            (ctx.keyDown(\"E\") ? 1.0f : 0.0f) - (ctx.keyDown(\"Q\") ? 1.0f : 0.0f),\n"
-        "            (ctx.keyDown(\"W\") ? 1.0f : 0.0f) - (ctx.keyDown(\"S\") ? 1.0f : 0.0f),\n"
-        "        }, speed);\n"
-        "    }\n"
-        "};\n";
 }
 
 } // namespace
@@ -228,7 +196,9 @@ scene::EntityId MainWindow::createPlayerEntity()
     (void)scene_.setCamera(player.id, camera);
     scene::ScriptComponent script;
     script.scriptName = "FlyPlayerController";
-    (void)scene_.setScript(player.id, script);
+    script.scriptAsset = "Assets/Scripts/FlyPlayerController.cpp";
+    scriptRegistry_.applyDefaults(script);
+    (void)scene_.addScript(player.id, script);
     const auto id = player.id;
     rebuildHierarchy();
     selectEntity(id);
@@ -240,14 +210,12 @@ scene::EntityId MainWindow::createPlayerEntity()
 void MainWindow::ensureFlyPlayerScriptAsset()
 {
     const auto scriptsDir = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets" / "Scripts";
-    std::error_code errorCode;
-    std::filesystem::create_directories(scriptsDir, errorCode);
     const auto scriptPath = scriptsDir / "FlyPlayerController.cpp";
-    if (std::filesystem::exists(scriptPath)) {
-        return;
+    if (!std::filesystem::exists(scriptPath)) {
+        core::logWarning(
+            core::LogCategory::Editor,
+            "FlyPlayerController script asset is missing from Project/Assets/Scripts");
     }
-    std::ofstream script(scriptPath, std::ios::binary | std::ios::trunc);
-    script << flyPlayerScriptTemplate();
 }
 
 bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
@@ -304,9 +272,7 @@ bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
             if (source.camera.has_value()) {
                 ++stats.runtimeCameras;
             }
-            if (source.script.has_value()) {
-                ++stats.runtimeScripts;
-            }
+            stats.runtimeScripts += source.scripts.size();
             continue;
         }
 
@@ -320,9 +286,7 @@ bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
         if (source.camera.has_value()) {
             ++stats.runtimeCameras;
         }
-        if (source.script.has_value()) {
-            ++stats.runtimeScripts;
-        }
+        stats.runtimeScripts += source.scripts.size();
     }
 
     for (const auto& source : scene_.entities()) {
@@ -374,9 +338,7 @@ bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
             if (source.camera.has_value()) {
                 ++stats.runtimeCameras;
             }
-            if (source.script.has_value()) {
-                ++stats.runtimeScripts;
-            }
+            stats.runtimeScripts += source.scripts.size();
             continue;
         }
 
@@ -429,17 +391,6 @@ bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
             }
         }
     }
-    if (playRuntimeCameraEntityId_.isValid()) {
-        auto* runtimeCamera = playRuntimeScene_.findEntity(playRuntimeCameraEntityId_);
-        if (runtimeCamera != nullptr && !runtimeCamera->script.has_value()) {
-            scene::ScriptComponent script;
-            script.scriptName = "FlyPlayerController";
-            (void)playRuntimeScene_.setScript(playRuntimeCameraEntityId_, script);
-            ++stats.runtimeScripts;
-            stats.injectedRuntimeFlyPlayer = true;
-        }
-    }
-
     std::ostringstream message;
     message << "CookRuntimeScene"
             << " editorEntities=" << stats.editorEntities
@@ -459,7 +410,7 @@ bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
             << " runtimeCameras=" << stats.runtimeCameras
             << " runtimeLights=" << stats.runtimeLights
             << " runtimeScripts=" << stats.runtimeScripts
-            << " injectedRuntimeFlyPlayer=" << (stats.injectedRuntimeFlyPlayer ? 1 : 0)
+            << " runtimeCameraFound=" << (playRuntimeCameraEntityId_.isValid() ? 1 : 0)
             << " runtimeCameraId=" << playRuntimeCameraEntityId_.value();
     core::logInfo(core::LogCategory::Editor, message.str());
 
@@ -475,12 +426,12 @@ void MainWindow::startPlayMode()
     ensureFlyPlayerScriptAsset();
     const auto playerId = findPlayableCameraEntity();
     if (!playerId.isValid()) {
-        statusBar()->showMessage(QStringLiteral("Play needs a Player or Camera"));
+        statusBar()->showMessage(QStringLiteral("No runtime Camera found."));
         core::logWarning(core::LogCategory::Editor, "Play ignored: no scene camera/player exists");
         QMessageBox::warning(
             this,
             QStringLiteral("Play"),
-            QStringLiteral("No Player or Camera found. Use GameObject > Player, then press Play again."));
+            QStringLiteral("No runtime Camera found."));
         return;
     }
 
@@ -505,13 +456,26 @@ void MainWindow::startPlayMode()
         QMessageBox::warning(
             this,
             QStringLiteral("Play"),
-            QStringLiteral("Runtime scene has no playable camera after cooking."));
+            QStringLiteral("No runtime Camera found."));
         return;
     }
     progress.setValue(70);
     qApp->processEvents();
 
     playModeActive_ = true;
+    (void)scriptRuntime_.start(playRuntimeScene_);
+    {
+        const auto& scriptStats = scriptRuntime_.stats();
+        std::ostringstream message;
+        message << "PlayRuntimeScripts"
+                << " scriptsRegistered=" << scriptStats.scriptsRegistered
+                << " scriptComponentsFound=" << scriptStats.scriptComponentsFound
+                << " scriptInstancesCreated=" << scriptStats.scriptInstancesCreated
+                << " runtimeCameraFound=" << (playRuntimeCameraEntityId_.isValid() ? 1 : 0)
+                << " scriptsUpdated=" << scriptStats.scriptsUpdated
+                << " scriptErrors=" << scriptStats.scriptErrors;
+        core::logInfo(core::LogCategory::Editor, message.str());
+    }
     showPlayRuntimeWindow();
     refreshViewports();
     progress.setValue(100);
@@ -528,6 +492,7 @@ void MainWindow::stopPlayMode()
         playRuntimeViewport_ = nullptr;
         runtimeViewport->setGameInputEnabled(false);
         runtimeViewport->setGameRuntimeSnapshotEnabled(false);
+        runtimeViewport->setGameScriptRuntime(nullptr);
         runtimeViewport->setGameCameraEntity({});
         runtimeViewport->setRenderer(nullptr);
         runtimeViewport->close();
@@ -539,6 +504,7 @@ void MainWindow::stopPlayMode()
         gameViewport_->setScene(&scene_);
         gameViewport_->setSelectedEntity(selectedEntityId_);
     }
+    scriptRuntime_.stop();
     playRuntimeScene_.clear();
     playRuntimeCameraEntityId_ = {};
     refreshViewports();
@@ -573,6 +539,7 @@ void MainWindow::showPlayRuntimeWindow()
     runtimeViewport->setShadowUpdateMode(shadowUpdateMode_);
     runtimeViewport->setSelectedEntity({});
     runtimeViewport->setGameCameraEntity(playRuntimeCameraEntityId_);
+    runtimeViewport->setGameScriptRuntime(&scriptRuntime_);
     runtimeViewport->setGameRuntimeSnapshotEnabled(true);
     runtimeViewport->setGameInputEnabled(true);
     connect(runtimeViewport, &QObject::destroyed, this, [this, runtimeViewport] {
@@ -592,20 +559,7 @@ void MainWindow::showPlayRuntimeWindow()
 
 scene::EntityId MainWindow::findPlayableCameraEntity() const
 {
-    for (const auto& entity : scene_.entities()) {
-        if (entity.camera.has_value()
-            && entity.script.has_value()
-            && entity.script->enabled
-            && entity.script->scriptName == "FlyPlayerController") {
-            return entity.id;
-        }
-    }
-    for (const auto& entity : scene_.entities()) {
-        if (entity.camera.has_value()) {
-            return entity.id;
-        }
-    }
-    return {};
+    return scripting::findRuntimeCameraEntity(scene_);
 }
 
 void MainWindow::attachFlyPlayerControllerToSelection()
@@ -617,7 +571,9 @@ void MainWindow::attachFlyPlayerControllerToSelection()
     ensureFlyPlayerScriptAsset();
     scene::ScriptComponent script;
     script.scriptName = "FlyPlayerController";
-    (void)scene_.setScript(selectedEntityId_, script);
+    script.scriptAsset = "Assets/Scripts/FlyPlayerController.cpp";
+    scriptRegistry_.applyDefaults(script);
+    (void)scene_.addScript(selectedEntityId_, script);
     updateInspector();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("FlyPlayerController attached"));
@@ -629,7 +585,13 @@ void MainWindow::removeScriptFromSelection()
     if (entity == nullptr) {
         return;
     }
-    (void)scene_.setScript(selectedEntityId_, std::nullopt);
+    const auto scriptId = inspectedScriptInstanceId_.isValid()
+        ? inspectedScriptInstanceId_
+        : (entity->scripts.empty() ? scene::ScriptInstanceId {} : entity->scripts.back().instanceId);
+    if (scriptId.isValid()) {
+        (void)scene_.removeScript(selectedEntityId_, scriptId);
+    }
+    inspectedScriptInstanceId_ = {};
     updateInspector();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("Script removed"));

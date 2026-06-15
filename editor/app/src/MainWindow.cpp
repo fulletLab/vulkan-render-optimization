@@ -1,5 +1,6 @@
 #include <projectunity/editor/MainWindow.hpp>
 
+#include <projectunity/editor/SceneHierarchyWidget.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
 #include <projectunity/renderer/VulkanRenderer.hpp>
 
@@ -11,6 +12,8 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QAbstractItemView>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QDateTime>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -142,6 +145,8 @@ MainWindow::MainWindow(QWidget* parent)
     , assetManager_(editorAssetCacheRoot())
 {
     core::Logger::instance().addSink(logSink_);
+    scripting::registerBuiltInScripts(scriptRegistry_);
+    scriptRuntime_.setRegistry(&scriptRegistry_);
 
     std::string rendererError;
     renderer::RendererConfig rendererConfig;
@@ -172,6 +177,8 @@ MainWindow::MainWindow(QWidget* parent)
     createMenus();
     createToolbar();
     createDockLayout();
+    ensureBuiltInGeneratedModels();
+    rebuildAssetBrowser();
     newScene();
     lightingApplyTimer_ = new QTimer(this);
     lightingApplyTimer_->setSingleShot(true);
@@ -278,6 +285,7 @@ void MainWindow::newScene()
     selectedEntityId_ = {};
     rebuildHierarchy();
     updateInspector();
+    syncTerrainPanelFromSelection();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("New scene"));
     core::logInfo(core::LogCategory::Editor, "New scene created");
@@ -347,8 +355,10 @@ bool MainWindow::loadSceneFromPath(const QString& path)
 
     currentScenePath_ = pathFromQString(path);
     selectedEntityId_ = {};
+    rebuildGeneratedSceneAssets();
     rebuildHierarchy();
     updateInspector();
+    syncTerrainPanelFromSelection();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("Scene loaded"));
     core::logInfo(core::LogCategory::Editor, "Scene loaded from editor");
@@ -406,7 +416,9 @@ void MainWindow::selectEntity(scene::EntityId id)
 {
     selectedEntityId_ = id;
 
-    if (hierarchyTree_ != nullptr) {
+    if (auto* hierarchy = dynamic_cast<SceneHierarchyWidget*>(hierarchyTree_)) {
+        (void)hierarchy->selectSceneEntity(id);
+    } else if (hierarchyTree_ != nullptr) {
         const auto items = hierarchyTree_->findItems(QStringLiteral("*"), Qt::MatchWildcard | Qt::MatchRecursive);
         for (auto* item : items) {
             if (entityIdFromItem(item) == id) {
@@ -433,6 +445,13 @@ void MainWindow::clearSelection()
 void MainWindow::rebuildHierarchy()
 {
     if (hierarchyTree_ == nullptr) {
+        return;
+    }
+
+    if (auto* hierarchy = dynamic_cast<SceneHierarchyWidget*>(hierarchyTree_)) {
+        hierarchy->setScene(&scene_);
+        hierarchy->setAssetManager(&assetManager_);
+        hierarchy->rebuild(selectedEntityId_);
         return;
     }
 
@@ -534,10 +553,94 @@ void MainWindow::updateInspector()
         if (hasSelection && entity->camera.has_value()) {
             components << QStringLiteral("Camera");
         }
-        if (hasSelection && entity->script.has_value()) {
-            components << QStringLiteral("Script: %1").arg(QString::fromStdString(entity->script->scriptName));
+        if (hasSelection) {
+            for (const auto& script : entity->scripts) {
+                components << QStringLiteral("Script: %1").arg(QString::fromStdString(script.scriptName));
+            }
+        }
+        if (hasSelection && entity->terrain.has_value()) {
+            components << QStringLiteral("Terrain");
+        }
+        if (hasSelection && entity->rigidbody.has_value()) {
+            components << QStringLiteral("Rigidbody (PARCIAL)");
+        }
+        if (hasSelection && entity->collider.has_value()) {
+            components << QStringLiteral("Collider (PARCIAL)");
         }
         componentSummary_->setText(components.isEmpty() ? QStringLiteral("-") : components.join(QStringLiteral(", ")));
+    }
+    const scene::ScriptComponent* inspectedScript = nullptr;
+    if (hasSelection && !entity->scripts.empty()) {
+        inspectedScript = scene::findScript(*entity, inspectedScriptInstanceId_);
+        if (inspectedScript == nullptr) {
+            inspectedScriptInstanceId_ = entity->scripts.front().instanceId;
+            inspectedScript = &entity->scripts.front();
+        }
+    } else {
+        inspectedScriptInstanceId_ = {};
+    }
+    if (scriptComponentCombo_ != nullptr) {
+        const QSignalBlocker blocker(scriptComponentCombo_);
+        scriptComponentCombo_->clear();
+        if (hasSelection) {
+            for (const auto& script : entity->scripts) {
+                scriptComponentCombo_->addItem(
+                    QString::fromStdString(script.scriptName),
+                    QVariant::fromValue(script.instanceId.value()));
+            }
+        }
+        const auto index = inspectedScript == nullptr ? -1 : scriptComponentCombo_->findData(
+            QVariant::fromValue(inspectedScript->instanceId.value()));
+        scriptComponentCombo_->setCurrentIndex(index);
+        scriptComponentCombo_->setEnabled(inspectedScript != nullptr);
+    }
+    if (scriptAssetCombo_ != nullptr) {
+        const QSignalBlocker blocker(scriptAssetCombo_);
+        scriptAssetCombo_->clear();
+        for (const auto& className : scriptRegistry_.classNames()) {
+            const auto* descriptor = scriptRegistry_.find(className);
+            if (descriptor != nullptr) {
+                scriptAssetCombo_->addItem(
+                    QString::fromStdString(descriptor->className),
+                    QString::fromStdString(descriptor->assetPath));
+            }
+        }
+        const auto index = inspectedScript == nullptr ? -1 : scriptAssetCombo_->findData(
+            QString::fromStdString(inspectedScript->scriptAsset));
+        scriptAssetCombo_->setCurrentIndex(index);
+        scriptAssetCombo_->setEnabled(inspectedScript != nullptr);
+    }
+    if (scriptEnabledCheck_ != nullptr) {
+        const QSignalBlocker blocker(scriptEnabledCheck_);
+        scriptEnabledCheck_->setEnabled(inspectedScript != nullptr);
+        scriptEnabledCheck_->setChecked(inspectedScript != nullptr && inspectedScript->enabled);
+    }
+    if (removeScriptButton_ != nullptr) {
+        removeScriptButton_->setEnabled(inspectedScript != nullptr);
+    }
+    if (scriptStatusLabel_ != nullptr) {
+        scriptStatusLabel_->clear();
+        if (inspectedScript != nullptr && scriptRegistry_.find(inspectedScript->scriptName) == nullptr) {
+            scriptStatusLabel_->setText(QStringLiteral("Script asset found but class is not registered."));
+        }
+    }
+    if (scriptFieldsTable_ != nullptr) {
+        const QSignalBlocker blocker(scriptFieldsTable_);
+        scriptFieldsTable_->setEnabled(inspectedScript != nullptr);
+        const auto* descriptor = inspectedScript == nullptr ? nullptr : scriptRegistry_.find(inspectedScript->scriptName);
+        const auto rowCount = descriptor != nullptr
+            ? descriptor->fields.size()
+            : (inspectedScript == nullptr ? 0U : inspectedScript->fields.size());
+        scriptFieldsTable_->setRowCount(static_cast<int>(rowCount));
+        for (std::size_t row = 0; row < rowCount; ++row) {
+            const auto name = descriptor != nullptr ? descriptor->fields[row].name : inspectedScript->fields[row].name;
+            const auto fallback = descriptor != nullptr ? descriptor->fields[row].defaultValue : inspectedScript->fields[row].value;
+            const auto value = scene::scriptFieldValue(*inspectedScript, name, fallback);
+            auto* nameItem = new QTableWidgetItem(QString::fromStdString(name));
+            nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+            scriptFieldsTable_->setItem(static_cast<int>(row), 0, nameItem);
+            scriptFieldsTable_->setItem(static_cast<int>(row), 1, new QTableWidgetItem(QString::number(value, 'g', 7)));
+        }
     }
 
     if (deleteEntityButton_ != nullptr) {
@@ -549,6 +652,7 @@ void MainWindow::updateInspector()
     if (addComponentButton_ != nullptr) {
         addComponentButton_->setEnabled(hasSelection);
     }
+    syncTerrainPanelFromSelection();
 
     inspectorUpdating_ = false;
 }
@@ -600,6 +704,27 @@ void MainWindow::applyInspectorToSelection()
         || !math::nearlyEqual(entity->transform.rotationEuler, transform.rotationEuler)
         || !math::nearlyEqual(entity->transform.scale, transform.scale)) {
         (void)scene_.setTransform(selectedEntityId_, transform);
+    }
+    auto* inspectedScript = scene::findScript(*entity, inspectedScriptInstanceId_);
+    if (inspectedScript != nullptr && scriptFieldsTable_ != nullptr) {
+        auto script = *inspectedScript;
+        scriptRegistry_.applyDefaults(script);
+        if (scriptEnabledCheck_ != nullptr) {
+            script.enabled = scriptEnabledCheck_->isChecked();
+        }
+        for (int row = 0; row < scriptFieldsTable_->rowCount(); ++row) {
+            const auto* nameItem = scriptFieldsTable_->item(row, 0);
+            const auto* valueItem = scriptFieldsTable_->item(row, 1);
+            if (nameItem == nullptr || valueItem == nullptr) {
+                continue;
+            }
+            bool ok = false;
+            const auto value = valueItem->text().toFloat(&ok);
+            if (ok) {
+                scene::setScriptFieldValue(script, nameItem->text().toStdString(), value);
+            }
+        }
+        (void)scene_.updateScript(selectedEntityId_, std::move(script));
     }
     if (hierarchyChanged) {
         rebuildHierarchy();
@@ -700,6 +825,7 @@ void MainWindow::refreshViewports()
         gameViewport_->setScene(&scene_);
         gameViewport_->setSelectedEntity(selectedEntityId_);
         gameViewport_->setGameCameraEntity({});
+        gameViewport_->setGameScriptRuntime(nullptr);
         gameViewport_->setGameInputEnabled(false);
         gameViewport_->setGameRuntimeSnapshotEnabled(false);
     }
@@ -707,6 +833,7 @@ void MainWindow::refreshViewports()
         playRuntimeViewport_->setScene(&playRuntimeScene_);
         playRuntimeViewport_->setSelectedEntity({});
         playRuntimeViewport_->setGameCameraEntity(playRuntimeCameraEntityId_);
+        playRuntimeViewport_->setGameScriptRuntime(playModeActive_ ? &scriptRuntime_ : nullptr);
         playRuntimeViewport_->setGameInputEnabled(playModeActive_);
         playRuntimeViewport_->setGameRuntimeSnapshotEnabled(playModeActive_);
     }

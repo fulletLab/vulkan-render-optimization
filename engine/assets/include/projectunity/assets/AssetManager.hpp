@@ -301,6 +301,7 @@ public:
     [[nodiscard]] std::shared_ptr<const TextureAsset> texture(AssetId id) const override;
     [[nodiscard]] std::vector<AssetRecord> records() const override;
     [[nodiscard]] const std::filesystem::path& cacheRoot() const noexcept;
+    [[nodiscard]] AssetRecord registerGeneratedModel(ModelAsset model);
 
 private:
     [[nodiscard]] AssetImportResult importFfultAsset(
@@ -334,6 +335,7 @@ private:
     std::vector<AssetRecord> records_;
     std::vector<std::shared_ptr<const ModelAsset>> models_;
     std::vector<std::shared_ptr<const TextureAsset>> textures_;
+    std::uint64_t nextGeneratedAssetId_ {0xF000000000000001ULL};
 };
 
 [[nodiscard]] const char* toString(AssetType type) noexcept;

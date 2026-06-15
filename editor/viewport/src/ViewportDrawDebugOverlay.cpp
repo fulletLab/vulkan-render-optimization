@@ -357,6 +357,10 @@ void appendViewportDrawDebugOverlay(
                 << "  L0 " << l0Draws << "/" << compactTriangleText(l0Triangles)
                 << "  L1 " << l1Draws << "/" << compactTriangleText(l1Triangles)
                 << "  L2+ " << l2PlusDraws << "/" << compactTriangleText(l2PlusTriangles)
+                << "  chunks " << frame.renderWorldFinalVisibleChunkCount << "/" << frame.visibleRenderChunkCount
+                << " collapsed " << frame.hlodCollapsedChunkCount
+                << " packets " << frame.renderWorldDrawPacketCount
+                << " screen " << frame.hlodScreenCoverage
                 << "  VIS R/Y/P " << redDraws << "/" << yellowDraws << "/" << purpleDraws;
         appendViewportScreenLabel(
             vertices,

@@ -425,6 +425,7 @@ bool ViewportWidget::renderRendererFrame()
         frame.hlodRejectedCoverageCount = renderWorldFrame.stats.hlodRejectedCoverageCount;
         frame.hlodRejectedScreenCount = renderWorldFrame.stats.hlodRejectedScreenCount;
         frame.hlodRejectedClusterScreenCount = renderWorldFrame.stats.hlodRejectedClusterScreenCount;
+        frame.hlodCollapsedChunkCount = renderWorldFrame.stats.hlodCollapsedChunkCount; frame.hlodScreenCoverage = renderWorldFrame.stats.hlodScreenCoverage; frame.hlodCameraDistance = renderWorldFrame.stats.hlodCameraDistance;
         frame.occlusionTestedChunkCount = renderWorldFrame.stats.occlusionTestedChunkCount;
         frame.occlusionRejectedChunkCount = renderWorldFrame.stats.occlusionRejectedChunkCount;
         frame.occlusionOccluderChunkCount = renderWorldFrame.stats.occlusionOccluderChunkCount;
@@ -434,6 +435,7 @@ bool ViewportWidget::renderRendererFrame()
         frame.spatialCellTestCount = renderWorldFrame.stats.spatialCellTestCount;
         frame.spatialCellRejectedCount = renderWorldFrame.stats.spatialCellRejectedCount;
         frame.spatialCellCandidateChunkCount = renderWorldFrame.stats.spatialCellCandidateChunkCount;
+        frame.renderWorldDrawPacketCount = renderWorldFrame.stats.finalDrawPacketCount; frame.renderWorldTriangleCount = renderWorldFrame.stats.finalTriangleCount; frame.renderWorldFinalVisibleChunkCount = renderWorldFrame.stats.finalVisibleChunkCount; frame.renderWorldBudgetDegradedDrawCount = renderWorldFrame.stats.budgetDegradedDrawCount;
         if (renderWorldFrame.visibleBoundsValid) {
             visibleBounds.includeSphere(renderWorldFrame.visibleBoundsCenter, renderWorldFrame.visibleBoundsRadius);
         }
@@ -466,7 +468,7 @@ bool ViewportWidget::renderRendererFrame()
                         << " rejectedTriangles=" << renderWorldFrame.stats.occlusionRejectedTriangleCount
                         << " meshDrawCandidates=" << renderWorldFrame.stats.candidateMeshDrawCount
                         << " culledDraws=" << renderWorldFrame.stats.culledMeshDrawCount;
-                appendViewportVisibleDrawDiagnostics(message, rendererMeshDraws_);
+                appendViewportVisibleDrawDiagnostics(message, rendererMeshDraws_, renderWorldCamera);
                 core::logInfo(core::LogCategory::Renderer, message.str());
                 lastCullingLogFrame_ = cullingLogFrameCounter_;
                 lastCullingLogSignature_ = cullingSignature;
@@ -550,7 +552,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.shadowUpdateMode = shadowUpdateMode_;
     frame.shadowCandidateInstances = shadowStats.shadowCandidateInstances;
     frame.shadowPolicyRejectedInstances = shadowStats.shadowPolicyRejectedInstances; frame.shadowVisibleInstances = shadowStats.shadowVisibleInstances;
-    frame.shadowOnlyCandidateInstances = shadowStats.shadowOnlyCandidateInstances; frame.shadowOnlyRejectedInstances = shadowStats.shadowOnlyRejectedInstances;
+    frame.shadowOnlyCandidateInstances = shadowStats.shadowOnlyCandidateInstances; frame.shadowOnlyRejectedInstances = shadowStats.shadowOnlyRejectedInstances; frame.shadowHlodProxyDrawCount = shadowStats.shadowHlodProxyDrawCount;
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Off
         && !rendererShadowMeshDraws_.empty()
         && shadowSelection.enabled) {

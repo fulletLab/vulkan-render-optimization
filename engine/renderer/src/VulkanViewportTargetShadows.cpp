@@ -156,6 +156,7 @@ bool VulkanViewportTarget::recordShadowPass(
         renderPass.pClearValues = &clear;
         vkCmdBeginRenderPass(commandBuffer_, &renderPass, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
+        ++lastFrameProfile_.shadowPipelineSwitches;
     };
     beginShadowRenderPass(shadowPipeline_->framebuffer(), shadowPipeline_->extent());
     VulkanScopedLabel shadowLabel(
@@ -208,7 +209,9 @@ bool VulkanViewportTarget::recordShadowPass(
             commandBuffer_,
             shadowRenderArea(extent, viewIndex, viewCount));
         vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_->pipeline());
+        ++lastFrameProfile_.shadowPipelineSwitches;
         auto boundShadowPipeline = shadowPipeline_->pipeline();
+        auto boundShadowDescriptor = VkDescriptorSet {VK_NULL_HANDLE};
         const auto& shadowViewProjection = shadowViewProjectionFor(frame, viewIndex);
         for (const auto& batch : shadowMeshBatches_) {
             const auto& draw = *batch.draw;
@@ -230,12 +233,13 @@ bool VulkanViewportTarget::recordShadowPass(
                 return false;
             }
             const auto doubleSided = draw.material != nullptr && draw.material->doubleSided;
-            const auto shadowPipeline = (doubleSided || draw.flipsWinding)
+            const auto shadowPipeline = doubleSided
                 ? shadowPipeline_->doubleSidedPipeline()
-                : shadowPipeline_->pipeline();
+                : (draw.flipsWinding ? shadowPipeline_->flippedWindingPipeline() : shadowPipeline_->pipeline());
             if (shadowPipeline != boundShadowPipeline) {
                 vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
                 boundShadowPipeline = shadowPipeline;
+                ++lastFrameProfile_.shadowPipelineSwitches;
             }
             VulkanDrawPushConstants push;
             push.modelMatrix = draw.modelMatrix.values;
@@ -278,6 +282,10 @@ bool VulkanViewportTarget::recordShadowPass(
                 0,
                 nullptr);
             ++lastFrameProfile_.vkBindDescriptors;
+            if (descriptor != boundShadowDescriptor) {
+                ++lastFrameProfile_.shadowMaterialSwitches;
+                boundShadowDescriptor = descriptor;
+            }
             vkCmdPushConstants(
                 commandBuffer_,
                 shadowPipeline_->layout(),

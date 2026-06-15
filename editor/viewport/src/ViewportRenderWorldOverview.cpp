@@ -1,5 +1,6 @@
 #include "ViewportRenderWorld.hpp"
 #include "ViewportMeshLod.hpp"
+#include "ViewportRenderWorldHlodPolicy.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldOcclusionPolicy.hpp"
 #include "ViewportRenderWorldRecord.hpp"
@@ -22,11 +23,10 @@ namespace {
 
 constexpr bool kOverviewHlodEnabled = true;
 constexpr std::uint64_t kOverviewMinSourceTriangles = 32'000ULL;
-constexpr std::uint64_t kOverviewMaxSourceTriangles = 8'000'000ULL;
-constexpr std::uint64_t kOverviewMaxTriangles = 2'000'000ULL;
+constexpr std::uint64_t kOverviewMaxSourceTriangles = 1'000'000'000ULL;
+constexpr std::uint64_t kOverviewMaxTriangles = 4'000'000ULL;
 constexpr std::uint64_t kOverviewMinVisibleInstanceReferences = 128ULL;
 constexpr std::uint64_t kOverviewMinVisibleTriangles = 32'000ULL;
-constexpr float kClusterOverviewMinimumDistance = 24.0F;
 constexpr std::size_t kMinChunksForSpatialCells = 64;
 constexpr std::size_t kTargetChunksPerSpatialCell = 16;
 constexpr std::size_t kMaxChunkSpatialGridSide = 32;
@@ -325,61 +325,73 @@ void rebuildChunkSpatialCells(Record& record)
     const ViewportWorldBounds& worldBounds,
     const ViewportRenderWorldCamera& camera,
     int viewportHeight,
+    const ViewportAssetLodSettings& settings,
     std::uint64_t visibleInstanceReferences,
-    std::uint64_t visibleTriangles) noexcept
+    std::uint64_t visibleTriangles,
+    std::uint64_t visibleChunkCount,
+    bool wasHlodActive,
+    ViewportHlodReason& reason) noexcept
 {
     if (!worldBoundsValid || viewportHeight <= 0) {
         return false;
     }
-    const auto lodDistance = viewportLodDistanceToBounds(
-        camera.eye,
-        camera.forward,
-        worldBounds.corners,
-        camera.nearPlane);
-    const auto projectedRadius = projectedRadiusPixels(
-        worldBounds.radius,
-        lodDistance,
-        camera.verticalFovRadians,
-        viewportHeight);
-    if (projectedRadius <= 0.0F) {
-        return false;
+    const auto evaluation = evaluateViewportHlod(worldBounds, camera, viewportHeight);
+    const auto releaseScale = wasHlodActive ? 1.0F - settings.hlodHysteresisRatio : 1.0F;
+    const auto rawOverChunkBudget = visibleChunkCount > settings.maxVisibleChunksFromFar;
+    const auto rawOverDrawBudget = visibleInstanceReferences > settings.maxDrawPackets
+        || visibleTriangles > settings.maxDetailedTriangles;
+    const auto overChunkBudget = visibleChunkCount > static_cast<std::uint64_t>(
+        static_cast<float>(settings.maxVisibleChunksFromFar) * releaseScale);
+    const auto overDrawBudget = visibleInstanceReferences > static_cast<std::uint64_t>(
+        static_cast<float>(settings.maxDrawPackets) * releaseScale)
+        || visibleTriangles > static_cast<std::uint64_t>(
+            static_cast<float>(settings.maxDetailedTriangles) * releaseScale);
+    const auto eligible = viewportRootHlodEligible(
+        evaluation,
+        settings,
+        overChunkBudget,
+        overDrawBudget,
+        wasHlodActive,
+        reason);
+    if (eligible && wasHlodActive && !rawOverChunkBudget && !rawOverDrawBudget) {
+        reason = ViewportHlodReason::Hysteresis;
     }
-    const auto heavyDecorativeCluster = visibleInstanceReferences >= 4096ULL
-        && visibleTriangles <= kOverviewMaxSourceTriangles;
-    const auto maxProjectedRadius = heavyDecorativeCluster
-        ? static_cast<float>(viewportHeight) * 1.75F
-        : static_cast<float>(viewportHeight) * 0.90F;
-    return projectedRadius <= maxProjectedRadius;
+    return eligible;
 }
 
 [[nodiscard]] bool clusterOverviewScreenEligible(
     const ViewportWorldBounds& worldBounds,
     const ViewportRenderWorldCamera& camera,
-    int viewportHeight) noexcept
+    int viewportHeight,
+    const ViewportAssetLodSettings& settings,
+    bool assetOverBudget,
+    bool wasHlodActive,
+    ViewportHlodReason& reason) noexcept
 {
     if (viewportHeight <= 0 || worldBounds.radius <= 0.0F) {
         return false;
     }
-    const auto lodDistance = viewportLodDistanceToBounds(
-        camera.eye,
-        camera.forward,
-        worldBounds.corners,
-        camera.nearPlane);
-    if (lodDistance < kClusterOverviewMinimumDistance) {
-        return false;
+    const auto evaluation = evaluateViewportHlod(worldBounds, camera, viewportHeight);
+    return viewportClusterHlodEligible(evaluation, settings, assetOverBudget, wasHlodActive, reason);
+}
+
+[[nodiscard]] renderer::RenderLodSelectionReason renderHlodReason(ViewportHlodReason reason) noexcept
+{
+    switch (reason) {
+    case ViewportHlodReason::ScreenSize:
+        return renderer::RenderLodSelectionReason::HlodScreenSize;
+    case ViewportHlodReason::ChunkBudget:
+        return renderer::RenderLodSelectionReason::HlodChunkBudget;
+    case ViewportHlodReason::DrawBudget:
+        return renderer::RenderLodSelectionReason::HlodDrawBudget;
+    case ViewportHlodReason::DebugOverride:
+        return renderer::RenderLodSelectionReason::HlodDebugOverride;
+    case ViewportHlodReason::Hysteresis:
+        return renderer::RenderLodSelectionReason::HlodHysteresisHold;
+    case ViewportHlodReason::None:
+        break;
     }
-    const auto projectedRadius = projectedRadiusPixels(
-        worldBounds.radius,
-        lodDistance,
-        camera.verticalFovRadians,
-        viewportHeight);
-    if (projectedRadius <= 0.0F) {
-        return false;
-    }
-    const auto maxProjectedRadius = std::min(
-        static_cast<float>(viewportHeight) * 0.35F,
-        320.0F);
-    return projectedRadius <= maxProjectedRadius;
+    return renderer::RenderLodSelectionReason::Unspecified;
 }
 
 void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
@@ -672,6 +684,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     const ViewportRenderWorldCamera& camera,
     const renderer::RenderMatrix4& viewProjection,
     int viewportHeight,
+    const ViewportAssetLodSettings& lodSettings,
     const ViewportOcclusionBuffer* occlusionBuffer,
     const std::unordered_set<std::uint64_t>* occluderChunkIds,
     bool countVisibleChunks,
@@ -679,7 +692,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     ViewportRenderWorldStats& stats,
     ViewportFrameBounds& visibleBounds,
     std::uint64_t& visibleSourceTriangleCount,
-    std::unordered_set<std::uint64_t>* overviewCoveredChunkIds) const
+    std::unordered_set<std::uint64_t>* overviewCoveredChunkIds)
 {
     if (!kOverviewHlodEnabled) {
         return false;
@@ -733,11 +746,22 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         ? 0.0F
         : static_cast<float>(std::min<std::uint64_t>(visibleChunkInstanceReferences, record.instances.size()))
             / static_cast<float>(record.instances.size());
+    const auto overChunkBudget = visibleChunkCount > lodSettings.maxVisibleChunksFromFar;
+    const auto overDrawBudget = visibleChunkInstanceReferences > lodSettings.maxDrawPackets
+        || visibleChunkTriangles > lodSettings.maxDetailedTriangles;
     const auto enoughVisibleWork = visibleChunkInstanceReferences >= kOverviewMinVisibleInstanceReferences
         || visibleChunkTriangles >= kOverviewMinVisibleTriangles;
-    const auto broadOverviewCoverage = visibleChunkRatio >= 0.55F || visibleInstanceRatio >= 0.55F;
+    const auto rootHistoryIt = rootHlodHistory_.find(record.entityId.value());
+    const auto wasRootHlodActive = rootHistoryIt != rootHlodHistory_.end() && rootHistoryIt->second;
+    const auto coverageHysteresis = wasRootHlodActive ? lodSettings.hlodHysteresisRatio : 0.0F;
+    const auto broadOverviewCoverage = visibleChunkRatio >= 0.45F * (1.0F - coverageHysteresis)
+        || visibleInstanceRatio >= 0.45F * (1.0F - coverageHysteresis)
+        || ((overChunkBudget || overDrawBudget)
+            && (visibleChunkRatio >= 0.30F * (1.0F - coverageHysteresis)
+                || visibleInstanceRatio >= 0.30F * (1.0F - coverageHysteresis)));
     const auto overviewCoverageEnough = broadOverviewCoverage
         && enoughVisibleWork;
+    ViewportHlodReason rootHlodReason = ViewportHlodReason::None;
     const auto wantsOverview = !record.overviewDraws.empty()
         && overviewCoverageEnough
         && overviewScreenEligible(
@@ -745,8 +769,13 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             record.worldBounds,
             camera,
             viewportHeight,
+            lodSettings,
             visibleChunkInstanceReferences,
-            visibleChunkTriangles);
+            visibleChunkTriangles,
+            visibleChunkCount,
+            wasRootHlodActive,
+            rootHlodReason);
+    rootHlodHistory_.insert_or_assign(record.entityId.value(), wantsOverview);
     bool emittedOverview = false;
     const auto model = record.instances.empty() ? std::shared_ptr<const assets::ModelAsset> {} : record.instances.front().model;
     if (model == nullptr) {
@@ -775,12 +804,19 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             record.worldBounds,
             camera,
             viewportHeight,
+            lodSettings,
             visibleChunkInstanceReferences,
-            visibleChunkTriangles)) {
+            visibleChunkTriangles,
+            visibleChunkCount,
+            wasRootHlodActive,
+            rootHlodReason)) {
         ++stats.hlodRejectedScreenCount;
     }
 
-    const auto emitOverview = [&](const EntityRecord::OverviewDraw& overview, std::uint64_t renderChunkId) {
+    const auto emitOverview = [&](
+        const EntityRecord::OverviewDraw& overview,
+        std::uint64_t renderChunkId,
+        ViewportHlodReason reason) {
         if (overview.primitive == nullptr || overview.primitive->materialIndex >= model->materials.size()) {
             return;
         }
@@ -791,8 +827,6 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         visibleSourceTriangleCount += sourceTriangleCount;
         ++stats.hlodMeshDrawCount;
         if (sourceTriangleCount > selectedTriangleCount) {
-            ++stats.lodMeshDrawCount;
-            stats.lodTriangleReductionCount += sourceTriangleCount - selectedTriangleCount;
             stats.hlodTriangleReductionCount += sourceTriangleCount - selectedTriangleCount;
         }
         ++stats.visibleRenderInstanceCount;
@@ -819,13 +853,28 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             renderChunkId,
             record.entityId.value(),
         });
+        auto& draw = meshDraws.back();
+        const auto evaluation = evaluateViewportHlod(overview.worldBounds, camera, viewportHeight);
+        draw.distanceToCameraCenter = evaluation.distanceToCenter;
+        draw.distanceToCameraBounds = evaluation.distance;
+        draw.projectedRadiusPixels = evaluation.projectedRadiusPixels;
+        draw.cameraInsideChunkBounds = evaluation.insideBounds;
+        draw.lodSelectionReason = renderHlodReason(reason);
+        draw.lodHysteresisActive = reason == ViewportHlodReason::Hysteresis;
         emittedOverview = true;
     };
 
     if (wantsOverview) {
         const auto renderChunkId = mixHash(record.entityId.value(), 0x4810d00dULL);
         for (const auto& overview : record.overviewDraws) {
-            emitOverview(overview, renderChunkId);
+            emitOverview(overview, renderChunkId, rootHlodReason);
+        }
+        if (emittedOverview) {
+            stats.hlodCollapsedChunkCount += visibleChunkCount > 1U ? visibleChunkCount - 1U : 0U;
+            const auto evaluation = evaluateViewportHlod(record.worldBounds, camera, viewportHeight);
+            stats.hlodScreenCoverage = std::max(stats.hlodScreenCoverage, evaluation.screenCoverage);
+            stats.hlodCameraDistance = evaluation.distance;
+            (void)rootHlodReason;
         }
         return emittedOverview;
     }
@@ -836,13 +885,24 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         if (chunk == nullptr || chunk->overviewDraws.empty()) {
             continue;
         }
-        if (overviewCoveredChunkIds != nullptr
-            && !clusterOverviewScreenEligible(chunk->worldBounds, camera, viewportHeight)) {
+        const auto historyIt = chunkHlodHistory_.find(chunk->renderChunkId);
+        const auto wasChunkHlodActive = historyIt != chunkHlodHistory_.end() && historyIt->second;
+        ViewportHlodReason clusterReason = ViewportHlodReason::None;
+        const auto clusterEligible = clusterOverviewScreenEligible(
+                chunk->worldBounds,
+                camera,
+                viewportHeight,
+                lodSettings,
+                overChunkBudget || overDrawBudget,
+                wasChunkHlodActive,
+                clusterReason);
+        chunkHlodHistory_.insert_or_assign(chunk->renderChunkId, clusterEligible);
+        if (overviewCoveredChunkIds != nullptr && !clusterEligible) {
             ++stats.hlodRejectedClusterScreenCount;
             continue;
         }
         for (const auto& overview : chunk->overviewDraws) {
-            emitOverview(overview, chunk->renderChunkId);
+            emitOverview(overview, chunk->renderChunkId, clusterReason);
         }
         if (overviewCoveredChunkIds != nullptr) {
             overviewCoveredChunkIds->insert(chunk->renderChunkId);

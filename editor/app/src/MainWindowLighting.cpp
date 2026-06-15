@@ -1,5 +1,7 @@
 #include <projectunity/editor/MainWindow.hpp>
 
+#include <projectunity/editor/ProjectBrowserWidget.hpp>
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -9,7 +11,6 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
-#include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -244,28 +245,32 @@ void MainWindow::updateLightingPanelControls()
 
 void MainWindow::useSelectedTextureAsEnvironment()
 {
-    if (assetTable_ == nullptr) {
+    if (projectBrowser_ == nullptr) {
         return;
     }
-    const auto row = assetTable_->currentRow();
+    const auto selection = projectBrowser_->selection();
+    if (!selection.has_value() || !selection->assetId.isValid()) {
+        core::logWarning(core::LogCategory::Editor, "Select a Texture2D asset in Project Browser before pressing Use Project Texture");
+        return;
+    }
     const auto records = assetManager_.records();
-    const auto assetRowOffset = assetTable_->rowCount() - static_cast<int>(records.size());
-    const auto recordRow = row - assetRowOffset;
-    if (recordRow < 0 || recordRow >= static_cast<int>(records.size())) {
-        core::logWarning(core::LogCategory::Editor, "Select a Texture2D row in Project Browser before pressing Use Project Texture");
+    const auto record = std::find_if(records.begin(), records.end(), [&selection](const assets::AssetRecord& candidate) {
+        return candidate.id == selection->assetId;
+    });
+    if (record == records.end()) {
+        core::logWarning(core::LogCategory::Editor, "Select a Texture2D asset in Project Browser before pressing Use Project Texture");
         return;
     }
-    const auto& record = records[static_cast<std::size_t>(recordRow)];
-    if (record.type != assets::AssetType::Texture2D) {
+    if (record->type != assets::AssetType::Texture2D) {
         core::logWarning(core::LogCategory::Editor, "Selected Project asset is not a Texture2D environment source");
         return;
     }
-    auto texture = assetManager_.texture(record.id);
+    auto texture = assetManager_.texture(record->id);
     if (texture == nullptr) {
         core::logError(core::LogCategory::Assets, "Selected environment texture asset is not loaded");
         return;
     }
-    environmentTextureId_ = record.id;
+    environmentTextureId_ = record->id;
     environmentTexture_ = std::move(texture);
     refreshEnvironmentTextureLabel();
     pushLightingSettingsToViewports();

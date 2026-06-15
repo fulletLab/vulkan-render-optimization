@@ -56,6 +56,11 @@ VkPipeline VulkanMeshPipeline::pipeline() const noexcept
     return pipeline_;
 }
 
+VkPipeline VulkanMeshPipeline::flippedWindingPipeline() const noexcept
+{
+    return flippedWindingPipeline_;
+}
+
 VkPipeline VulkanMeshPipeline::doubleSidedPipeline() const noexcept
 {
     return doubleSidedPipeline_;
@@ -64,6 +69,11 @@ VkPipeline VulkanMeshPipeline::doubleSidedPipeline() const noexcept
 VkPipeline VulkanMeshPipeline::transparentPipeline() const noexcept
 {
     return transparentPipeline_;
+}
+
+VkPipeline VulkanMeshPipeline::transparentFlippedWindingPipeline() const noexcept
+{
+    return transparentFlippedWindingPipeline_;
 }
 
 VkPipeline VulkanMeshPipeline::transparentDoubleSidedPipeline() const noexcept
@@ -298,6 +308,11 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan mesh graphics pipeline");
         }
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &flippedWindingPipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan flipped-winding mesh graphics pipeline");
+        }
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         raster.cullMode = VK_CULL_MODE_NONE;
         depth.depthWriteEnable = VK_TRUE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &doubleSidedPipeline_) != VK_SUCCESS) {
@@ -308,6 +323,11 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent mesh graphics pipeline");
         }
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentFlippedWindingPipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create Vulkan transparent flipped-winding mesh graphics pipeline");
+        }
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         raster.cullMode = VK_CULL_MODE_NONE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentDoubleSidedPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent double-sided mesh graphics pipeline");
@@ -362,6 +382,10 @@ void VulkanMeshPipeline::destroy() noexcept
         vkDestroyPipeline(context_.device, transparentDoubleSidedPipeline_, nullptr);
         transparentDoubleSidedPipeline_ = VK_NULL_HANDLE;
     }
+    if (transparentFlippedWindingPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, transparentFlippedWindingPipeline_, nullptr);
+        transparentFlippedWindingPipeline_ = VK_NULL_HANDLE;
+    }
     if (transparentPipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, transparentPipeline_, nullptr);
         transparentPipeline_ = VK_NULL_HANDLE;
@@ -369,6 +393,10 @@ void VulkanMeshPipeline::destroy() noexcept
     if (doubleSidedPipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, doubleSidedPipeline_, nullptr);
         doubleSidedPipeline_ = VK_NULL_HANDLE;
+    }
+    if (flippedWindingPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(context_.device, flippedWindingPipeline_, nullptr);
+        flippedWindingPipeline_ = VK_NULL_HANDLE;
     }
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(context_.device, pipeline_, nullptr);

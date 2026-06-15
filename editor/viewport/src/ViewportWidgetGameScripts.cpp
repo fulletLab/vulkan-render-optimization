@@ -2,77 +2,41 @@
 
 #include "ViewportRenderWorld.hpp"
 
-#include <projectunity/core/Log.hpp>
+#include <projectunity/scripting/ScriptRuntime.hpp>
 
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QTimer>
 
-#include <algorithm>
-#include <cmath>
+#include <optional>
 
 namespace projectunity::editor {
 namespace {
 
-constexpr float kFlyMoveSpeed = 7.5F;
-constexpr float kFlyFastMultiplier = 3.0F;
-constexpr float kFlyLookSensitivity = 0.0035F;
-constexpr float kFlyTickSeconds = 1.0F / 60.0F;
-constexpr float kMinPitch = -1.52F;
-constexpr float kMaxPitch = 1.52F;
+constexpr float kRuntimeTickSeconds = 1.0F / 60.0F;
 
-enum GameKey : std::size_t {
-    Forward,
-    Back,
-    Left,
-    Right,
-    Up,
-    Down,
-    Fast,
-};
-
-[[nodiscard]] float safeLength(math::Vec3 value) noexcept
+[[nodiscard]] std::optional<scripting::KeyCode> keyCodeFromQt(int key) noexcept
 {
-    return std::sqrt(value.lengthSquared());
-}
-
-[[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback) noexcept
-{
-    const auto length = safeLength(value);
-    return length > 0.00001F && std::isfinite(length) ? value / length : fallback;
-}
-
-[[nodiscard]] math::Vec3 forwardFromYawPitch(float yaw, float pitch) noexcept
-{
-    const auto cosPitch = std::cos(pitch);
-    return safeNormalized({
-        cosPitch * std::sin(yaw),
-        std::sin(pitch),
-        cosPitch * std::cos(yaw),
-    }, {0.0F, 0.0F, 1.0F});
-}
-
-[[nodiscard]] math::Vec3 rightFromForward(math::Vec3 forward) noexcept
-{
-    return safeNormalized(math::cross({0.0F, 1.0F, 0.0F}, forward), {1.0F, 0.0F, 0.0F});
-}
-
-[[nodiscard]] math::Vec3 upFromBasis(math::Vec3 forward, math::Vec3 right) noexcept
-{
-    return safeNormalized(math::cross(forward, right), {0.0F, 1.0F, 0.0F});
-}
-
-[[nodiscard]] bool isFlyPlayerScript(const scene::Entity& entity) noexcept
-{
-    return entity.script.has_value()
-        && entity.script->enabled
-        && entity.script->scriptName == "FlyPlayerController"
-        && entity.camera.has_value();
-}
-
-[[nodiscard]] float positiveScriptValue(float value, float fallback) noexcept
-{
-    return std::isfinite(value) && value > 0.0F ? value : fallback;
+    switch (key) {
+    case Qt::Key_W:
+        return scripting::KeyCode::W;
+    case Qt::Key_A:
+        return scripting::KeyCode::A;
+    case Qt::Key_S:
+        return scripting::KeyCode::S;
+    case Qt::Key_D:
+        return scripting::KeyCode::D;
+    case Qt::Key_Q:
+        return scripting::KeyCode::Q;
+    case Qt::Key_E:
+        return scripting::KeyCode::E;
+    case Qt::Key_Space:
+        return scripting::KeyCode::Space;
+    case Qt::Key_Shift:
+        return scripting::KeyCode::LeftShift;
+    default:
+        return std::nullopt;
+    }
 }
 
 } // namespace
@@ -80,7 +44,7 @@ enum GameKey : std::size_t {
 void ViewportWidget::setGameInputEnabled(bool enabled)
 {
     gameInputEnabled_ = enabled;
-    gameKeys_.fill(false);
+    gameInputState_ = {};
     gameMouseLook_ = false;
     if (mode_ != ViewportMode::Game) {
         return;
@@ -102,16 +66,11 @@ void ViewportWidget::setGameInputEnabled(bool enabled)
 void ViewportWidget::setGameCameraEntity(scene::EntityId id)
 {
     gameCameraEntityId_ = id;
-    if (scene_ == nullptr || !id.isValid()) {
-        return;
-    }
-    const auto* entity = scene_->findEntity(id);
-    if (entity == nullptr || !entity->camera.has_value()) {
-        return;
-    }
-    const auto forward = safeNormalized(entity->camera->direction, {0.0F, 0.0F, 1.0F});
-    gameYawRadians_ = std::atan2(forward.x, forward.z);
-    gamePitchRadians_ = std::asin(std::clamp(forward.y, -1.0F, 1.0F));
+}
+
+void ViewportWidget::setGameScriptRuntime(scripting::ScriptRuntime* runtime)
+{
+    gameScriptRuntime_ = runtime;
 }
 
 void ViewportWidget::setGameRuntimeSnapshotEnabled(bool enabled)
@@ -131,16 +90,11 @@ bool ViewportWidget::handleGameKey(QKeyEvent* event, bool pressed)
     if (!gameInputEnabled_ || event == nullptr) {
         return false;
     }
-    switch (event->key()) {
-    case Qt::Key_W: gameKeys_[Forward] = pressed; break;
-    case Qt::Key_S: gameKeys_[Back] = pressed; break;
-    case Qt::Key_A: gameKeys_[Left] = pressed; break;
-    case Qt::Key_D: gameKeys_[Right] = pressed; break;
-    case Qt::Key_E: gameKeys_[Up] = pressed; break;
-    case Qt::Key_Q: gameKeys_[Down] = pressed; break;
-    case Qt::Key_Shift: gameKeys_[Fast] = pressed; break;
-    default: return false;
+    const auto key = keyCodeFromQt(event->key());
+    if (!key.has_value()) {
+        return false;
     }
+    gameInputState_.setKeyDown(*key, pressed);
     event->accept();
     return true;
 }
@@ -155,6 +109,7 @@ void ViewportWidget::handleGameMousePress(QMouseEvent* event)
     lastMousePosition_ = event->position().toPoint();
     if (event->button() == Qt::RightButton) {
         gameMouseLook_ = true;
+        gameInputState_.mouseLook = true;
         event->accept();
         return;
     }
@@ -171,12 +126,8 @@ void ViewportWidget::handleGameMouseMove(QMouseEvent* event)
     const auto delta = current - lastMousePosition_;
     lastMousePosition_ = current;
     if (gameMouseLook_) {
-        const auto* entity = scene_ != nullptr && gameCameraEntityId_.isValid() ? scene_->findEntity(gameCameraEntityId_) : nullptr;
-        const auto sensitivity = entity != nullptr && entity->script.has_value()
-            ? positiveScriptValue(entity->script->lookSensitivity, kFlyLookSensitivity)
-            : kFlyLookSensitivity;
-        gameYawRadians_ += static_cast<float>(delta.x()) * sensitivity;
-        gamePitchRadians_ = std::clamp(gamePitchRadians_ - static_cast<float>(delta.y()) * sensitivity, kMinPitch, kMaxPitch);
+        gameInputState_.mouseDeltaX += static_cast<float>(delta.x());
+        gameInputState_.mouseDeltaY += static_cast<float>(delta.y());
         tickGameScripts();
         event->accept();
         return;
@@ -188,6 +139,7 @@ void ViewportWidget::handleGameMouseRelease(QMouseEvent* event)
 {
     if (event != nullptr && event->button() == Qt::RightButton && gameMouseLook_) {
         gameMouseLook_ = false;
+        gameInputState_.mouseLook = false;
         event->accept();
         return;
     }
@@ -207,39 +159,16 @@ void ViewportWidget::keyReleaseEvent(QKeyEvent* event)
 
 void ViewportWidget::tickGameScripts()
 {
-    if (!gameInputEnabled_ || mode_ != ViewportMode::Game || scene_ == nullptr || !gameCameraEntityId_.isValid()) {
+    if (!gameInputEnabled_ || mode_ != ViewportMode::Game || gameScriptRuntime_ == nullptr) {
+        gameInputState_.clearFrameDeltas();
         return;
     }
-    auto* entity = scene_->findEntity(gameCameraEntityId_);
-    if (entity == nullptr || !isFlyPlayerScript(*entity)) {
-        return;
+
+    gameScriptRuntime_->update(kRuntimeTickSeconds, gameInputState_);
+    if (transformEditedCallback_ && gameCameraEntityId_.isValid()) {
+        transformEditedCallback_(gameCameraEntityId_);
     }
-    const auto forward = forwardFromYawPitch(gameYawRadians_, gamePitchRadians_);
-    const auto right = rightFromForward(forward);
-    const auto up = upFromBasis(forward, right);
-    auto transform = entity->transform;
-    auto movement = math::Vec3 {};
-    if (gameKeys_[Forward]) { movement += forward; }
-    if (gameKeys_[Back]) { movement -= forward; }
-    if (gameKeys_[Right]) { movement += right; }
-    if (gameKeys_[Left]) { movement -= right; }
-    if (gameKeys_[Up]) { movement += math::Vec3 {0.0F, 1.0F, 0.0F}; }
-    if (gameKeys_[Down]) { movement -= math::Vec3 {0.0F, 1.0F, 0.0F}; }
-    if (safeLength(movement) > 0.00001F) {
-        const auto moveSpeed = positiveScriptValue(entity->script->moveSpeed, kFlyMoveSpeed);
-        const auto fastMultiplier = positiveScriptValue(entity->script->fastMultiplier, kFlyFastMultiplier);
-        const auto speed = moveSpeed * (gameKeys_[Fast] ? fastMultiplier : 1.0F);
-        transform.position += safeNormalized(movement, {}) * (speed * kFlyTickSeconds);
-        (void)scene_->setTransform(entity->id, transform);
-    }
-    auto camera = *entity->camera;
-    camera.direction = forward;
-    camera.right = right;
-    camera.up = up;
-    (void)scene_->setCamera(entity->id, camera);
-    if (transformEditedCallback_) {
-        transformEditedCallback_(entity->id);
-    }
+    gameInputState_.clearFrameDeltas();
     update();
 }
 

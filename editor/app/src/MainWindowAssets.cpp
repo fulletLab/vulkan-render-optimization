@@ -1,5 +1,7 @@
 #include <projectunity/editor/MainWindow.hpp>
 
+#include <projectunity/editor/ProjectBrowserWidget.hpp>
+
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFutureWatcher>
@@ -8,8 +10,6 @@
 #include <QPointer>
 #include <QProgressBar>
 #include <QStatusBar>
-#include <QTableWidget>
-#include <QTableWidgetItem>
 #include <QtConcurrentRun>
 
 #include <algorithm>
@@ -173,15 +173,8 @@ bool MainWindow::handleAssetImportResult(const assets::AssetImportResult& result
         return false;
     }
     rebuildAssetBrowser();
-    if (assetTable_ != nullptr) {
-        const auto records = assetManager_.records();
-        const auto assetRowOffset = assetTable_->rowCount() - static_cast<int>(records.size());
-        for (int row = 0; row < static_cast<int>(records.size()); ++row) {
-            if (records[static_cast<std::size_t>(row)].id == result.record.id) {
-                assetTable_->setCurrentCell(assetRowOffset + row, 0);
-                break;
-            }
-        }
+    if (projectBrowser_ != nullptr) {
+        (void)projectBrowser_->selectAsset(result.record.id);
     }
     if (result.record.type == assets::AssetType::Texture2D && result.record.id == environmentTextureId_) {
         environmentTexture_ = assetManager_.texture(result.record.id);
@@ -194,6 +187,11 @@ bool MainWindow::handleAssetImportResult(const assets::AssetImportResult& result
         refreshViewports();
     }
     statusBar()->showMessage(QStringLiteral("Asset imported"));
+    core::logInfo(
+        core::LogCategory::Assets,
+        "Asset imported id=" + std::to_string(result.record.id.value())
+            + " type=" + assets::toString(result.record.type)
+            + " name=" + result.record.displayName);
     appendPendingLogs();
     return true;
 }
@@ -207,41 +205,11 @@ assets::AssetImportResult MainWindow::importAssetFromPath(const QString& path, b
 
 void MainWindow::rebuildAssetBrowser()
 {
-    if (assetTable_ == nullptr) {
-        return;
-    }
     ensureFlyPlayerScriptAsset();
-    std::vector<std::filesystem::path> scriptFiles;
-    const auto scriptsDir = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets" / "Scripts";
-    std::error_code errorCode;
-    if (std::filesystem::exists(scriptsDir, errorCode)) {
-        for (const auto& entry : std::filesystem::directory_iterator(scriptsDir, errorCode)) {
-            if (!entry.is_regular_file(errorCode) || entry.path().extension() != ".cpp") {
-                continue;
-            }
-            scriptFiles.push_back(entry.path());
-        }
-    }
-    const auto records = assetManager_.records();
-    assetTable_->setRowCount(static_cast<int>(records.size() + scriptFiles.size()));
-    for (std::size_t index = 0; index < scriptFiles.size(); ++index) {
-        const auto row = static_cast<int>(index);
-        const auto& path = scriptFiles[index];
-        assetTable_->setItem(row, 0, new QTableWidgetItem(QString::fromStdWString(path.stem().wstring())));
-        assetTable_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("Script")));
-        assetTable_->setItem(row, 2, new QTableWidgetItem(QString::fromStdWString(path.filename().wstring())));
-        assetTable_->setItem(row, 3, new QTableWidgetItem(QStringLiteral("Project/Assets/Scripts")));
-        assetTable_->setItem(row, 4, new QTableWidgetItem(QStringLiteral("-")));
-    }
-    const auto recordRowOffset = static_cast<int>(scriptFiles.size());
-    for (int row = 0; row < static_cast<int>(records.size()); ++row) {
-        const auto& record = records[static_cast<std::size_t>(row)];
-        const auto tableRow = recordRowOffset + row;
-        assetTable_->setItem(tableRow, 0, new QTableWidgetItem(QString::fromStdString(record.displayName)));
-        assetTable_->setItem(tableRow, 1, new QTableWidgetItem(QString::fromUtf8(assets::toString(record.type))));
-        assetTable_->setItem(tableRow, 2, new QTableWidgetItem(QString::fromStdString(record.sourceName)));
-        assetTable_->setItem(tableRow, 3, new QTableWidgetItem(QString::fromStdString(record.cacheFile)));
-        assetTable_->setItem(tableRow, 4, new QTableWidgetItem(QString::number(static_cast<qulonglong>(record.vertexCount))));
+    if (projectBrowser_ != nullptr) {
+        projectBrowser_->setAssetManager(&assetManager_);
+        projectBrowser_->setProjectRoot(std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets");
+        projectBrowser_->rebuild();
     }
 }
 
@@ -250,34 +218,14 @@ void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
     auto& entity = scene_.createEntity(record.displayName);
     const auto importedId = entity.id;
     bool attachedMeshRenderer = false;
+    std::size_t hiddenInternalNodeCount = 0U;
     if (const auto model = assetManager_.model(record.id)) {
         if (scene_.setMeshRenderer(importedId, scene::MeshRendererComponent {record.id})) {
             attachedMeshRenderer = true;
         }
-        if (model->primitiveInstances.size() > 1U) {
-            for (std::size_t index = 0; index < model->primitiveInstances.size(); ++index) {
-                const auto& instance = model->primitiveInstances[index];
-                const auto editorName = index < model->editorInstances.size()
-                    ? model->editorInstances[index].name
-                    : std::string {};
-                const auto partName = editorName.empty()
-                    ? record.displayName + " Part " + std::to_string(index + 1U)
-                    : editorName;
-                auto& part = scene_.createEntity(
-                    partName,
-                    importedId);
-                scene::TransformComponent transform;
-                transform.position = instance.bounds.center;
-                (void)scene_.setTransform(part.id, transform);
-                scene::MeshRendererComponent partRenderer {record.id};
-                partRenderer.primitiveInstanceIndex = static_cast<std::uint32_t>(index);
-                partRenderer.renderable = false;
-                if (!scene_.setMeshRenderer(part.id, partRenderer)) {
-                    core::logError(core::LogCategory::Assets, "Editor failed to attach imported model part to a scene entity");
-                    return;
-                }
-            }
-        }
+        hiddenInternalNodeCount = model->primitiveInstances.empty()
+            ? model->primitives.size()
+            : model->primitiveInstances.size();
         for (const auto& importedLight : model->lights) {
             auto& lightEntity = scene_.createEntity(importedLight.name, importedId);
             scene::TransformComponent transform;
@@ -301,7 +249,11 @@ void MainWindow::createImportedModelEntity(const assets::AssetRecord& record)
     }
     rebuildHierarchy();
     selectEntity(importedId);
-    core::logInfo(core::LogCategory::Assets, "Imported model added to scene");
+    core::logInfo(
+        core::LogCategory::Assets,
+        "Scene object created from imported asset objectId=" + std::to_string(importedId.value())
+            + " assetId=" + std::to_string(record.id.value())
+            + " hiddenInternalNodes=" + std::to_string(hiddenInternalNodeCount));
 }
 
 } // namespace projectunity::editor
