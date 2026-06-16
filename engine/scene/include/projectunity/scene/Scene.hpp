@@ -85,8 +85,8 @@ struct ScriptField {
 
 struct ScriptComponent {
     ScriptInstanceId instanceId;
-    std::string scriptName {"FlyPlayerController"};
-    std::string scriptAsset {"Assets/Scripts/FlyPlayerController.cpp"};
+    std::string scriptName;
+    std::string scriptAsset;
     bool enabled {true};
     std::vector<ScriptField> fields;
 };
@@ -117,9 +117,12 @@ struct TerrainComponent {
     std::vector<terrain::TerrainMaterialLayer> materialLayers {{}};
     std::vector<float> heightmap;
     core::StableId generatedModelAssetId;
+    std::uint64_t colliderRevision {0};
+    bool colliderDirty {true};
 };
 
 struct RigidbodyComponent {
+    bool enabled {true};
     float mass {1.0F};
     float linearDrag {0.0F};
     float angularDrag {0.05F};
@@ -130,14 +133,18 @@ struct RigidbodyComponent {
 enum class ColliderShape : std::uint8_t {
     Box,
     Sphere,
+    Capsule,
     Mesh,
     Terrain,
 };
 
 struct ColliderComponent {
+    bool enabled {true};
     ColliderShape shape {ColliderShape::Box};
     math::Vec3 size {1.0F, 1.0F, 1.0F};
+    math::Vec3 offset {0.0F, 0.0F, 0.0F};
     float radius {0.5F};
+    float height {2.0F};
     bool trigger {false};
 };
 

@@ -1,0 +1,33 @@
+Estado:
+done-partial
+
+Qué hice:
+- Revisé el estado actual sin revertir cambios existentes.
+- Mantuve el terrain brush/raycast/heightmap persistente existente y reforcé la ruta de physics.
+- Añadí parámetros reales a RigidbodyComponent y ColliderComponent: enabled, body type en UI vía Dynamic/Kinematic/Static, mass, gravity, damping, collider shape box/sphere/capsule/mesh/terrain, size, offset, radius, height, isTrigger/enabled.
+- Persistí esos campos en SceneSerialization.
+- Añadí Capsule collider al modelo de Scene/UI/serialización/physics básico.
+- Physics básico ahora respeta Rigidbody/Collider enabled, offset, capsule height/radius y collider dirty/revision de terrain.
+- Player se crea con Rigidbody + Sphere Collider y gravedad activada para contacto básico contra terrain.
+- Add Component ahora expone Capsule Collider y Terrain Collider; labels indican basic/PARCIAL.
+
+Archivos tocados:
+- engine/scene/include/projectunity/scene/Scene.hpp
+- engine/scene/src/Scene.cpp
+- engine/scene/src/SceneSerialization.cpp
+- engine/physics/src/PhysicsWorld.cpp
+- editor/app/include/projectunity/editor/MainWindow.hpp
+- editor/app/src/MainWindow.cpp
+- editor/app/src/MainWindowPanels.cpp
+- editor/app/src/MainWindowGameObjects.cpp
+- editor/app/src/MainWindowPlay.cpp
+- .agent_status/terrain.done
+
+Qué queda parcial:
+- Physics sigue PARCIAL: contacto vertical básico contra Terrain, no solver completo, no stacks, no impulses/velocities persistentes, no fricción real, no mesh collider general, no eventos trigger/collision completos.
+- Terrain brush/mesh no fue revalidado con build en esta pasada por regla de ahorro.
+- Paint Texture sigue deshabilitado/coming next.
+- Terrain collider soporta heightfield sin rotación y escala positiva; rotaciones/escala negativa quedan fuera.
+
+Bloqueos:
+- No ejecuté tests/build por regla de ahorro de tokens. Queda para Build Coordinator.

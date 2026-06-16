@@ -116,6 +116,7 @@ struct ScriptRuntimeStats {
     std::size_t scriptInstancesCreated {0};
     std::size_t scriptsUpdated {0};
     std::size_t transformsChanged {0};
+    std::size_t physicsContacts {0};
     std::size_t scriptErrors {0};
 };
 

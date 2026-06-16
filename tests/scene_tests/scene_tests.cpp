@@ -187,13 +187,13 @@ int main()
         || loadedChild->camera->farPlane != 500.0F) {
         return fail("loaded camera component mismatch");
     }
-    if (!loadedChild->script.has_value()
-        || loadedChild->script->scriptName != "FlyPlayerController"
-        || loadedChild->script->scriptAsset != "Assets/Scripts/FlyPlayerController.cpp"
-        || !loadedChild->script->enabled
-        || scriptFieldValue(*loadedChild->script, "speed", 0.0F) != 12.0F
-        || scriptFieldValue(*loadedChild->script, "sprintSpeed", 0.0F) != 48.0F
-        || scriptFieldValue(*loadedChild->script, "mouseSensitivity", 0.0F) != 0.25F) {
+    if (loadedChild->scripts.empty()
+        || loadedChild->scripts[0].scriptName != "FlyPlayerController"
+        || loadedChild->scripts[0].scriptAsset != "Assets/Scripts/FlyPlayerController.cpp"
+        || !loadedChild->scripts[0].enabled
+        || scriptFieldValue(loadedChild->scripts[0], "speed", 0.0F) != 12.0F
+        || scriptFieldValue(loadedChild->scripts[0], "sprintSpeed", 0.0F) != 48.0F
+        || scriptFieldValue(loadedChild->scripts[0], "mouseSensitivity", 0.0F) != 0.25F) {
         return fail("loaded script component mismatch");
     }
     if (!loadedChild->terrain.has_value()) {

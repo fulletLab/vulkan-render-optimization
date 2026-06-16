@@ -441,6 +441,17 @@ bool Scene::setTerrain(EntityId id, std::optional<TerrainComponent> component)
         }
     }
 
+    if (component.has_value()) {
+        const auto nextDirty = !entity->terrain.has_value()
+            || entity->terrain->settings != component->settings
+            || entity->terrain->heightmap != component->heightmap
+            || entity->terrain->materialLayers != component->materialLayers;
+        component->colliderRevision = nextDirty
+            ? (entity->terrain.has_value() ? entity->terrain->colliderRevision + 1U : 1U)
+            : entity->terrain->colliderRevision;
+        component->colliderDirty = nextDirty || component->colliderDirty;
+    }
+
     entity->terrain = std::move(component);
     setSingletonComponentOrder(*entity, ComponentType::Terrain, entity->terrain.has_value());
     return true;
@@ -472,7 +483,7 @@ bool Scene::setCollider(EntityId id, std::optional<ColliderComponent> component)
     }
 
     if (component.has_value() && (component->size.x <= 0.0F || component->size.y <= 0.0F
-            || component->size.z <= 0.0F || component->radius <= 0.0F)) {
+            || component->size.z <= 0.0F || component->radius <= 0.0F || component->height <= 0.0F)) {
         core::logWarning(core::LogCategory::Physics, "Scene rejected collider with invalid values");
         return false;
     }

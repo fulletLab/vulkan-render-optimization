@@ -496,6 +496,38 @@ QWidget* MainWindow::createInspectorPanel()
     form->addRow(QStringLiteral("Status"), scriptStatusLabel_);
     removeScriptButton_ = makeToolButton(QStringLiteral("Remove Script Component"));
     form->addRow(QString(), removeScriptButton_);
+    rigidbodyEnabledCheck_ = new QCheckBox(QStringLiteral("Rigidbody Enabled"));
+    form->addRow(QStringLiteral("Rigidbody"), rigidbodyEnabledCheck_);
+    rigidbodyBodyTypeCombo_ = new QComboBox;
+    rigidbodyBodyTypeCombo_->addItems({QStringLiteral("Dynamic"), QStringLiteral("Kinematic"), QStringLiteral("Static")});
+    form->addRow(QStringLiteral("Body Type"), rigidbodyBodyTypeCombo_);
+    rigidbodyMass_ = createTransformSpinBox();
+    rigidbodyMass_->setRange(0.001, 100000.0);
+    rigidbodyMass_->setValue(1.0);
+    form->addRow(QStringLiteral("Mass"), rigidbodyMass_);
+    rigidbodyGravityCheck_ = new QCheckBox(QStringLiteral("Use Gravity"));
+    form->addRow(QStringLiteral("Gravity"), rigidbodyGravityCheck_);
+    rigidbodyLinearDrag_ = createTransformSpinBox();
+    rigidbodyLinearDrag_->setRange(0.0, 10000.0);
+    form->addRow(QStringLiteral("Linear Damping"), rigidbodyLinearDrag_);
+    rigidbodyAngularDrag_ = createTransformSpinBox();
+    rigidbodyAngularDrag_->setRange(0.0, 10000.0);
+    form->addRow(QStringLiteral("Angular Damping"), rigidbodyAngularDrag_);
+    colliderEnabledCheck_ = new QCheckBox(QStringLiteral("Collider Enabled"));
+    form->addRow(QStringLiteral("Collider"), colliderEnabledCheck_);
+    colliderShapeCombo_ = new QComboBox;
+    colliderShapeCombo_->addItems({QStringLiteral("Box"), QStringLiteral("Sphere"), QStringLiteral("Capsule"), QStringLiteral("Mesh"), QStringLiteral("Terrain")});
+    form->addRow(QStringLiteral("Collider Shape"), colliderShapeCombo_);
+    form->addRow(QStringLiteral("Collider Size"), makeVectorRow(colliderSizeX_, colliderSizeY_, colliderSizeZ_));
+    form->addRow(QStringLiteral("Collider Offset"), makeVectorRow(colliderOffsetX_, colliderOffsetY_, colliderOffsetZ_));
+    colliderRadius_ = createTransformSpinBox();
+    colliderRadius_->setRange(0.001, 100000.0);
+    form->addRow(QStringLiteral("Radius"), colliderRadius_);
+    colliderHeight_ = createTransformSpinBox();
+    colliderHeight_->setRange(0.001, 100000.0);
+    form->addRow(QStringLiteral("Height"), colliderHeight_);
+    colliderTriggerCheck_ = new QCheckBox(QStringLiteral("Is Trigger"));
+    form->addRow(QStringLiteral("Trigger"), colliderTriggerCheck_);
     layout->addLayout(form);
 
     auto* addComponent = makeToolButton(QStringLiteral("Add Component"));
@@ -550,6 +582,19 @@ QWidget* MainWindow::createInspectorPanel()
     connect(scriptFieldsTable_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem*) {
         applyInspectorToSelection();
     });
+    const auto applyPhysics = [this] { applyInspectorToSelection(); };
+    connect(rigidbodyEnabledCheck_, &QCheckBox::toggled, this, applyPhysics);
+    connect(rigidbodyBodyTypeCombo_, &QComboBox::currentIndexChanged, this, [this](int) { applyInspectorToSelection(); });
+    connect(rigidbodyMass_, &QDoubleSpinBox::valueChanged, this, [this](double) { applyInspectorToSelection(); });
+    connect(rigidbodyGravityCheck_, &QCheckBox::toggled, this, applyPhysics);
+    connect(rigidbodyLinearDrag_, &QDoubleSpinBox::valueChanged, this, [this](double) { applyInspectorToSelection(); });
+    connect(rigidbodyAngularDrag_, &QDoubleSpinBox::valueChanged, this, [this](double) { applyInspectorToSelection(); });
+    connect(colliderEnabledCheck_, &QCheckBox::toggled, this, applyPhysics);
+    connect(colliderShapeCombo_, &QComboBox::currentIndexChanged, this, [this](int) { applyInspectorToSelection(); });
+    for (auto* spinBox : {colliderSizeX_, colliderSizeY_, colliderSizeZ_, colliderOffsetX_, colliderOffsetY_, colliderOffsetZ_, colliderRadius_, colliderHeight_}) {
+        connect(spinBox, &QDoubleSpinBox::valueChanged, this, [this](double) { applyInspectorToSelection(); });
+    }
+    connect(colliderTriggerCheck_, &QCheckBox::toggled, this, applyPhysics);
 
     const std::array<QDoubleSpinBox*, 9> spinBoxes {
         positionX_, positionY_, positionZ_,

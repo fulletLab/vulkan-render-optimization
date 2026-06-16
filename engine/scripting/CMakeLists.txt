@@ -14,6 +14,7 @@ target_link_libraries(projectunity_scripting
     PUBLIC
         ProjectUnity::Core
         ProjectUnity::Math
+        ProjectUnity::Physics
         ProjectUnity::Scene
 )
 

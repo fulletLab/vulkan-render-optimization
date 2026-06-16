@@ -115,6 +115,29 @@ void setSpinBoxesEnabled(const std::array<QDoubleSpinBox*, 9>& spinBoxes, bool e
     }
 }
 
+[[nodiscard]] int colliderShapeIndex(scene::ColliderShape shape) noexcept
+{
+    switch (shape) {
+    case scene::ColliderShape::Box: return 0;
+    case scene::ColliderShape::Sphere: return 1;
+    case scene::ColliderShape::Capsule: return 2;
+    case scene::ColliderShape::Mesh: return 3;
+    case scene::ColliderShape::Terrain: return 4;
+    }
+    return 0;
+}
+
+[[nodiscard]] scene::ColliderShape colliderShapeFromIndex(int index) noexcept
+{
+    switch (index) {
+    case 1: return scene::ColliderShape::Sphere;
+    case 2: return scene::ColliderShape::Capsule;
+    case 3: return scene::ColliderShape::Mesh;
+    case 4: return scene::ColliderShape::Terrain;
+    default: return scene::ColliderShape::Box;
+    }
+}
+
 [[nodiscard]] renderer::RenderLight editorSunFromAngles(
     float azimuthDegrees,
     float elevationDegrees,
@@ -562,10 +585,10 @@ void MainWindow::updateInspector()
             components << QStringLiteral("Terrain");
         }
         if (hasSelection && entity->rigidbody.has_value()) {
-            components << QStringLiteral("Rigidbody (PARCIAL)");
+            components << QStringLiteral("Rigidbody (basic terrain contact)");
         }
         if (hasSelection && entity->collider.has_value()) {
-            components << QStringLiteral("Collider (PARCIAL)");
+            components << QStringLiteral("Collider (basic terrain contact)");
         }
         componentSummary_->setText(components.isEmpty() ? QStringLiteral("-") : components.join(QStringLiteral(", ")));
     }
@@ -641,6 +664,75 @@ void MainWindow::updateInspector()
             scriptFieldsTable_->setItem(static_cast<int>(row), 0, nameItem);
             scriptFieldsTable_->setItem(static_cast<int>(row), 1, new QTableWidgetItem(QString::number(value, 'g', 7)));
         }
+    }
+    const auto* rigidbody = hasSelection && entity->rigidbody.has_value() ? &*entity->rigidbody : nullptr;
+    if (rigidbodyEnabledCheck_ != nullptr) {
+        const QSignalBlocker blocker(rigidbodyEnabledCheck_);
+        rigidbodyEnabledCheck_->setEnabled(rigidbody != nullptr);
+        rigidbodyEnabledCheck_->setChecked(rigidbody != nullptr && rigidbody->enabled);
+    }
+    if (rigidbodyBodyTypeCombo_ != nullptr) {
+        const QSignalBlocker blocker(rigidbodyBodyTypeCombo_);
+        rigidbodyBodyTypeCombo_->setEnabled(rigidbody != nullptr);
+        const auto index = rigidbody == nullptr ? 0 : (rigidbody->kinematic ? 1 : (!rigidbody->enabled ? 2 : 0));
+        rigidbodyBodyTypeCombo_->setCurrentIndex(index);
+    }
+    if (rigidbodyMass_ != nullptr) {
+        const QSignalBlocker blocker(rigidbodyMass_);
+        rigidbodyMass_->setEnabled(rigidbody != nullptr);
+        rigidbodyMass_->setValue(rigidbody == nullptr ? 1.0 : rigidbody->mass);
+    }
+    if (rigidbodyGravityCheck_ != nullptr) {
+        const QSignalBlocker blocker(rigidbodyGravityCheck_);
+        rigidbodyGravityCheck_->setEnabled(rigidbody != nullptr);
+        rigidbodyGravityCheck_->setChecked(rigidbody != nullptr && rigidbody->useGravity);
+    }
+    if (rigidbodyLinearDrag_ != nullptr) {
+        const QSignalBlocker blocker(rigidbodyLinearDrag_);
+        rigidbodyLinearDrag_->setEnabled(rigidbody != nullptr);
+        rigidbodyLinearDrag_->setValue(rigidbody == nullptr ? 0.0 : rigidbody->linearDrag);
+    }
+    if (rigidbodyAngularDrag_ != nullptr) {
+        const QSignalBlocker blocker(rigidbodyAngularDrag_);
+        rigidbodyAngularDrag_->setEnabled(rigidbody != nullptr);
+        rigidbodyAngularDrag_->setValue(rigidbody == nullptr ? 0.05 : rigidbody->angularDrag);
+    }
+
+    const auto* collider = hasSelection && entity->collider.has_value() ? &*entity->collider : nullptr;
+    if (colliderEnabledCheck_ != nullptr) {
+        const QSignalBlocker blocker(colliderEnabledCheck_);
+        colliderEnabledCheck_->setEnabled(collider != nullptr);
+        colliderEnabledCheck_->setChecked(collider != nullptr && collider->enabled);
+    }
+    if (colliderShapeCombo_ != nullptr) {
+        const QSignalBlocker blocker(colliderShapeCombo_);
+        colliderShapeCombo_->setEnabled(collider != nullptr);
+        colliderShapeCombo_->setCurrentIndex(collider == nullptr ? 0 : colliderShapeIndex(collider->shape));
+    }
+    const auto setVec3 = [](QDoubleSpinBox* x, QDoubleSpinBox* y, QDoubleSpinBox* z, math::Vec3 value, bool enabled) {
+        for (auto* box : {x, y, z}) {
+            if (box != nullptr) { box->setEnabled(enabled); }
+        }
+        if (x != nullptr) { const QSignalBlocker blocker(x); x->setValue(value.x); }
+        if (y != nullptr) { const QSignalBlocker blocker(y); y->setValue(value.y); }
+        if (z != nullptr) { const QSignalBlocker blocker(z); z->setValue(value.z); }
+    };
+    setVec3(colliderSizeX_, colliderSizeY_, colliderSizeZ_, collider == nullptr ? math::Vec3 {1.0F, 1.0F, 1.0F} : collider->size, collider != nullptr);
+    setVec3(colliderOffsetX_, colliderOffsetY_, colliderOffsetZ_, collider == nullptr ? math::Vec3 {} : collider->offset, collider != nullptr);
+    if (colliderRadius_ != nullptr) {
+        const QSignalBlocker blocker(colliderRadius_);
+        colliderRadius_->setEnabled(collider != nullptr);
+        colliderRadius_->setValue(collider == nullptr ? 0.5 : collider->radius);
+    }
+    if (colliderHeight_ != nullptr) {
+        const QSignalBlocker blocker(colliderHeight_);
+        colliderHeight_->setEnabled(collider != nullptr);
+        colliderHeight_->setValue(collider == nullptr ? 2.0 : collider->height);
+    }
+    if (colliderTriggerCheck_ != nullptr) {
+        const QSignalBlocker blocker(colliderTriggerCheck_);
+        colliderTriggerCheck_->setEnabled(collider != nullptr);
+        colliderTriggerCheck_->setChecked(collider != nullptr && collider->trigger);
     }
 
     if (deleteEntityButton_ != nullptr) {
@@ -725,6 +817,65 @@ void MainWindow::applyInspectorToSelection()
             }
         }
         (void)scene_.updateScript(selectedEntityId_, std::move(script));
+    }
+    if (entity->rigidbody.has_value()) {
+        auto rigidbody = *entity->rigidbody;
+        if (rigidbodyEnabledCheck_ != nullptr) {
+            rigidbody.enabled = rigidbodyEnabledCheck_->isChecked();
+        }
+        if (rigidbodyBodyTypeCombo_ != nullptr) {
+            rigidbody.kinematic = rigidbodyBodyTypeCombo_->currentIndex() == 1;
+            if (rigidbodyBodyTypeCombo_->currentIndex() == 2) {
+                rigidbody.enabled = false;
+                rigidbody.kinematic = true;
+            }
+        }
+        if (rigidbodyMass_ != nullptr) {
+            rigidbody.mass = static_cast<float>(rigidbodyMass_->value());
+        }
+        if (rigidbodyGravityCheck_ != nullptr) {
+            rigidbody.useGravity = rigidbodyGravityCheck_->isChecked();
+        }
+        if (rigidbodyLinearDrag_ != nullptr) {
+            rigidbody.linearDrag = static_cast<float>(rigidbodyLinearDrag_->value());
+        }
+        if (rigidbodyAngularDrag_ != nullptr) {
+            rigidbody.angularDrag = static_cast<float>(rigidbodyAngularDrag_->value());
+        }
+        (void)scene_.setRigidbody(selectedEntityId_, rigidbody);
+    }
+    if (entity->collider.has_value()) {
+        auto collider = *entity->collider;
+        if (colliderEnabledCheck_ != nullptr) {
+            collider.enabled = colliderEnabledCheck_->isChecked();
+        }
+        if (colliderShapeCombo_ != nullptr) {
+            collider.shape = colliderShapeFromIndex(colliderShapeCombo_->currentIndex());
+        }
+        if (colliderSizeX_ != nullptr) {
+            collider.size = {
+                static_cast<float>(colliderSizeX_->value()),
+                static_cast<float>(colliderSizeY_->value()),
+                static_cast<float>(colliderSizeZ_->value()),
+            };
+        }
+        if (colliderOffsetX_ != nullptr) {
+            collider.offset = {
+                static_cast<float>(colliderOffsetX_->value()),
+                static_cast<float>(colliderOffsetY_->value()),
+                static_cast<float>(colliderOffsetZ_->value()),
+            };
+        }
+        if (colliderRadius_ != nullptr) {
+            collider.radius = static_cast<float>(colliderRadius_->value());
+        }
+        if (colliderHeight_ != nullptr) {
+            collider.height = static_cast<float>(colliderHeight_->value());
+        }
+        if (colliderTriggerCheck_ != nullptr) {
+            collider.trigger = colliderTriggerCheck_->isChecked();
+        }
+        (void)scene_.setCollider(selectedEntityId_, collider);
     }
     if (hierarchyChanged) {
         rebuildHierarchy();

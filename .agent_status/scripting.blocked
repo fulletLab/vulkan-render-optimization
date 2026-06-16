@@ -1,0 +1,40 @@
+Estado:
+BLOQUEADO/PARCIAL por verificacion pendiente. No creo scripting.done porque el usuario pidio no ejecutar tests, ctest, smoke ni build pesado.
+
+Que hice:
+- Movi el movimiento gameplay al runtime de scripting: Play/Game alimenta InputState y ScriptRuntime ejecuta ScriptComponent activo; Scene View queda como camara editor.
+- Play busca CameraComponent real con scripting::findRuntimeCameraEntity y reporta "No runtime Camera found." si no existe.
+- Scene soporta multiples ScriptComponent con instanceId estable, enabled, fields, asset/name y orden de componentes serializado.
+- Inspector/Add Component usa assets de Scripts y registry; si el asset no esta registrado muestra "Script asset found but class is not registered."
+- Remove Script, cambiar script, enable/disable y fields metadata-driven quedaron integrados en UI.
+- Evite el fallback hardcodeado de Add Script a FlyPlayerController cuando no hay assets.
+- Agregue diagnostico de cambios de Transform en ScriptRuntimeStats::transformsChanged.
+- Documente hot reload nativo como PARCIAL: hoy cambiar C++ requiere recompilar projectunity_scripting y relinkear editor; ruta futura DLL/plugin.
+
+Archivos tocados:
+- engine/scene/include/projectunity/scene/Scene.hpp
+- engine/scene/src/Scene.cpp
+- engine/scene/src/SceneSerialization.cpp
+- engine/scene/src/SceneScriptSerialization.hpp
+- engine/scene/src/SceneScriptSerialization.cpp
+- engine/scene/CMakeLists.txt
+- engine/scripting/include/projectunity/scripting/ScriptRuntime.hpp
+- engine/scripting/src/ScriptRuntime.cpp
+- engine/scripting/src/BuiltInScripts.cpp
+- editor/app/include/projectunity/editor/MainWindow.hpp
+- editor/app/src/MainWindow.cpp
+- editor/app/src/MainWindowGameObjects.cpp
+- editor/app/src/MainWindowPanels.cpp
+- editor/app/src/MainWindowPlay.cpp
+- editor/app/src/SceneHierarchyWidget.cpp
+- docs/scripting-runtime.md
+- tests/scripting_tests/scripting_tests.cpp
+- tests/scene_tests/scene_tests.cpp
+
+Que queda parcial:
+- Hot reload de C++ real por DLL/plugin sigue pendiente.
+- La verificacion manual/editor queda pendiente: Add/Remove Script, fields, guardar/cargar, Play snapshot, sin CameraComponent, script disabled/removido.
+- FlyPlayerController sigue existiendo como script nativo registrado y como shortcut de crear/adjuntar Player, no como fallback generico de Add Script.
+
+Bloqueos:
+- No ejecute tests/build por regla de ahorro y por pedido explicito del usuario. Queda para Build Coordinator / usuario.

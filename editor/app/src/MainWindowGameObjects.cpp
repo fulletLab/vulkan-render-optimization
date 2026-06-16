@@ -122,6 +122,7 @@ scene::EntityId MainWindow::createLightEntity(scene::LightComponentType type)
 scene::EntityId MainWindow::createTerrainEntity()
 {
     scene::TerrainComponent terrain;
+    terrain.settings.generateCollider = true;
     auto generated = terrain::TerrainGenerator::generate(terrain.settings);
     if (!generated.succeeded()) {
         core::logError(core::LogCategory::Editor, "Terrain generation failed: " + generated.error);
@@ -234,11 +235,13 @@ void MainWindow::showAddComponentMenu(QWidget* anchor)
         addLightToSelection(scene::LightComponentType::Spot);
     });
     addMenu->addAction(QStringLiteral("Terrain"), this, [this] { addTerrainToSelection(); });
-    addMenu->addAction(QStringLiteral("Rigidbody (PARCIAL)"), this, [this] { addRigidbodyToSelection(); });
-    auto* colliderMenu = addMenu->addMenu(QStringLiteral("Collider (PARCIAL)"));
+    addMenu->addAction(QStringLiteral("Rigidbody (basic/PARCIAL)"), this, [this] { addRigidbodyToSelection(); });
+    auto* colliderMenu = addMenu->addMenu(QStringLiteral("Collider (basic/PARCIAL)"));
     colliderMenu->addAction(QStringLiteral("Box Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Box); });
     colliderMenu->addAction(QStringLiteral("Sphere Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Sphere); });
+    colliderMenu->addAction(QStringLiteral("Capsule Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Capsule); });
     colliderMenu->addAction(QStringLiteral("Mesh Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Mesh); });
+    colliderMenu->addAction(QStringLiteral("Terrain Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Terrain); });
     auto* scriptMenu = addMenu->addMenu(QStringLiteral("Script"));
     ensureFlyPlayerScriptAsset();
     const auto scriptsDir = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets" / "Scripts";
@@ -274,9 +277,8 @@ void MainWindow::showAddComponentMenu(QWidget* anchor)
         }
     }
     if (scriptMenu->actions().isEmpty()) {
-        scriptMenu->addAction(QStringLiteral("FlyPlayerController"), this, [this] {
-            attachFlyPlayerControllerToSelection();
-        });
+        auto* noScriptsAction = scriptMenu->addAction(QStringLiteral("No script assets found"));
+        noScriptsAction->setEnabled(false);
     }
 
     auto* removeMenu = menu.addMenu(QStringLiteral("Remove Component"));
@@ -336,6 +338,7 @@ void MainWindow::addTerrainToSelection()
         return;
     }
     scene::TerrainComponent terrain;
+    terrain.settings.generateCollider = true;
     (void)scene_.setTerrain(selectedEntityId_, terrain);
     regenerateSelectedTerrain();
 }
@@ -346,7 +349,7 @@ void MainWindow::addRigidbodyToSelection()
         return;
     }
     (void)scene_.setRigidbody(selectedEntityId_, scene::RigidbodyComponent {});
-    core::logWarning(core::LogCategory::Physics, "Rigidbody component is PARCIAL: serialized but not connected to a physics simulation yet");
+    core::logInfo(core::LogCategory::Physics, "Rigidbody added: basic terrain contact/gravity is available in Play; full physics remains PARCIAL");
     updateInspector();
 }
 
@@ -357,8 +360,18 @@ void MainWindow::addColliderToSelection(scene::ColliderShape shape)
     }
     scene::ColliderComponent collider;
     collider.shape = shape;
+    if (shape == scene::ColliderShape::Sphere) {
+        collider.radius = 0.5F;
+        collider.size = {1.0F, 1.0F, 1.0F};
+    } else if (shape == scene::ColliderShape::Capsule) {
+        collider.radius = 0.35F;
+        collider.height = 1.8F;
+        collider.size = {0.7F, 1.8F, 0.7F};
+    } else if (shape == scene::ColliderShape::Terrain) {
+        collider.size = {128.0F, 24.0F, 128.0F};
+    }
     (void)scene_.setCollider(selectedEntityId_, collider);
-    core::logWarning(core::LogCategory::Physics, "Collider component is PARCIAL: serialized but not connected to physics queries yet");
+    core::logInfo(core::LogCategory::Physics, "Collider added: terrain raycast/contact queries are available; full physics remains PARCIAL");
     updateInspector();
 }
 

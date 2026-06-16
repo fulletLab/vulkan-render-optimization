@@ -114,7 +114,7 @@ QWidget* MainWindow::createTerrainPanel()
     terrainGenerateNormals_->setChecked(true);
     terrainGenerateTangents_ = new QCheckBox(QStringLiteral("Generate tangents"));
     terrainGenerateTangents_->setChecked(true);
-    terrainGenerateCollider_ = new QCheckBox(QStringLiteral("Generate collider (PARCIAL)"));
+    terrainGenerateCollider_ = new QCheckBox(QStringLiteral("Generate terrain collider"));
     settingsForm->addRow(QStringLiteral("Width"), terrainWidth_);
     settingsForm->addRow(QStringLiteral("Length"), terrainLength_);
     settingsForm->addRow(QStringLiteral("Height Scale"), terrainHeightScale_);

@@ -1,6 +1,7 @@
 #include <projectunity/scripting/ScriptRuntime.hpp>
 
 #include <projectunity/core/Log.hpp>
+#include <projectunity/physics/PhysicsWorld.hpp>
 
 #include <algorithm>
 #include <exception>
@@ -164,6 +165,7 @@ bool ScriptRegistry::replaceComponentAsset(
         return false;
     }
 
+    replacement->instanceId = component.instanceId;
     replacement->enabled = component.enabled;
     for (auto& field : replacement->fields) {
         if (const auto* previous = scene::findScriptField(component, field.name)) {
@@ -250,6 +252,8 @@ void ScriptRuntime::update(float deltaTime, const InputState& input)
             reportError(active.className, active.entityId, "unknown exception in OnUpdate");
         }
     }
+    const auto physicsStats = physics::stepBasic(*scene_, deltaTime);
+    stats_.physicsContacts += physicsStats.resolvedContacts;
 }
 
 void ScriptRuntime::fixedUpdate(float deltaTime, const InputState& input)

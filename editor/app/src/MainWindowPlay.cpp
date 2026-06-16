@@ -172,6 +172,15 @@ void copyRuntimeComponents(
     if (source.camera.has_value()) {
         (void)runtimeScene.setCamera(runtimeId, source.camera);
     }
+    if (source.terrain.has_value()) {
+        (void)runtimeScene.setTerrain(runtimeId, source.terrain);
+    }
+    if (source.rigidbody.has_value()) {
+        (void)runtimeScene.setRigidbody(runtimeId, source.rigidbody);
+    }
+    if (source.collider.has_value()) {
+        (void)runtimeScene.setCollider(runtimeId, source.collider);
+    }
     for (const auto& script : source.scripts) {
         (void)runtimeScene.addScript(runtimeId, script);
     }
@@ -194,6 +203,14 @@ scene::EntityId MainWindow::createPlayerEntity()
     camera.nearPlane = 0.05F;
     camera.farPlane = 4000.0F;
     (void)scene_.setCamera(player.id, camera);
+    scene::RigidbodyComponent rigidbody;
+    rigidbody.useGravity = true;
+    (void)scene_.setRigidbody(player.id, rigidbody);
+    scene::ColliderComponent collider;
+    collider.shape = scene::ColliderShape::Sphere;
+    collider.radius = 0.45F;
+    collider.size = {0.9F, 1.8F, 0.9F};
+    (void)scene_.setCollider(player.id, collider);
     scene::ScriptComponent script;
     script.scriptName = "FlyPlayerController";
     script.scriptAsset = "Assets/Scripts/FlyPlayerController.cpp";

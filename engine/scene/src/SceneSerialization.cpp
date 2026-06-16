@@ -187,6 +187,8 @@ constexpr int kSceneFormatVersion = 1;
         return "box";
     case ColliderShape::Sphere:
         return "sphere";
+    case ColliderShape::Capsule:
+        return "capsule";
     case ColliderShape::Mesh:
         return "mesh";
     case ColliderShape::Terrain:
@@ -207,6 +209,10 @@ constexpr int kSceneFormatVersion = 1;
     }
     if (shape == "sphere") {
         output = ColliderShape::Sphere;
+        return true;
+    }
+    if (shape == "capsule") {
+        output = ColliderShape::Capsule;
         return true;
     }
     if (shape == "mesh") {
@@ -399,6 +405,7 @@ std::string Scene::serialize(std::string* errorMessage) const
             }
             if (entity.rigidbody.has_value()) {
                 item["rigidbody"] = {
+                    {"enabled", entity.rigidbody->enabled},
                     {"mass", entity.rigidbody->mass},
                     {"linearDrag", entity.rigidbody->linearDrag},
                     {"angularDrag", entity.rigidbody->angularDrag},
@@ -409,9 +416,12 @@ std::string Scene::serialize(std::string* errorMessage) const
             }
             if (entity.collider.has_value()) {
                 item["collider"] = {
+                    {"enabled", entity.collider->enabled},
                     {"shape", colliderShapeToString(entity.collider->shape)},
                     {"size", vecToJson(entity.collider->size)},
+                    {"offset", vecToJson(entity.collider->offset)},
                     {"radius", entity.collider->radius},
+                    {"height", entity.collider->height},
                     {"trigger", entity.collider->trigger},
                     {"partial", true},
                 };
@@ -640,6 +650,7 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     return false;
                 }
                 RigidbodyComponent rigidbody;
+                rigidbody.enabled = rigidbodyJson.value("enabled", rigidbody.enabled);
                 rigidbody.mass = rigidbodyJson.value("mass", rigidbody.mass);
                 rigidbody.linearDrag = rigidbodyJson.value("linearDrag", rigidbody.linearDrag);
                 rigidbody.angularDrag = rigidbodyJson.value("angularDrag", rigidbody.angularDrag);
@@ -664,10 +675,16 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     setError(errorMessage, "Scene collider shape or size is invalid");
                     return false;
                 }
+                collider.enabled = colliderJson.value("enabled", collider.enabled);
+                if (colliderJson.contains("offset") && !vecFromJson(colliderJson.at("offset"), collider.offset)) {
+                    setError(errorMessage, "Scene collider offset is invalid");
+                    return false;
+                }
                 collider.radius = colliderJson.value("radius", collider.radius);
+                collider.height = colliderJson.value("height", collider.height);
                 collider.trigger = colliderJson.value("trigger", collider.trigger);
                 if (collider.size.x <= 0.0F || collider.size.y <= 0.0F || collider.size.z <= 0.0F
-                    || collider.radius <= 0.0F) {
+                    || collider.radius <= 0.0F || collider.height <= 0.0F) {
                     setError(errorMessage, "Scene collider values are invalid");
                     return false;
                 }
