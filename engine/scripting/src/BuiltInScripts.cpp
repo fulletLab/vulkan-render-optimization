@@ -58,9 +58,10 @@ public:
         const auto forward = forwardFromYawPitch(yaw_, pitch_);
         const auto right = normalizedOr(math::cross({0.0F, 1.0F, 0.0F}, forward), {1.0F, 0.0F, 0.0F});
         const auto up = normalizedOr(math::cross(forward, right), {0.0F, 1.0F, 0.0F});
+        const auto horizontalForward = normalizedOr({forward.x, 0.0F, forward.z}, {0.0F, 0.0F, 1.0F});
         math::Vec3 movement;
-        if (context.input().keyDown(KeyCode::W)) { movement += forward; }
-        if (context.input().keyDown(KeyCode::S)) { movement -= forward; }
+        if (context.input().keyDown(KeyCode::W)) { movement += horizontalForward; }
+        if (context.input().keyDown(KeyCode::S)) { movement -= horizontalForward; }
         if (context.input().keyDown(KeyCode::D)) { movement += right; }
         if (context.input().keyDown(KeyCode::A)) { movement -= right; }
         if (context.input().keyDown(KeyCode::E)) { movement += math::Vec3 {0.0F, 1.0F, 0.0F}; }
@@ -73,6 +74,17 @@ public:
             transform->position += normalizedOr(movement, {}) * (std::max(0.0F, speed) * std::max(0.0F, deltaTime));
         }
 
+        const auto spaceDown = context.input().keyDown(KeyCode::Space);
+        if (spaceDown && !jumpHeld_) {
+            verticalVelocity_ = std::max(verticalVelocity_, std::max(0.0F, context.field("jumpForce", 5.0F)));
+        }
+        jumpHeld_ = spaceDown;
+        if (verticalVelocity_ > 0.0F) {
+            const auto dt = std::max(0.0F, deltaTime);
+            transform->position.y += verticalVelocity_ * dt;
+            verticalVelocity_ = std::max(0.0F, verticalVelocity_ - std::max(0.0F, context.field("gravity", 9.81F)) * dt);
+        }
+
         camera->direction = forward;
         camera->right = right;
         camera->up = up;
@@ -81,6 +93,8 @@ public:
 private:
     float yaw_ {0.0F};
     float pitch_ {0.0F};
+    float verticalVelocity_ {0.0F};
+    bool jumpHeld_ {false};
 };
 
 class Health final : public ScriptInstance {

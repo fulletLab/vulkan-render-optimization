@@ -128,7 +128,7 @@ void ViewportWidget::handleGameMouseMove(QMouseEvent* event)
     if (gameMouseLook_) {
         gameInputState_.mouseDeltaX += static_cast<float>(delta.x());
         gameInputState_.mouseDeltaY += static_cast<float>(delta.y());
-        tickGameScripts();
+        update();
         event->accept();
         return;
     }

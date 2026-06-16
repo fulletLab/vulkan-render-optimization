@@ -336,7 +336,7 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
         raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
         raster.polygonMode = VK_POLYGON_MODE_FILL;
         raster.cullMode = VK_CULL_MODE_BACK_BIT;
-        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
         raster.depthBiasEnable = VK_TRUE;
         raster.depthBiasConstantFactor = 1.25F;
         raster.depthBiasSlopeFactor = 1.75F;
@@ -386,11 +386,11 @@ void VulkanShadowPipeline::createPipeline(VkDescriptorSetLayout materialLayout)
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan shadow graphics pipeline");
         }
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &flippedWindingPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan flipped-winding shadow graphics pipeline");
         }
-        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
         raster.cullMode = VK_CULL_MODE_NONE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &doubleSidedPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan double-sided shadow graphics pipeline");

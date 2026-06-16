@@ -1,11 +1,14 @@
-Assets/Hierarchy/Imports orientation renderer pass complete.
-
-Scope completed:
-- Added real flipped-winding Vulkan mesh pipelines instead of using double-sided/no-cull for negative determinant instances.
-- Added transparent flipped-winding mesh pipeline variant.
-- Added flipped-winding shadow pipeline variant.
-- Preserved material glTF doubleSided as the only path to no-cull rendering.
-- Preserved Vulkan pipeline/material switch counters in ViewportTarget/Shadow paths.
-- Adjusted TexturedMesh tangent handedness with instance determinant so tangent.w remains correct under mirrored transforms.
-
-Editor final build intentionally not run from this pass per coordination request.
+Estado: done-pending-editor-smoke
+Qué hice:
+- Corregí el frontFace de los pipelines Vulkan para la proyección con Y invertida: mesh normal/transparent ahora usa Clockwise y las variantes flipped usan CounterClockwise.
+- Apliqué el mismo criterio en shadow pipeline para no romper sombras.
+- No apagué culling global ni cambié transforms/import/scale/rotación de assets.
+Archivos tocados:
+- engine/renderer/src/VulkanMeshPipeline.cpp
+- engine/renderer/src/VulkanShadowPipeline.cpp
+Qué queda parcial:
+- Falta relink/smoke visual del editor final para confirmar terrain y assets importados sin rotación manual.
+Bloqueos:
+- Ninguno en esta corrección puntual.
+Verificación:
+- Compilé solo projectunity_renderer Release. No ejecuté ctest/smoke/build completo por ahorro de tokens.

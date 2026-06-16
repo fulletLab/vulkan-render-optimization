@@ -136,6 +136,33 @@ int main()
     }
     noCameraRuntime.stop();
 
+    scene::Scene childCameraScene;
+    auto& childCameraPlayer = childCameraScene.createEntity("Child Camera Player");
+    const auto childCameraPlayerId = childCameraPlayer.id;
+    auto& childCamera = childCameraScene.createEntity("Camera", childCameraPlayerId);
+    const auto childCameraId = childCamera.id;
+    if (!childCameraScene.setCamera(childCameraId, scene::CameraComponent {})) {
+        return fail("failed to attach child camera");
+    }
+    auto childCameraFly = registry.createComponentFromAsset("Assets/Scripts/FlyPlayerController.cpp", &resolutionError);
+    if (!childCameraFly.has_value() || !childCameraScene.addScript(childCameraPlayerId, *childCameraFly).has_value()) {
+        return fail("failed to add fly script with child camera");
+    }
+    scripting::ScriptRuntime childCameraRuntime;
+    childCameraRuntime.setRegistry(&registry);
+    (void)childCameraRuntime.start(childCameraScene);
+    if (scripting::findRuntimeCameraEntity(childCameraScene) != childCameraId) {
+        return fail("runtime camera lookup did not return child CameraComponent");
+    }
+    scripting::InputState childCameraJump;
+    childCameraJump.setKeyDown(scripting::KeyCode::Space, true);
+    childCameraRuntime.update(0.1F, childCameraJump);
+    if (childCameraScene.findEntity(childCameraPlayerId)->transform.position.y <= 0.0F
+        || childCameraRuntime.stats().transformsChanged != 1) {
+        return fail("FlyPlayerController did not jump with a child CameraComponent");
+    }
+    childCameraRuntime.stop();
+
     scene::Scene editorScene;
     auto& player = editorScene.createEntity("Player");
     const auto playerId = player.id;
@@ -211,6 +238,14 @@ int main()
     runtime.update(0.5F, input);
     if (runtimePlayer->transform.position.z != 6.0F || runtime.stats().transformsChanged != 2) {
         return fail("runtime field edit did not affect movement");
+    }
+
+    scripting::InputState jumpInput;
+    jumpInput.setKeyDown(scripting::KeyCode::Space, true);
+    const auto beforeJumpY = runtimePlayer->transform.position.y;
+    runtime.update(0.1F, jumpInput);
+    if (runtimePlayer->transform.position.y <= beforeJumpY) {
+        return fail("FlyPlayerController space jump did not move through scripting");
     }
 
     runtimeFly->enabled = false;

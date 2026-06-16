@@ -26,6 +26,23 @@ namespace {
         || before.scale.z != after.scale.z;
 }
 
+[[nodiscard]] scene::CameraComponent* findCameraInSubtree(scene::Scene& scene, scene::Entity& entity) noexcept
+{
+    if (entity.camera.has_value()) {
+        return &*entity.camera;
+    }
+    for (const auto childId : entity.children) {
+        auto* child = scene.findEntity(childId);
+        if (child == nullptr) {
+            continue;
+        }
+        if (auto* camera = findCameraInSubtree(scene, *child)) {
+            return camera;
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 ScriptContext::ScriptContext(
@@ -64,7 +81,7 @@ scene::TransformComponent* ScriptContext::getTransform() noexcept
 scene::CameraComponent* ScriptContext::getCamera() noexcept
 {
     auto* owner = entity();
-    return owner == nullptr || !owner->camera.has_value() ? nullptr : &*owner->camera;
+    return owner == nullptr ? nullptr : findCameraInSubtree(scene_, *owner);
 }
 
 const InputState& ScriptContext::input() const noexcept

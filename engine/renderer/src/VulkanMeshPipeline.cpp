@@ -248,7 +248,7 @@ void VulkanMeshPipeline::createPipeline()
         raster.polygonMode = VK_POLYGON_MODE_FILL;
         raster.lineWidth = 1.0F;
         raster.cullMode = VK_CULL_MODE_BACK_BIT;
-        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
         VkPipelineMultisampleStateCreateInfo multisample {};
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -308,11 +308,11 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan mesh graphics pipeline");
         }
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &flippedWindingPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan flipped-winding mesh graphics pipeline");
         }
-        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
         raster.cullMode = VK_CULL_MODE_NONE;
         depth.depthWriteEnable = VK_TRUE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &doubleSidedPipeline_) != VK_SUCCESS) {
@@ -323,11 +323,11 @@ void VulkanMeshPipeline::createPipeline()
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent mesh graphics pipeline");
         }
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentFlippedWindingPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent flipped-winding mesh graphics pipeline");
         }
-        raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
         raster.cullMode = VK_CULL_MODE_NONE;
         if (vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &info, nullptr, &transparentDoubleSidedPipeline_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create Vulkan transparent double-sided mesh graphics pipeline");
