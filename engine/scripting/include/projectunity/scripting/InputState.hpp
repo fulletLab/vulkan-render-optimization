@@ -15,27 +15,47 @@ enum class KeyCode : std::uint8_t {
     E,
     Space,
     LeftShift,
+    Tab,
+    Escape,
     Count,
+};
+
+class InputService {
+public:
+    virtual ~InputService() = default;
+    virtual void setMouseCaptured(bool captured) = 0;
+    [[nodiscard]] virtual bool isMouseCaptured() const noexcept = 0;
 };
 
 struct InputState {
     std::array<bool, static_cast<std::size_t>(KeyCode::Count)> keys {};
+    std::array<bool, static_cast<std::size_t>(KeyCode::Count)> pressedKeys {};
     float mouseDeltaX {0.0F};
     float mouseDeltaY {0.0F};
-    bool mouseLook {false};
+    bool mouseCaptured {false};
 
     [[nodiscard]] bool keyDown(KeyCode key) const noexcept
     {
         return keys[static_cast<std::size_t>(key)];
     }
 
+    [[nodiscard]] bool keyPressed(KeyCode key) const noexcept
+    {
+        return pressedKeys[static_cast<std::size_t>(key)];
+    }
+
     void setKeyDown(KeyCode key, bool down) noexcept
     {
-        keys[static_cast<std::size_t>(key)] = down;
+        const auto index = static_cast<std::size_t>(key);
+        if (down && !keys[index]) {
+            pressedKeys[index] = true;
+        }
+        keys[index] = down;
     }
 
     void clearFrameDeltas() noexcept
     {
+        pressedKeys.fill(false);
         mouseDeltaX = 0.0F;
         mouseDeltaY = 0.0F;
     }

@@ -92,6 +92,9 @@ void MainWindow::createMenus()
     assetsMenu->addAction(QStringLiteral("Create Texture Placeholder"));
     assetsMenu->addAction(QStringLiteral("Create Script"), this, [this] { ensureFlyPlayerScriptAsset(); });
     assetsMenu->addSeparator();
+    assetsMenu->addAction(QStringLiteral("Build Scripts Module"), this, [this] { (void)buildProjectScriptsModule(); });
+    assetsMenu->addAction(QStringLiteral("Reload Scripts"), this, [this] { (void)reloadProjectScriptsModule(); });
+    assetsMenu->addSeparator();
     assetsMenu->addAction(QStringLiteral("Refresh"), this, [this] { rebuildAssetBrowser(); });
     assetsMenu->addAction(QStringLiteral("Reimport Selected"));
 
@@ -138,6 +141,9 @@ void MainWindow::createMenus()
     windowMenu_->addSeparator();
 
     auto* toolsMenu = menuBar()->addMenu(QStringLiteral("&Tools"));
+    toolsMenu->addAction(QStringLiteral("Build Scripts Module"), this, [this] { (void)buildProjectScriptsModule(); });
+    toolsMenu->addAction(QStringLiteral("Reload Scripts"), this, [this] { (void)reloadProjectScriptsModule(); });
+    toolsMenu->addSeparator();
     toolsMenu->addAction(QStringLiteral("Terrain Generator"), this, [this] {
         createTerrainEntity();
     });

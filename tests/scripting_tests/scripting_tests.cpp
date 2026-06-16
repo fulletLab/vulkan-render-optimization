@@ -1,8 +1,10 @@
 #include <projectunity/scripting/ScriptRuntime.hpp>
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <string>
 
 namespace {
 
@@ -10,6 +12,23 @@ int fail(const char* message)
 {
     std::cerr << message << '\n';
     return EXIT_FAILURE;
+}
+
+[[nodiscard]] std::string environmentValue(const char* name)
+{
+#if defined(_MSC_VER)
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+        return {};
+    }
+    std::string result(value);
+    std::free(value);
+    return result;
+#else
+    const auto* value = std::getenv(name);
+    return value == nullptr ? std::string {} : std::string(value);
+#endif
 }
 
 struct LifecycleCounts {
@@ -50,15 +69,40 @@ private:
     LifecycleCounts& counts_;
 };
 
+class CaptureService final : public projectunity::scripting::InputService {
+public:
+    void setMouseCaptured(bool captured) override
+    {
+        mouseCaptured = captured;
+    }
+
+    [[nodiscard]] bool isMouseCaptured() const noexcept override
+    {
+        return mouseCaptured;
+    }
+
+    bool mouseCaptured {false};
+};
+
 } // namespace
 
 int main()
 {
     using namespace projectunity;
 
+    const auto modulePath = environmentValue("PROJECTUNITY_TEST_SCRIPTS_DLL");
+    if (modulePath.empty()) {
+        return fail("PROJECTUNITY_TEST_SCRIPTS_DLL is not set");
+    }
+
+    scripting::ScriptModuleLoader moduleLoader;
     scripting::ScriptRegistry registry;
-    scripting::registerBuiltInScripts(registry);
     std::string resolutionError;
+    if (!moduleLoader.load(std::filesystem::path(modulePath), registry, &resolutionError)) {
+        std::cerr << resolutionError << '\n';
+        return fail("failed to load ProjectUnityGameScripts module");
+    }
+
     const auto health = registry.createComponentFromAsset("Assets/Scripts/Health.cpp", &resolutionError);
     if (!health.has_value()
         || health->scriptName != "Health"
@@ -70,7 +114,8 @@ int main()
         return fail("health metadata did not produce distinct script fields");
     }
     const auto missing = registry.createComponentFromAsset("Assets/Scripts/NotCompiled.cpp", &resolutionError);
-    if (missing.has_value() || resolutionError != "Script asset found but class is not registered.") {
+    if (missing.has_value()
+        || resolutionError != "Script asset exists but native class is not loaded. Build/Reload Project Scripts.") {
         return fail("unregistered script asset did not return the expected error");
     }
 
@@ -97,13 +142,40 @@ int main()
         return fail("failed to register lifecycle probe");
     }
 
+    scripting::InputState edgeInput;
+    edgeInput.setKeyDown(scripting::KeyCode::Tab, true);
+    if (!edgeInput.keyDown(scripting::KeyCode::Tab) || !edgeInput.keyPressed(scripting::KeyCode::Tab)) {
+        return fail("input did not report a key press edge");
+    }
+    edgeInput.clearFrameDeltas();
+    if (!edgeInput.keyDown(scripting::KeyCode::Tab) || edgeInput.keyPressed(scripting::KeyCode::Tab)) {
+        return fail("input did not clear key press edges per frame");
+    }
+    edgeInput.setKeyDown(scripting::KeyCode::Tab, true);
+    if (edgeInput.keyPressed(scripting::KeyCode::Tab)) {
+        return fail("held key generated a repeated key press edge");
+    }
+    edgeInput.setKeyDown(scripting::KeyCode::Tab, false);
+    edgeInput.setKeyDown(scripting::KeyCode::Tab, true);
+    if (!edgeInput.keyPressed(scripting::KeyCode::Tab)) {
+        return fail("released key did not generate a new key press edge");
+    }
+
     scene::Scene emptyRuntimeScene;
     auto& emptyEntity = emptyRuntimeScene.createEntity("Empty");
     const auto emptyId = emptyEntity.id;
+    CaptureService emptyCaptureService;
     scripting::ScriptRuntime emptyRuntime;
     emptyRuntime.setRegistry(&registry);
+    emptyRuntime.setInputService(&emptyCaptureService);
     if (!emptyRuntime.start(emptyRuntimeScene)) {
         return fail("empty runtime failed to start");
+    }
+    scripting::InputState emptyTabInput;
+    emptyTabInput.setKeyDown(scripting::KeyCode::Tab, true);
+    emptyRuntime.update(0.016F, emptyTabInput);
+    if (emptyCaptureService.mouseCaptured) {
+        return fail("scene without scripts captured mouse");
     }
     emptyRuntime.update(0.5F, {});
     if (emptyRuntimeScene.findEntity(emptyId)->transform.position.z != 0.0F
@@ -135,6 +207,92 @@ int main()
         return fail("FlyPlayerController moved without CameraComponent");
     }
     noCameraRuntime.stop();
+
+    scene::Scene disabledCaptureScene;
+    auto& disabledCapturePlayer = disabledCaptureScene.createEntity("Disabled Capture Player");
+    const auto disabledCapturePlayerId = disabledCapturePlayer.id;
+    if (!disabledCaptureScene.setCamera(disabledCapturePlayerId, scene::CameraComponent {})) {
+        return fail("failed to attach disabled capture camera");
+    }
+    auto disabledCaptureFly = registry.createComponentFromAsset("Assets/Scripts/FlyPlayerController.cpp", &resolutionError);
+    if (!disabledCaptureFly.has_value()) {
+        return fail("failed to create disabled capture fly script");
+    }
+    disabledCaptureFly->enabled = false;
+    if (!disabledCaptureScene.addScript(disabledCapturePlayerId, *disabledCaptureFly).has_value()) {
+        return fail("failed to add disabled capture fly script");
+    }
+    CaptureService disabledCaptureService;
+    scripting::ScriptRuntime disabledCaptureRuntime;
+    disabledCaptureRuntime.setRegistry(&registry);
+    disabledCaptureRuntime.setInputService(&disabledCaptureService);
+    (void)disabledCaptureRuntime.start(disabledCaptureScene);
+    scripting::InputState disabledTabInput;
+    disabledTabInput.setKeyDown(scripting::KeyCode::Tab, true);
+    disabledCaptureRuntime.update(0.016F, disabledTabInput);
+    if (disabledCaptureService.mouseCaptured) {
+        return fail("disabled FlyPlayerController captured mouse");
+    }
+    disabledCaptureRuntime.stop();
+
+    scene::Scene captureScene;
+    auto& capturePlayer = captureScene.createEntity("Capture Player");
+    const auto capturePlayerId = capturePlayer.id;
+    if (!captureScene.setCamera(capturePlayerId, scene::CameraComponent {})) {
+        return fail("failed to attach capture camera");
+    }
+    auto captureFly = registry.createComponentFromAsset("Assets/Scripts/FlyPlayerController.cpp", &resolutionError);
+    if (!captureFly.has_value() || !captureScene.addScript(capturePlayerId, *captureFly).has_value()) {
+        return fail("failed to add capture fly script");
+    }
+    CaptureService captureService;
+    scripting::ScriptRuntime captureRuntime;
+    captureRuntime.setRegistry(&registry);
+    captureRuntime.setInputService(&captureService);
+    (void)captureRuntime.start(captureScene);
+    auto* captureRuntimePlayer = captureScene.findEntity(capturePlayerId);
+    if (captureRuntimePlayer == nullptr || !captureRuntimePlayer->camera.has_value()) {
+        return fail("capture player missing camera");
+    }
+    const auto captureInitialDirection = captureRuntimePlayer->camera->direction;
+    scripting::InputState ignoredMouseDelta;
+    ignoredMouseDelta.mouseDeltaX = 45.0F;
+    captureRuntime.update(0.016F, ignoredMouseDelta);
+    if (!math::nearlyEqual(captureRuntimePlayer->camera->direction, captureInitialDirection)) {
+        return fail("FlyPlayerController rotated while mouse was not captured");
+    }
+    scripting::InputState captureTabInput;
+    captureTabInput.setKeyDown(scripting::KeyCode::Tab, true);
+    captureRuntime.update(0.016F, captureTabInput);
+    if (!captureService.mouseCaptured) {
+        return fail("FlyPlayerController did not request mouse capture on Tab");
+    }
+    captureTabInput.clearFrameDeltas();
+    captureRuntime.update(0.016F, captureTabInput);
+    if (!captureService.mouseCaptured) {
+        return fail("held Tab toggled mouse capture repeatedly");
+    }
+    const auto capturedDirectionBeforeMouse = captureRuntimePlayer->camera->direction;
+    scripting::InputState capturedMouseDelta;
+    capturedMouseDelta.mouseDeltaX = 45.0F;
+    captureRuntime.update(0.016F, capturedMouseDelta);
+    if (math::nearlyEqual(captureRuntimePlayer->camera->direction, capturedDirectionBeforeMouse)) {
+        return fail("FlyPlayerController did not rotate while mouse was captured");
+    }
+    scripting::InputState escapeInput;
+    escapeInput.setKeyDown(scripting::KeyCode::Escape, true);
+    captureRuntime.update(0.016F, escapeInput);
+    if (captureService.mouseCaptured) {
+        return fail("FlyPlayerController did not release mouse capture on Escape");
+    }
+    const auto releasedDirectionBeforeMouse = captureRuntimePlayer->camera->direction;
+    scripting::InputState releasedMouseDelta;
+    releasedMouseDelta.mouseDeltaX = 45.0F;
+    captureRuntime.update(0.016F, releasedMouseDelta);
+    if (!math::nearlyEqual(captureRuntimePlayer->camera->direction, releasedDirectionBeforeMouse)) {
+        return fail("FlyPlayerController rotated after mouse capture was released");
+    }
+    captureRuntime.stop();
 
     scene::Scene childCameraScene;
     auto& childCameraPlayer = childCameraScene.createEntity("Child Camera Player");

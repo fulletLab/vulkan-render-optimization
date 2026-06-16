@@ -6,6 +6,7 @@
 #include <QMessageBox>
 #include <QObject>
 #include <QProgressDialog>
+#include <QProcess>
 #include <QStatusBar>
 #include <QString>
 
@@ -16,10 +17,27 @@
 #include <optional>
 #include <sstream>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace projectunity::editor {
 namespace {
+
+#if defined(_WIN32)
+constexpr const char* kProjectScriptsModuleFileName = "ProjectUnityGameScripts.dll";
+#elif defined(__APPLE__)
+constexpr const char* kProjectScriptsModuleFileName = "libProjectUnityGameScripts.dylib";
+#else
+constexpr const char* kProjectScriptsModuleFileName = "libProjectUnityGameScripts.so";
+#endif
+
+#ifndef PROJECTUNITY_BUILD_CONFIG
+#define PROJECTUNITY_BUILD_CONFIG "Debug"
+#endif
+
+#ifndef PROJECTUNITY_BUILD_DIR
+#define PROJECTUNITY_BUILD_DIR ""
+#endif
 
 struct PlayRuntimeCookStats {
     std::uint64_t editorEntities {0};
@@ -203,19 +221,14 @@ scene::EntityId MainWindow::createPlayerEntity()
     camera.nearPlane = 0.05F;
     camera.farPlane = 4000.0F;
     (void)scene_.setCamera(player.id, camera);
-    scene::RigidbodyComponent rigidbody;
-    rigidbody.useGravity = true;
-    (void)scene_.setRigidbody(player.id, rigidbody);
-    scene::ColliderComponent collider;
-    collider.shape = scene::ColliderShape::Sphere;
-    collider.radius = 0.45F;
-    collider.size = {0.9F, 1.8F, 0.9F};
-    (void)scene_.setCollider(player.id, collider);
-    scene::ScriptComponent script;
-    script.scriptName = "FlyPlayerController";
-    script.scriptAsset = "Assets/Scripts/FlyPlayerController.cpp";
-    scriptRegistry_.applyDefaults(script);
-    (void)scene_.addScript(player.id, script);
+    std::string error;
+    auto script = scriptRegistry_.createComponentFromAsset("Assets/Scripts/FlyPlayerController.cpp", &error);
+    if (script.has_value()) {
+        (void)scene_.addScript(player.id, std::move(*script));
+    } else {
+        core::logWarning(core::LogCategory::Editor, error);
+        statusBar()->showMessage(QString::fromStdString(error));
+    }
     const auto id = player.id;
     rebuildHierarchy();
     selectEntity(id);
@@ -233,6 +246,93 @@ void MainWindow::ensureFlyPlayerScriptAsset()
             core::LogCategory::Editor,
             "FlyPlayerController script asset is missing from Project/Assets/Scripts");
     }
+}
+
+std::filesystem::path MainWindow::projectScriptsModulePath() const
+{
+    return std::filesystem::path(PROJECTUNITY_SOURCE_DIR)
+        / "Project"
+        / "Binaries"
+        / "Scripts"
+        / kProjectScriptsModuleFileName;
+}
+
+bool MainWindow::loadProjectScriptsModule(bool showUserMessage)
+{
+    std::string error;
+    if (!scriptModuleLoader_.reload(projectScriptsModulePath(), scriptRegistry_, &error)) {
+        scripting::registerBuiltInScripts(scriptRegistry_);
+        scriptRuntime_.setRegistry(&scriptRegistry_);
+        core::logWarning(core::LogCategory::Editor, error);
+        if (showUserMessage) {
+            statusBar()->showMessage(QStringLiteral("Project scripts reload failed"));
+            QMessageBox::warning(
+                this,
+                QStringLiteral("Reload Scripts"),
+                QString::fromStdString(error));
+        }
+        return false;
+    }
+
+    scriptRuntime_.setRegistry(&scriptRegistry_);
+    std::ostringstream message;
+    message << "Project scripts registry rebuilt"
+            << " scriptsRegistered=" << scriptRegistry_.size();
+    if (const auto* module = scriptModuleLoader_.module()) {
+        message << " runtimeDll=" << module->runtimePath.string()
+                << " generation=" << module->generation;
+    }
+    core::logInfo(core::LogCategory::Editor, message.str());
+    if (showUserMessage) {
+        updateInspector();
+        statusBar()->showMessage(QStringLiteral("Project scripts reloaded"));
+    }
+    return true;
+}
+
+bool MainWindow::buildProjectScriptsModule()
+{
+    stopPlayMode();
+
+    const QString buildDir = QStringLiteral(PROJECTUNITY_BUILD_DIR);
+    if (buildDir.isEmpty()) {
+        const QString error = QStringLiteral("PROJECTUNITY_BUILD_DIR is not configured for this editor build.");
+        core::logError(core::LogCategory::Editor, error.toStdString());
+        QMessageBox::warning(this, QStringLiteral("Build Scripts Module"), error);
+        return false;
+    }
+
+    statusBar()->showMessage(QStringLiteral("Building ProjectUnityGameScripts..."));
+    appendPendingLogs();
+
+    QStringList arguments {
+        QStringLiteral("--build"),
+        buildDir,
+        QStringLiteral("--config"),
+        QStringLiteral(PROJECTUNITY_BUILD_CONFIG),
+        QStringLiteral("--target"),
+        QStringLiteral("ProjectUnityGameScripts"),
+    };
+    const auto exitCode = QProcess::execute(QStringLiteral("cmake"), arguments);
+    if (exitCode != 0) {
+        const auto error = QStringLiteral("Project scripts build failed with exit code %1.").arg(exitCode);
+        core::logError(core::LogCategory::Editor, error.toStdString());
+        statusBar()->showMessage(QStringLiteral("Project scripts build failed"));
+        QMessageBox::warning(this, QStringLiteral("Build Scripts Module"), error);
+        appendPendingLogs();
+        return false;
+    }
+
+    core::logInfo(core::LogCategory::Editor, "ProjectUnityGameScripts target built");
+    statusBar()->showMessage(QStringLiteral("Project scripts built"));
+    appendPendingLogs();
+    return loadProjectScriptsModule(true);
+}
+
+bool MainWindow::reloadProjectScriptsModule()
+{
+    stopPlayMode();
+    return loadProjectScriptsModule(true);
 }
 
 bool MainWindow::cookPlayRuntimeScene(scene::EntityId sourceCameraEntityId)
@@ -586,11 +686,14 @@ void MainWindow::attachFlyPlayerControllerToSelection()
         return;
     }
     ensureFlyPlayerScriptAsset();
-    scene::ScriptComponent script;
-    script.scriptName = "FlyPlayerController";
-    script.scriptAsset = "Assets/Scripts/FlyPlayerController.cpp";
-    scriptRegistry_.applyDefaults(script);
-    (void)scene_.addScript(selectedEntityId_, script);
+    std::string error;
+    auto script = scriptRegistry_.createComponentFromAsset("Assets/Scripts/FlyPlayerController.cpp", &error);
+    if (!script.has_value()) {
+        QMessageBox::warning(this, QStringLiteral("Add Script"), QString::fromStdString(error));
+        statusBar()->showMessage(QString::fromStdString(error));
+        return;
+    }
+    (void)scene_.addScript(selectedEntityId_, std::move(*script));
     updateInspector();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("FlyPlayerController attached"));

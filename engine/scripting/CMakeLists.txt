@@ -16,6 +16,8 @@ target_link_libraries(projectunity_scripting
         ProjectUnity::Math
         ProjectUnity::Physics
         ProjectUnity::Scene
+    PRIVATE
+        ${CMAKE_DL_LIBS}
 )
 
 projectunity_configure_target(projectunity_scripting)

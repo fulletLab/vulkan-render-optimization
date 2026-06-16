@@ -3,9 +3,12 @@
 #include <projectunity/scene/Scene.hpp>
 #include <projectunity/scripting/InputState.hpp>
 
+#include <cstdint>
 #include <cstddef>
+#include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -19,13 +22,16 @@ struct ScriptFieldDefinition {
     float defaultValue {0.0F};
 };
 
+using ScriptFieldMetadata = ScriptFieldDefinition;
+
 class ScriptContext final {
 public:
     ScriptContext(
         scene::Scene& scene,
         scene::EntityId entityId,
         scene::ScriptInstanceId scriptInstanceId,
-        const InputState& input) noexcept;
+        const InputState& input,
+        InputService* inputService = nullptr) noexcept;
 
     [[nodiscard]] scene::EntityId entityId() const noexcept;
     [[nodiscard]] scene::ScriptInstanceId scriptInstanceId() const noexcept;
@@ -58,6 +64,8 @@ public:
         }
     }
     [[nodiscard]] const InputState& input() const noexcept;
+    void setMouseCaptured(bool captured) noexcept;
+    [[nodiscard]] bool isMouseCaptured() const noexcept;
     [[nodiscard]] float field(std::string_view name, float fallback) const noexcept;
     [[nodiscard]] scene::Entity* findEntity(scene::EntityId id) noexcept;
     void log(std::string_view message) const;
@@ -67,6 +75,7 @@ private:
     scene::EntityId entityId_;
     scene::ScriptInstanceId scriptInstanceId_;
     const InputState& input_;
+    InputService* inputService_ {nullptr};
 };
 
 class ScriptInstance {
@@ -83,11 +92,14 @@ public:
     virtual void onDetach(ScriptContext&) { }
 };
 
+using IScriptInstance = ScriptInstance;
+using ScriptFactory = std::function<std::unique_ptr<IScriptInstance>()>;
+
 struct ScriptDescriptor {
     std::string className;
     std::string assetPath;
     std::vector<ScriptFieldDefinition> fields;
-    std::function<std::unique_ptr<ScriptInstance>()> create;
+    ScriptFactory create;
 };
 
 class ScriptRegistry final {
@@ -105,9 +117,48 @@ public:
         std::string_view assetPath,
         std::string* errorMessage = nullptr) const;
     void applyDefaults(scene::ScriptComponent& component) const;
+    void clear() noexcept;
 
 private:
     std::unordered_map<std::string, ScriptDescriptor> descriptors_;
+};
+
+using NativeScriptRegistry = ScriptRegistry;
+
+struct ScriptModule {
+    std::filesystem::path originalPath;
+    std::filesystem::path runtimePath;
+    std::uint64_t generation {0};
+    std::size_t scriptsRegistered {0};
+};
+
+class ScriptModuleLoader final {
+public:
+    using RegisterProjectScriptsFn = void (*)(ScriptRegistry&);
+
+    ScriptModuleLoader() = default;
+    ScriptModuleLoader(const ScriptModuleLoader&) = delete;
+    ScriptModuleLoader& operator=(const ScriptModuleLoader&) = delete;
+    ~ScriptModuleLoader();
+
+    [[nodiscard]] bool load(
+        const std::filesystem::path& modulePath,
+        ScriptRegistry& registry,
+        std::string* errorMessage = nullptr);
+    [[nodiscard]] bool reload(
+        const std::filesystem::path& modulePath,
+        ScriptRegistry& registry,
+        std::string* errorMessage = nullptr);
+    void unload(ScriptRegistry* registry = nullptr) noexcept;
+
+    [[nodiscard]] const ScriptModule* module() const noexcept;
+    [[nodiscard]] std::uint64_t generation() const noexcept;
+
+private:
+    void* handle_ {nullptr};
+    ScriptModule module_;
+    bool hasModule_ {false};
+    std::uint64_t nextGeneration_ {1};
 };
 
 struct ScriptRuntimeStats {
@@ -128,6 +179,8 @@ public:
     ~ScriptRuntime();
 
     void setRegistry(const ScriptRegistry* registry) noexcept;
+    void setInputService(InputService* inputService) noexcept;
+    [[nodiscard]] InputService* inputService() const noexcept;
     [[nodiscard]] bool start(scene::Scene& scene);
     void update(float deltaTime, const InputState& input);
     void fixedUpdate(float deltaTime, const InputState& input);
@@ -152,6 +205,7 @@ private:
     void reportError(std::string_view className, scene::EntityId entityId, std::string_view detail) noexcept;
 
     const ScriptRegistry* registry_ {nullptr};
+    InputService* inputService_ {nullptr};
     scene::Scene* scene_ {nullptr};
     std::vector<ActiveInstance> instances_;
     ScriptRuntimeStats stats_;
@@ -160,3 +214,7 @@ private:
 void registerBuiltInScripts(ScriptRegistry& registry);
 
 } // namespace projectunity::scripting
+
+namespace ProjectUnity {
+namespace Scripting = ::projectunity::scripting;
+} // namespace ProjectUnity

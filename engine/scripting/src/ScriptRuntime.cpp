@@ -4,12 +4,28 @@
 #include <projectunity/physics/PhysicsWorld.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <exception>
+#include <fstream>
+#include <iomanip>
 #include <sstream>
+#include <system_error>
+#include <unordered_map>
 #include <utility>
+
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#include <unistd.h>
+#endif
 
 namespace projectunity::scripting {
 namespace {
+
+constexpr std::string_view kScriptClassNotLoadedError =
+    "Script asset exists but native class is not loaded. Build/Reload Project Scripts.";
 
 [[nodiscard]] bool transformChanged(
     const scene::TransformComponent& before,
@@ -43,17 +59,195 @@ namespace {
     return nullptr;
 }
 
+[[nodiscard]] std::string narrowPath(const std::filesystem::path& path)
+{
+    return path.string();
+}
+
+[[nodiscard]] std::filesystem::path runtimeModulePath(
+    const std::filesystem::path& originalPath,
+    std::uint64_t generation)
+{
+    std::ostringstream stem;
+    const auto processId =
+#if defined(_WIN32)
+        static_cast<std::uint64_t>(GetCurrentProcessId());
+#else
+        static_cast<std::uint64_t>(getpid());
+#endif
+    stem << "ProjectScripts_runtime_" << processId << "_" << std::setw(3) << std::setfill('0') << generation;
+    return originalPath.parent_path() / (stem.str() + originalPath.extension().string());
+}
+
+void setError(std::string* errorMessage, std::string message)
+{
+    if (errorMessage != nullptr) {
+        *errorMessage = std::move(message);
+    }
+}
+
+void clearError(std::string* errorMessage)
+{
+    if (errorMessage != nullptr) {
+        errorMessage->clear();
+    }
+}
+
+[[nodiscard]] bool copyRuntimeModule(
+    const std::filesystem::path& sourcePath,
+    const std::filesystem::path& destinationPath,
+    std::string* errorMessage)
+{
+    std::ifstream source(sourcePath, std::ios::binary);
+    if (!source) {
+        setError(errorMessage, "Failed to open script module " + narrowPath(sourcePath) + " for runtime copy.");
+        return false;
+    }
+
+    std::ofstream destination(destinationPath, std::ios::binary | std::ios::trunc);
+    if (!destination) {
+        setError(errorMessage, "Failed to open runtime script module " + narrowPath(destinationPath) + " for writing.");
+        return false;
+    }
+
+    destination << source.rdbuf();
+    if (!source.eof() && source.fail()) {
+        setError(errorMessage, "Failed to read script module " + narrowPath(sourcePath) + " for runtime copy.");
+        return false;
+    }
+    destination.close();
+    if (!destination) {
+        setError(errorMessage, "Failed to write runtime script module " + narrowPath(destinationPath) + ".");
+        return false;
+    }
+
+    return true;
+}
+
+#if defined(_WIN32)
+[[nodiscard]] std::string lastDynamicLibraryError()
+{
+    const auto code = GetLastError();
+    if (code == 0) {
+        return "unknown Windows loader error";
+    }
+
+    LPWSTR buffer = nullptr;
+    const auto size = FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr,
+        code,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPWSTR>(&buffer),
+        0,
+        nullptr);
+    if (size == 0 || buffer == nullptr) {
+        return "Windows loader error " + std::to_string(code);
+    }
+
+    std::wstring wide(buffer, size);
+    LocalFree(buffer);
+    while (!wide.empty() && (wide.back() == L'\n' || wide.back() == L'\r')) {
+        wide.pop_back();
+    }
+    return std::filesystem::path(wide).string();
+}
+
+[[nodiscard]] void* openDynamicLibrary(const std::filesystem::path& path, std::string* errorMessage)
+{
+    auto* handle = LoadLibraryW(path.wstring().c_str());
+    if (handle == nullptr) {
+        setError(errorMessage, "Failed to load script module " + narrowPath(path) + ": " + lastDynamicLibraryError());
+    }
+    return reinterpret_cast<void*>(handle);
+}
+
+[[nodiscard]] ScriptModuleLoader::RegisterProjectScriptsFn findRegisterFunction(void* handle, std::string* errorMessage)
+{
+    auto* function = GetProcAddress(reinterpret_cast<HMODULE>(handle), "registerProjectScripts");
+    if (function == nullptr) {
+        setError(errorMessage, "Script module does not export registerProjectScripts: " + lastDynamicLibraryError());
+        return nullptr;
+    }
+    return reinterpret_cast<ScriptModuleLoader::RegisterProjectScriptsFn>(function);
+}
+
+void closeDynamicLibrary(void* handle) noexcept
+{
+    if (handle != nullptr) {
+        (void)FreeLibrary(reinterpret_cast<HMODULE>(handle));
+    }
+}
+#else
+[[nodiscard]] std::string lastDynamicLibraryError()
+{
+    const auto* error = dlerror();
+    return error == nullptr ? "unknown dynamic loader error" : std::string(error);
+}
+
+[[nodiscard]] void* openDynamicLibrary(const std::filesystem::path& path, std::string* errorMessage)
+{
+    dlerror();
+    auto* handle = dlopen(path.string().c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (handle == nullptr) {
+        setError(errorMessage, "Failed to load script module " + narrowPath(path) + ": " + lastDynamicLibraryError());
+    }
+    return handle;
+}
+
+[[nodiscard]] ScriptModuleLoader::RegisterProjectScriptsFn findRegisterFunction(void* handle, std::string* errorMessage)
+{
+    dlerror();
+    auto* function = dlsym(handle, "registerProjectScripts");
+    const auto* error = dlerror();
+    if (error != nullptr || function == nullptr) {
+        setError(errorMessage, "Script module does not export registerProjectScripts: "
+            + std::string(error == nullptr ? "missing symbol" : error));
+        return nullptr;
+    }
+    return reinterpret_cast<ScriptModuleLoader::RegisterProjectScriptsFn>(function);
+}
+
+void closeDynamicLibrary(void* handle) noexcept
+{
+    if (handle != nullptr) {
+        (void)dlclose(handle);
+    }
+}
+#endif
+
+void logTransformChange(
+    std::string_view sourceSystem,
+    scene::EntityId entityId,
+    const scene::TransformComponent& before,
+    const scene::TransformComponent& after,
+    std::string_view scriptName,
+    std::string_view reason)
+{
+    std::ostringstream message;
+    message << "Play transform modified"
+            << " sourceSystem=" << sourceSystem
+            << " entity=" << entityId.value()
+            << " oldPosition=(" << before.position.x << ',' << before.position.y << ',' << before.position.z << ')'
+            << " newPosition=(" << after.position.x << ',' << after.position.y << ',' << after.position.z << ')'
+            << " scriptName=" << (scriptName.empty() ? "-" : std::string(scriptName))
+            << " reason=" << reason;
+    core::logInfo(core::LogCategory::Core, message.str());
+}
+
 } // namespace
 
 ScriptContext::ScriptContext(
     scene::Scene& scene,
     scene::EntityId entityId,
     scene::ScriptInstanceId scriptInstanceId,
-    const InputState& input) noexcept
+    const InputState& input,
+    InputService* inputService) noexcept
     : scene_(scene)
     , entityId_(entityId)
     , scriptInstanceId_(scriptInstanceId)
     , input_(input)
+    , inputService_(inputService)
 {
 }
 
@@ -87,6 +281,18 @@ scene::CameraComponent* ScriptContext::getCamera() noexcept
 const InputState& ScriptContext::input() const noexcept
 {
     return input_;
+}
+
+void ScriptContext::setMouseCaptured(bool captured) noexcept
+{
+    if (inputService_ != nullptr) {
+        inputService_->setMouseCaptured(captured);
+    }
+}
+
+bool ScriptContext::isMouseCaptured() const noexcept
+{
+    return inputService_ == nullptr ? input_.mouseCaptured : inputService_->isMouseCaptured();
 }
 
 float ScriptContext::field(std::string_view name, float fallback) const noexcept
@@ -157,7 +363,7 @@ std::optional<scene::ScriptComponent> ScriptRegistry::createComponentFromAsset(
     const auto* descriptor = findByAsset(assetPath);
     if (descriptor == nullptr) {
         if (errorMessage != nullptr) {
-            *errorMessage = "Script asset found but class is not registered.";
+            *errorMessage = std::string(kScriptClassNotLoadedError);
         }
         return std::nullopt;
     }
@@ -206,6 +412,131 @@ void ScriptRegistry::applyDefaults(scene::ScriptComponent& component) const
     }
 }
 
+void ScriptRegistry::clear() noexcept
+{
+    descriptors_.clear();
+}
+
+ScriptModuleLoader::~ScriptModuleLoader()
+{
+    unload();
+}
+
+bool ScriptModuleLoader::load(
+    const std::filesystem::path& modulePath,
+    ScriptRegistry& registry,
+    std::string* errorMessage)
+{
+    if (handle_ != nullptr) {
+        unload(&registry);
+    } else {
+        registry.clear();
+    }
+
+    std::error_code errorCode;
+    if (!std::filesystem::exists(modulePath, errorCode) || !std::filesystem::is_regular_file(modulePath, errorCode)) {
+        setError(errorMessage, "Project scripts module not found: " + narrowPath(modulePath));
+        return false;
+    }
+
+    const auto generation = nextGeneration_++;
+    const auto copiedPath = runtimeModulePath(modulePath, generation);
+    std::filesystem::create_directories(copiedPath.parent_path(), errorCode);
+    if (errorCode) {
+        setError(errorMessage, "Failed to create script runtime directory " + narrowPath(copiedPath.parent_path())
+            + ": " + errorCode.message());
+        return false;
+    }
+
+    if (!copyRuntimeModule(modulePath, copiedPath, errorMessage)) {
+        return false;
+    }
+
+    auto* nextHandle = openDynamicLibrary(copiedPath, errorMessage);
+    if (nextHandle == nullptr) {
+        return false;
+    }
+
+    const auto registerProjectScripts = findRegisterFunction(nextHandle, errorMessage);
+    if (registerProjectScripts == nullptr) {
+        closeDynamicLibrary(nextHandle);
+        return false;
+    }
+
+    try {
+        registerProjectScripts(registry);
+    } catch (const std::exception& exception) {
+        registry.clear();
+        closeDynamicLibrary(nextHandle);
+        setError(errorMessage, "registerProjectScripts failed: " + std::string(exception.what()));
+        return false;
+    } catch (...) {
+        registry.clear();
+        closeDynamicLibrary(nextHandle);
+        setError(errorMessage, "registerProjectScripts failed with an unknown exception");
+        return false;
+    }
+
+    if (registry.size() == 0U) {
+        registry.clear();
+        closeDynamicLibrary(nextHandle);
+        setError(errorMessage, "Script module loaded but did not register any native scripts.");
+        return false;
+    }
+
+    handle_ = nextHandle;
+    module_.originalPath = modulePath;
+    module_.runtimePath = copiedPath;
+    module_.generation = generation;
+    module_.scriptsRegistered = registry.size();
+    hasModule_ = true;
+    clearError(errorMessage);
+
+    std::ostringstream message;
+    message << "Project scripts module loaded"
+            << " original=" << narrowPath(module_.originalPath)
+            << " runtime=" << narrowPath(module_.runtimePath)
+            << " generation=" << module_.generation
+            << " scriptsRegistered=" << module_.scriptsRegistered;
+    core::logInfo(core::LogCategory::Core, message.str());
+    return true;
+}
+
+bool ScriptModuleLoader::reload(
+    const std::filesystem::path& modulePath,
+    ScriptRegistry& registry,
+    std::string* errorMessage)
+{
+    unload(&registry);
+    return load(modulePath, registry, errorMessage);
+}
+
+void ScriptModuleLoader::unload(ScriptRegistry* registry) noexcept
+{
+    if (registry != nullptr) {
+        registry->clear();
+    }
+    if (handle_ != nullptr) {
+        closeDynamicLibrary(handle_);
+        handle_ = nullptr;
+    }
+    if (hasModule_) {
+        core::logInfo(core::LogCategory::Core, "Project scripts module unloaded");
+    }
+    module_ = {};
+    hasModule_ = false;
+}
+
+const ScriptModule* ScriptModuleLoader::module() const noexcept
+{
+    return hasModule_ ? &module_ : nullptr;
+}
+
+std::uint64_t ScriptModuleLoader::generation() const noexcept
+{
+    return hasModule_ ? module_.generation : 0U;
+}
+
 ScriptRuntime::~ScriptRuntime()
 {
     stop();
@@ -214,6 +545,16 @@ ScriptRuntime::~ScriptRuntime()
 void ScriptRuntime::setRegistry(const ScriptRegistry* registry) noexcept
 {
     registry_ = registry;
+}
+
+void ScriptRuntime::setInputService(InputService* inputService) noexcept
+{
+    inputService_ = inputService;
+}
+
+InputService* ScriptRuntime::inputService() const noexcept
+{
+    return inputService_;
 }
 
 bool ScriptRuntime::start(scene::Scene& scene)
@@ -242,26 +583,24 @@ void ScriptRuntime::update(float deltaTime, const InputState& input)
     }
     synchronize(input);
     for (auto& active : instances_) {
-        const auto* entity = scene_->findEntity(active.entityId);
+        auto* entity = scene_->findEntity(active.entityId);
         if (entity == nullptr || scene::findScript(*entity, active.scriptInstanceId) == nullptr || !active.enabled) {
             continue;
         }
         try {
             const auto beforeTransform = entity->transform;
-            ScriptContext context(*scene_, active.entityId, active.scriptInstanceId, input);
+            ScriptContext context(*scene_, active.entityId, active.scriptInstanceId, input, inputService_);
             active.instance->onUpdate(context, deltaTime);
             ++stats_.scriptsUpdated;
             if (transformChanged(beforeTransform, entity->transform)) {
                 ++stats_.transformsChanged;
-                std::ostringstream message;
-                message << "Script transform changed"
-                        << " script=" << active.className
-                        << " entity=" << active.entityId.value()
-                        << " scriptInstance=" << active.scriptInstanceId.value()
-                        << " position=(" << entity->transform.position.x << ','
-                        << entity->transform.position.y << ',' << entity->transform.position.z << ')'
-                        << " transformsChanged=" << stats_.transformsChanged;
-                core::logInfo(core::LogCategory::Core, message.str());
+                logTransformChange(
+                    "ScriptRuntime",
+                    active.entityId,
+                    beforeTransform,
+                    entity->transform,
+                    active.className,
+                    "OnUpdate");
             }
         } catch (const std::exception& exception) {
             reportError(active.className, active.entityId, exception.what());
@@ -269,8 +608,26 @@ void ScriptRuntime::update(float deltaTime, const InputState& input)
             reportError(active.className, active.entityId, "unknown exception in OnUpdate");
         }
     }
+    std::unordered_map<std::uint64_t, scene::TransformComponent> beforePhysics;
+    beforePhysics.reserve(scene_->entities().size());
+    for (const auto& entity : scene_->entities()) {
+        beforePhysics.emplace(entity.id.value(), entity.transform);
+    }
     const auto physicsStats = physics::stepBasic(*scene_, deltaTime);
     stats_.physicsContacts += physicsStats.resolvedContacts;
+    for (const auto& entity : scene_->entities()) {
+        const auto before = beforePhysics.find(entity.id.value());
+        if (before != beforePhysics.end() && transformChanged(before->second, entity.transform)) {
+            ++stats_.transformsChanged;
+            logTransformChange(
+                "Physics",
+                entity.id,
+                before->second,
+                entity.transform,
+                {},
+                "BasicPhysicsStep");
+        }
+    }
 }
 
 void ScriptRuntime::fixedUpdate(float deltaTime, const InputState& input)
@@ -284,8 +641,21 @@ void ScriptRuntime::fixedUpdate(float deltaTime, const InputState& input)
             continue;
         }
         try {
-            ScriptContext context(*scene_, active.entityId, active.scriptInstanceId, input);
+            auto* entity = scene_->findEntity(active.entityId);
+            const auto beforeTransform = entity == nullptr ? scene::TransformComponent {} : entity->transform;
+            ScriptContext context(*scene_, active.entityId, active.scriptInstanceId, input, inputService_);
             active.instance->onFixedUpdate(context, deltaTime);
+            entity = scene_->findEntity(active.entityId);
+            if (entity != nullptr && transformChanged(beforeTransform, entity->transform)) {
+                ++stats_.transformsChanged;
+                logTransformChange(
+                    "ScriptRuntime",
+                    active.entityId,
+                    beforeTransform,
+                    entity->transform,
+                    active.className,
+                    "OnFixedUpdate");
+            }
         } catch (const std::exception& exception) {
             reportError(active.className, active.entityId, exception.what());
         } catch (...) {
@@ -375,7 +745,8 @@ void ScriptRuntime::synchronize(const InputState& input)
                 continue;
             }
             try {
-                ScriptContext context(*scene_, entity->id, component->instanceId, input);
+                const auto beforeTransform = entity->transform;
+                ScriptContext context(*scene_, entity->id, component->instanceId, input, inputService_);
                 if (shouldEnable) {
                     found->instance->onEnable(context);
                     if (!found->started) {
@@ -386,6 +757,16 @@ void ScriptRuntime::synchronize(const InputState& input)
                     found->instance->onDisable(context);
                 }
                 found->enabled = shouldEnable;
+                if (transformChanged(beforeTransform, entity->transform)) {
+                    ++stats_.transformsChanged;
+                    logTransformChange(
+                        "ScriptRuntime",
+                        entity->id,
+                        beforeTransform,
+                        entity->transform,
+                        found->className,
+                        shouldEnable ? "OnEnable" : "OnDisable");
+                }
             } catch (const std::exception& exception) {
                 reportError(found->className, found->entityId, exception.what());
             } catch (...) {
@@ -401,7 +782,7 @@ void ScriptRuntime::attach(scene::Entity& entity, scene::ScriptComponent& compon
     }
     const auto* descriptor = registry_->find(component.scriptName);
     if (descriptor == nullptr) {
-        reportError(component.scriptName, entity.id, "Script asset found but class is not registered.");
+        reportError(component.scriptName, entity.id, kScriptClassNotLoadedError);
         return;
     }
     registry_->applyDefaults(component);
@@ -420,13 +801,24 @@ void ScriptRuntime::attach(scene::Entity& entity, scene::ScriptComponent& compon
             component.enabled,
             false,
         };
-        ScriptContext context(*scene_, entity.id, component.instanceId, input);
+        ScriptContext context(*scene_, entity.id, component.instanceId, input, inputService_);
+        const auto beforeTransform = entity.transform;
         active.instance->onAttach(context);
         active.instance->onCreate(context);
         if (active.enabled) {
             active.instance->onEnable(context);
             active.instance->onStart(context);
             active.started = true;
+        }
+        if (transformChanged(beforeTransform, entity.transform)) {
+            ++stats_.transformsChanged;
+            logTransformChange(
+                "ScriptRuntime",
+                entity.id,
+                beforeTransform,
+                entity.transform,
+                component.scriptName,
+                "LifecycleStart");
         }
         instances_.push_back(std::move(active));
         ++stats_.scriptInstancesCreated;
@@ -443,12 +835,24 @@ void ScriptRuntime::detach(ActiveInstance& active, const InputState& input) noex
         return;
     }
     try {
-        ScriptContext context(*scene_, active.entityId, active.scriptInstanceId, input);
+        auto* entity = scene_->findEntity(active.entityId);
+        const auto beforeTransform = entity == nullptr ? scene::TransformComponent {} : entity->transform;
+        ScriptContext context(*scene_, active.entityId, active.scriptInstanceId, input, inputService_);
         if (active.enabled) {
             active.instance->onDisable(context);
         }
         active.instance->onDestroy(context);
         active.instance->onDetach(context);
+        entity = scene_->findEntity(active.entityId);
+        if (entity != nullptr && transformChanged(beforeTransform, entity->transform)) {
+            logTransformChange(
+                "ScriptRuntime",
+                active.entityId,
+                beforeTransform,
+                entity->transform,
+                active.className,
+                "LifecycleStop");
+        }
     } catch (const std::exception& exception) {
         reportError(active.className, active.entityId, exception.what());
     } catch (...) {

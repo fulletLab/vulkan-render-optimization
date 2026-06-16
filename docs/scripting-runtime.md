@@ -1,36 +1,72 @@
-# ProjectUnity Scripting Runtime
+# ProjectUnity C++ Scripting Runtime
 
-Estado: PARCIAL para hot reload nativo.
+Estado: C++ project scripts module separado.
 
-El runtime actual implementa una arquitectura real de `ScriptComponent` sin depender de Qt:
+ProjectUnity ejecuta gameplay C++ desde un modulo DLL del proyecto, no desde el editor ni desde `engine/scripting/src/BuiltInScripts.cpp`.
 
-- `engine/scripting` contiene `ScriptRegistry`, `ScriptRuntime`, `ScriptInstance`, `ScriptContext` e `InputState`.
-- `ScriptComponent` serializa `scriptName`, `scriptAsset`, `enabled` y campos editables por nombre.
-- Cada `ScriptDescriptor` declara su `assetPath` y metadata de fields. El Inspector no debe inferir fields leyendo C++.
-- `ScriptRegistry::createComponentFromAsset` resuelve el asset a una clase registrada y aplica sus defaults.
-- Un asset `.cpp` sin clase registrada devuelve: `Script asset found but class is not registered.`
-- Play Mode cocina una escena runtime independiente y ejecuta scripts sobre ese snapshot.
-- El viewport de Game/Play solo traduce teclado y mouse a `InputState`; no contiene lógica de gameplay.
-- `FlyPlayerController` vive como clase registrada en `engine/scripting` y como asset editable en `Project/Assets/Scripts/FlyPlayerController.cpp`.
-- `Health` sirve como segundo descriptor con fields distintos para verificar metadata dinámica.
+## Arquitectura
 
-## Cambios de código actuales
+- `engine/scripting` define `ScriptModule`, `ScriptModuleLoader`, `ScriptRegistry`/`NativeScriptRegistry`, `ScriptInstance`/`IScriptInstance`, `ScriptContext`, `ScriptFieldMetadata`, `ScriptFactory` e `InputState`.
+- `Project/Assets/Scripts/*.cpp` contiene scripts C++ reales del proyecto.
+- `ProjectUnityGameScripts` compila esos `.cpp` a `Project/Binaries/Scripts/ProjectUnityGameScripts.dll`.
+- La DLL exporta `registerProjectScripts(ProjectUnity::Scripting::ScriptRegistry& registry)`.
+- El editor carga el modulo, llama `registerProjectScripts`, reconstruye el registry y usa esa metadata para Add Component e Inspector.
+- `BuiltInScripts.cpp` queda solo como fallback/debug sin gameplay del usuario.
 
-Los archivos de `Project/Assets/Scripts/*.cpp` todavía no se compilan dinámicamente. Son assets de proyecto vinculados por metadata a clases registradas.
+## Flujo de trabajo
 
-Cambiar solamente valores serializados en Inspector no requiere recompilar.
+Para cambiar gameplay C++:
 
-Cambiar el código C++ de un script sí requiere actualmente:
+1. Editar un archivo en `Project/Assets/Scripts`, por ejemplo `FlyPlayerController.cpp`.
+2. Ejecutar `Build Scripts Module` desde el editor, o compilar el target CMake `ProjectUnityGameScripts`.
+3. Ejecutar `Reload Scripts`.
+4. Entrar a Play.
 
-1. Actualizar o añadir su implementación/registro en `engine/scripting/src`.
-2. Recompilar el target `projectunity_scripting`.
-3. Relinkear/recompilar el ejecutable `projectunity_editor`, porque `projectunity_scripting` es una librería estática.
+No hace falta recompilar `projectunity_editor.exe` para cambios de scripts.
 
-La ruta prevista para evitar el relink del editor es convertir los scripts del proyecto en un módulo DLL/plugin separado, registrar descriptores al cargarlo y reinstanciar las instancias del snapshot de Play tras recargarlo.
+## Reload
 
-Pendiente:
+`ScriptModuleLoader` evita bloquear la DLL original en Windows:
 
-- Compilar scripts C++ de proyecto como DLL/plugin separado.
-- Cargar/descargar DLL de scripts.
-- Reinstanciar scripts tras hot reload preservando campos serializados cuando sea posible.
-- Exponer una API de scripting más amplia para física, búsqueda de entidades y creación dinámica de componentes.
+1. Play se detiene antes de recargar.
+2. `ScriptRuntime` destruye instancias activas.
+3. El registry se limpia antes de descargar el modulo anterior.
+4. `ProjectUnityGameScripts.dll` se copia a `ProjectScripts_runtime_###.dll`.
+5. El editor carga la copia versionada con `LoadLibrary`.
+6. Se llama `registerProjectScripts`.
+7. El registry queda reconstruido para Add Component, Inspector y el siguiente Play.
+
+## Metadata e Inspector
+
+Cada script registrado declara:
+
+- `className`
+- `assetPath`
+- fields editables y defaults
+- factory de instancia
+- callbacks de lifecycle: `onAttach`, `onCreate`, `onStart`, `onUpdate`, `onFixedUpdate`, `onDestroy`
+
+`FlyPlayerController` declara `speed`, `sprintSpeed`, `gravity`, `jumpForce` y `mouseSensitivity`.
+
+Si existe un `.cpp` en `Assets/Scripts` pero la clase no esta registrada en la DLL cargada, el editor muestra:
+
+`Script asset exists but native class is not loaded. Build/Reload Project Scripts.`
+
+## Play
+
+Play Mode cocina una escena runtime independiente y ejecuta scripts sobre ese snapshot.
+
+- Scene View Camera es la camara del editor.
+- Play Runtime Camera es una entidad real con `CameraComponent`.
+- El viewport de Play solo traduce teclado/mouse a `InputState`.
+- `Player` solo recibe movimiento de scripts activos.
+- Quitar `FlyPlayerController` o desactivar `Script Enabled` detiene el movimiento de gameplay.
+
+El runtime registra diagnosticos temporales cuando un Transform cambia en Play:
+
+- source system
+- entity id
+- old position
+- new position
+- scriptName, si aplica
+- reason

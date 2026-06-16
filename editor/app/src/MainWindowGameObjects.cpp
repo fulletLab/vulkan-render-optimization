@@ -12,6 +12,7 @@
 
 #include <filesystem>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 
 namespace projectunity::editor {
@@ -244,6 +245,36 @@ void MainWindow::showAddComponentMenu(QWidget* anchor)
     colliderMenu->addAction(QStringLiteral("Terrain Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Terrain); });
     auto* scriptMenu = addMenu->addMenu(QStringLiteral("Script"));
     ensureFlyPlayerScriptAsset();
+    std::unordered_set<std::string> registeredScriptAssets;
+    for (const auto& className : scriptRegistry_.classNames()) {
+        const auto* descriptor = scriptRegistry_.find(className);
+        if (descriptor == nullptr) {
+            continue;
+        }
+        registeredScriptAssets.insert(descriptor->assetPath);
+        scriptMenu->addAction(QString::fromStdString(descriptor->className), this, [this, scriptAsset = descriptor->assetPath] {
+            auto* selectedEntity = selected(scene_, selectedEntityId_);
+            if (selectedEntity == nullptr) {
+                return;
+            }
+            std::string error;
+            auto script = scriptRegistry_.createComponentFromAsset(scriptAsset, &error);
+            if (!script.has_value()) {
+                QMessageBox::warning(this, QStringLiteral("Add Script"), QString::fromStdString(error));
+                statusBar()->showMessage(QString::fromStdString(error));
+                return;
+            }
+            const auto instanceId = scene_.addScript(selectedEntityId_, std::move(*script));
+            if (!instanceId.has_value()) {
+                return;
+            }
+            inspectedScriptInstanceId_ = *instanceId;
+            updateInspector();
+            refreshViewports();
+            statusBar()->showMessage(QStringLiteral("Script attached"));
+        });
+    }
+
     const auto scriptsDir = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets" / "Scripts";
     std::error_code errorCode;
     if (std::filesystem::exists(scriptsDir, errorCode)) {
@@ -252,32 +283,26 @@ void MainWindow::showAddComponentMenu(QWidget* anchor)
                 continue;
             }
             const auto scriptName = entry.path().stem().string();
+            if (scriptName == "ProjectUnityGameScripts") {
+                continue;
+            }
             const auto scriptAsset = "Assets/Scripts/" + scriptName + ".cpp";
-            scriptMenu->addAction(QString::fromStdString(scriptName), this, [this, scriptAsset] {
-                auto* selectedEntity = selected(scene_, selectedEntityId_);
-                if (selectedEntity == nullptr) {
-                    return;
-                }
-                std::string error;
-                auto script = scriptRegistry_.createComponentFromAsset(scriptAsset, &error);
-                if (!script.has_value()) {
-                    QMessageBox::warning(this, QStringLiteral("Add Script"), QString::fromStdString(error));
-                    statusBar()->showMessage(QString::fromStdString(error));
-                    return;
-                }
-                const auto instanceId = scene_.addScript(selectedEntityId_, std::move(*script));
-                if (!instanceId.has_value()) {
-                    return;
-                }
-                inspectedScriptInstanceId_ = *instanceId;
-                updateInspector();
-                refreshViewports();
-                statusBar()->showMessage(QStringLiteral("Script attached"));
+            if (registeredScriptAssets.contains(scriptAsset)) {
+                continue;
+            }
+            auto* unloadedAction = scriptMenu->addAction(
+                QStringLiteral("%1 (not loaded)").arg(QString::fromStdString(scriptName)),
+                this,
+                [this] {
+                    const auto error = QStringLiteral("Script asset exists but native class is not loaded. Build/Reload Project Scripts.");
+                    QMessageBox::warning(this, QStringLiteral("Add Script"), error);
+                    statusBar()->showMessage(error);
             });
+            unloadedAction->setToolTip(QStringLiteral("Script asset exists but native class is not loaded. Build/Reload Project Scripts."));
         }
     }
     if (scriptMenu->actions().isEmpty()) {
-        auto* noScriptsAction = scriptMenu->addAction(QStringLiteral("No script assets found"));
+        auto* noScriptsAction = scriptMenu->addAction(QStringLiteral("No loaded native scripts"));
         noScriptsAction->setEnabled(false);
     }
 

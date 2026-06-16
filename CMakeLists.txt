@@ -23,6 +23,7 @@ add_subdirectory(engine/physics)
 add_subdirectory(engine/scripting)
 add_subdirectory(engine/assets)
 add_subdirectory(engine/renderer)
+add_subdirectory(Project)
 
 if(PROJECTUNITY_BUILD_EDITOR)
     add_subdirectory(editor/viewport)

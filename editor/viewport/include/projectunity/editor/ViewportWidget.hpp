@@ -22,6 +22,7 @@
 #include <QWidget>
 
 class QKeyEvent;
+class QFocusEvent;
 class QMouseEvent;
 class QPainter;
 class QResizeEvent;
@@ -89,7 +90,7 @@ struct ViewportPickResult {
     float distance {0.0F};
 };
 
-class ViewportWidget final : public QWidget {
+class ViewportWidget final : public QWidget, public scripting::InputService {
 public:
     explicit ViewportWidget(ViewportMode mode, QWidget* parent = nullptr);
     ~ViewportWidget() override;
@@ -146,6 +147,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void focusOutEvent(QFocusEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -197,6 +199,9 @@ private:
     void handleGameMouseMove(QMouseEvent* event);
     void handleGameMouseRelease(QMouseEvent* event);
     void tickGameScripts();
+    void setMouseCaptured(bool captured) override;
+    [[nodiscard]] bool isMouseCaptured() const noexcept override;
+    void centerGameMouseCursor();
 
     void drawBackground(QPainter& painter) const;
     void drawDebugGeometry(QPainter& painter);
@@ -259,7 +264,6 @@ private:
     bool sunDirectionDebugEnabled_ {false};
     bool gameInputEnabled_ {false};
     bool gameRuntimeSnapshotEnabled_ {false};
-    bool gameMouseLook_ {false};
     scripting::InputState gameInputState_;
     scripting::ScriptRuntime* gameScriptRuntime_ {nullptr};
     scene::EntityId gameCameraEntityId_;

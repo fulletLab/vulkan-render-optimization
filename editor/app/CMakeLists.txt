@@ -74,7 +74,11 @@ projectunity_configure_target(projectunity_editor)
 target_compile_definitions(projectunity_editor
     PRIVATE
         PROJECTUNITY_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+        PROJECTUNITY_BUILD_DIR="${CMAKE_BINARY_DIR}"
+        PROJECTUNITY_BUILD_CONFIG="$<CONFIG>"
 )
+
+add_dependencies(projectunity_editor ProjectUnityGameScripts)
 
 get_target_property(PROJECTUNITY_QT_CORE_LOCATION Qt6::Core IMPORTED_LOCATION_DEBUG)
 if(NOT PROJECTUNITY_QT_CORE_LOCATION)

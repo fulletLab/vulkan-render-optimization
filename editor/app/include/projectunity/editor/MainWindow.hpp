@@ -102,6 +102,10 @@ private:
     void attachFlyPlayerControllerToSelection();
     void removeScriptFromSelection();
     void ensureFlyPlayerScriptAsset();
+    [[nodiscard]] std::filesystem::path projectScriptsModulePath() const;
+    [[nodiscard]] bool loadProjectScriptsModule(bool showUserMessage);
+    [[nodiscard]] bool buildProjectScriptsModule();
+    [[nodiscard]] bool reloadProjectScriptsModule();
     void showAddComponentMenu(QWidget* anchor);
     void addMeshRendererToSelection();
     void addCameraToSelection();
@@ -264,6 +268,7 @@ private:
     assets::AssetManager assetManager_;
     std::unique_ptr<renderer::IRenderer> renderer_;
     scripting::ScriptRegistry scriptRegistry_;
+    scripting::ScriptModuleLoader scriptModuleLoader_;
     scripting::ScriptRuntime scriptRuntime_;
     renderer::RenderEnvironmentSettings environmentSettings_;
     renderer::RenderLight editorSunLight_;

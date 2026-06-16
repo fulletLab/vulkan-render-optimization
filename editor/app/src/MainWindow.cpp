@@ -168,7 +168,7 @@ MainWindow::MainWindow(QWidget* parent)
     , assetManager_(editorAssetCacheRoot())
 {
     core::Logger::instance().addSink(logSink_);
-    scripting::registerBuiltInScripts(scriptRegistry_);
+    (void)loadProjectScriptsModule(false);
     scriptRuntime_.setRegistry(&scriptRegistry_);
 
     std::string rendererError;
@@ -231,6 +231,7 @@ MainWindow::MainWindow(QWidget* parent)
 MainWindow::~MainWindow()
 {
     stopPlayMode();
+    scriptModuleLoader_.unload(&scriptRegistry_);
     saveEditorLayout();
     appendPendingLogs();
     if (sceneViewport_ != nullptr) {
@@ -644,7 +645,7 @@ void MainWindow::updateInspector()
     if (scriptStatusLabel_ != nullptr) {
         scriptStatusLabel_->clear();
         if (inspectedScript != nullptr && scriptRegistry_.find(inspectedScript->scriptName) == nullptr) {
-            scriptStatusLabel_->setText(QStringLiteral("Script asset found but class is not registered."));
+            scriptStatusLabel_->setText(QStringLiteral("Script asset exists but native class is not loaded. Build/Reload Project Scripts."));
         }
     }
     if (scriptFieldsTable_ != nullptr) {
