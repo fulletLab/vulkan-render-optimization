@@ -2,12 +2,14 @@
 
 #include "VulkanTextureFormat.hpp"
 
+#include <projectunity/core/Log.hpp>
 #include <projectunity/renderer/RenderBrdfLut.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <sstream>
 #include <vector>
 
 namespace projectunity::renderer {
@@ -106,30 +108,50 @@ struct TextureStagingBuffer {
     return (properties.optimalTilingFeatures & required) == required;
 }
 
-[[nodiscard]] VkFilter textureFilter(assets::TextureFilterMode filter)
+[[nodiscard]] const char* filterName(VkFilter filter) noexcept
 {
-    return filter == assets::TextureFilterMode::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    return filter == VK_FILTER_NEAREST ? "VK_FILTER_NEAREST" : "VK_FILTER_LINEAR";
 }
 
-[[nodiscard]] VkSamplerMipmapMode textureMipmapMode(assets::TextureFilterMode filter)
+[[nodiscard]] const char* mipmapModeName(VkSamplerMipmapMode mode) noexcept
 {
-    return filter == assets::TextureFilterMode::Nearest
-        ? VK_SAMPLER_MIPMAP_MODE_NEAREST
-        : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    return mode == VK_SAMPLER_MIPMAP_MODE_NEAREST
+        ? "VK_SAMPLER_MIPMAP_MODE_NEAREST"
+        : "VK_SAMPLER_MIPMAP_MODE_LINEAR";
 }
 
-[[nodiscard]] VkSamplerAddressMode textureAddressMode(assets::TextureWrapMode wrap)
+[[nodiscard]] const char* addressModeName(VkSamplerAddressMode mode) noexcept
 {
-    if (wrap == assets::TextureWrapMode::MirroredRepeat) {
-        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+    switch (mode) {
+    case VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT: return "VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT";
+    case VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE: return "VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE";
+    case VK_SAMPLER_ADDRESS_MODE_REPEAT: return "VK_SAMPLER_ADDRESS_MODE_REPEAT";
+    default: return "VK_SAMPLER_ADDRESS_MODE_REPEAT";
     }
-    if (wrap == assets::TextureWrapMode::ClampToEdge) {
-        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    }
-    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+}
+
+[[nodiscard]] const char* colorSpaceName(VulkanTextureColorSpace colorSpace) noexcept
+{
+    return colorSpace == VulkanTextureColorSpace::Srgb ? "sRGB" : "linear";
 }
 
 } // namespace
+
+const char* vulkanTextureRoleName(VulkanTextureRole role) noexcept
+{
+    switch (role) {
+    case VulkanTextureRole::Unknown: return "unknown";
+    case VulkanTextureRole::FallbackWhite: return "fallback-white";
+    case VulkanTextureRole::FallbackFlatNormal: return "fallback-flat-normal";
+    case VulkanTextureRole::BaseColor: return "baseColor";
+    case VulkanTextureRole::Normal: return "normal";
+    case VulkanTextureRole::MetallicRoughness: return "metallicRoughness";
+    case VulkanTextureRole::Occlusion: return "occlusion";
+    case VulkanTextureRole::Emissive: return "emissive";
+    case VulkanTextureRole::BrdfLut: return "brdfLut";
+    }
+    return "unknown";
+}
 
 VulkanTextureCache::~VulkanTextureCache()
 {
@@ -157,14 +179,15 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     VulkanResourceContext context,
     VulkanUploadContext& uploads,
     const assets::TextureAsset* texture,
-    std::string* errorMessage)
+    std::string* errorMessage,
+    VulkanTextureRole role)
 {
     if (textureHasGpuMips(texture)) {
         const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
         if (const auto existing = textures_.find(key); existing != textures_.end()) {
             return &existing->second.handle;
         }
-        if (const auto uploaded = uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+        if (const auto uploaded = uploadGpuMipTexture(context, uploads, key, *texture, role, errorMessage);
             uploaded != nullptr || !textureHasRgba8(texture)) {
             return uploaded;
         }
@@ -187,6 +210,8 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
         texture->height,
         texture->rgba8.data(),
         texture->rgba8.size(),
+        texture,
+        role,
         errorMessage);
 }
 
@@ -194,14 +219,15 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
     VulkanResourceContext context,
     VulkanUploadContext& uploads,
     const assets::TextureAsset* texture,
-    std::string* errorMessage)
+    std::string* errorMessage,
+    VulkanTextureRole role)
 {
     if (textureHasGpuMips(texture)) {
         const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
         if (const auto existing = textures_.find(key); existing != textures_.end()) {
             return &existing->second.handle;
         }
-        if (const auto uploaded = uploadGpuMipTexture(context, uploads, key, *texture, errorMessage);
+        if (const auto uploaded = uploadGpuMipTexture(context, uploads, key, *texture, role, errorMessage);
             uploaded != nullptr || !textureHasRgba8(texture)) {
             return uploaded;
         }
@@ -224,6 +250,8 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
         texture->height,
         texture->rgba8.data(),
         texture->rgba8.size(),
+        texture,
+        role,
         errorMessage);
 }
 
@@ -231,12 +259,13 @@ const VulkanTextureHandle* VulkanTextureCache::ensureNormalUploaded(
     VulkanResourceContext context,
     VulkanUploadContext& uploads,
     const assets::TextureAsset* texture,
-    std::string* errorMessage)
+    std::string* errorMessage,
+    VulkanTextureRole role)
 {
     if (!textureHasGpuMips(texture) && !textureHasRgba8(texture)) {
         return ensureFlatNormalTexture(context, uploads, errorMessage);
     }
-    return ensureUploaded(context, uploads, texture, errorMessage);
+    return ensureUploaded(context, uploads, texture, errorMessage, role);
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureBrdfLutUploaded(
@@ -261,6 +290,8 @@ const VulkanTextureHandle* VulkanTextureCache::ensureBrdfLutUploaded(
         lut.height,
         lut.rgba8.data(),
         lut.rgba8.size(),
+        nullptr,
+        VulkanTextureRole::BrdfLut,
         errorMessage);
 }
 
@@ -278,6 +309,7 @@ void VulkanTextureCache::clear() noexcept
     nextHandleKey_ = 1;
     uploadCount_ = 0;
     uploadedBytes_ = 0;
+    samplerDiagnostics_ = {};
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
@@ -290,7 +322,17 @@ const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
         return &existing->second.handle;
     }
     constexpr std::array<std::uint8_t, 4> white {255U, 255U, 255U, 255U};
-    return uploadTexture(context, uploads, key, 1, 1, white.data(), white.size(), errorMessage);
+    return uploadTexture(
+        context,
+        uploads,
+        key,
+        1,
+        1,
+        white.data(),
+        white.size(),
+        nullptr,
+        VulkanTextureRole::FallbackWhite,
+        errorMessage);
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
@@ -311,6 +353,8 @@ const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
         1,
         flatNormal.data(),
         flatNormal.size(),
+        nullptr,
+        VulkanTextureRole::FallbackFlatNormal,
         errorMessage);
 }
 
@@ -322,6 +366,8 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     std::uint32_t height,
     const std::uint8_t* rgba8,
     std::size_t byteCount,
+    const assets::TextureAsset* sourceTexture,
+    VulkanTextureRole role,
     std::string* errorMessage)
 {
     TextureStagingBuffer staging;
@@ -546,15 +592,23 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
         return nullptr;
     }
 
+    const auto samplerState = buildTextureSamplerState(
+        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy},
+        key.sampler,
+        mipLevels);
     VkSamplerCreateInfo samplerInfo {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = textureFilter(key.sampler.magnificationFilter);
-    samplerInfo.minFilter = textureFilter(key.sampler.minificationFilter);
-    samplerInfo.mipmapMode = textureMipmapMode(key.sampler.mipmapFilter);
-    samplerInfo.addressModeU = textureAddressMode(key.sampler.wrapU);
-    samplerInfo.addressModeV = textureAddressMode(key.sampler.wrapV);
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.maxLod = static_cast<float>(mipLevels);
+    samplerInfo.magFilter = samplerState.magFilter;
+    samplerInfo.minFilter = samplerState.minFilter;
+    samplerInfo.mipmapMode = samplerState.mipmapMode;
+    samplerInfo.addressModeU = samplerState.addressModeU;
+    samplerInfo.addressModeV = samplerState.addressModeV;
+    samplerInfo.addressModeW = samplerState.addressModeW;
+    samplerInfo.mipLodBias = samplerState.mipLodBias;
+    samplerInfo.anisotropyEnable = samplerState.anisotropyEnable;
+    samplerInfo.maxAnisotropy = samplerState.maxAnisotropy;
+    samplerInfo.minLod = samplerState.minLod;
+    samplerInfo.maxLod = samplerState.maxLod;
     if (vkCreateSampler(context.device, &samplerInfo, nullptr, &next.handle.sampler) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to create Vulkan texture sampler";
@@ -567,6 +621,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     if (inserted) {
         ++uploadCount_;
         uploadedBytes_ += static_cast<std::uint64_t>(byteCount);
+        recordSamplerDiagnostics(sourceTexture, role, width, height, mipLevels, samplerState, key.colorSpace);
     }
     return inserted ? &it->second.handle : nullptr;
 }
@@ -576,6 +631,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
     VulkanUploadContext& uploads,
     TextureKey key,
     const assets::TextureAsset& texture,
+    VulkanTextureRole role,
     std::string* errorMessage)
 {
     const auto format = toVkTextureFormat(texture.gpuFormat);
@@ -705,15 +761,23 @@ const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
         return nullptr;
     }
 
+    const auto samplerState = buildTextureSamplerState(
+        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy},
+        key.sampler,
+        mipLevels);
     VkSamplerCreateInfo samplerInfo {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = textureFilter(key.sampler.magnificationFilter);
-    samplerInfo.minFilter = textureFilter(key.sampler.minificationFilter);
-    samplerInfo.mipmapMode = textureMipmapMode(key.sampler.mipmapFilter);
-    samplerInfo.addressModeU = textureAddressMode(key.sampler.wrapU);
-    samplerInfo.addressModeV = textureAddressMode(key.sampler.wrapV);
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.maxLod = static_cast<float>(mipLevels);
+    samplerInfo.magFilter = samplerState.magFilter;
+    samplerInfo.minFilter = samplerState.minFilter;
+    samplerInfo.mipmapMode = samplerState.mipmapMode;
+    samplerInfo.addressModeU = samplerState.addressModeU;
+    samplerInfo.addressModeV = samplerState.addressModeV;
+    samplerInfo.addressModeW = samplerState.addressModeW;
+    samplerInfo.mipLodBias = samplerState.mipLodBias;
+    samplerInfo.anisotropyEnable = samplerState.anisotropyEnable;
+    samplerInfo.maxAnisotropy = samplerState.maxAnisotropy;
+    samplerInfo.minLod = samplerState.minLod;
+    samplerInfo.maxLod = samplerState.maxLod;
     if (vkCreateSampler(context.device, &samplerInfo, nullptr, &next.handle.sampler) != VK_SUCCESS) {
         if (errorMessage != nullptr) {
             *errorMessage = "Failed to create Vulkan KTX/KTX2 texture sampler";
@@ -726,6 +790,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
     if (inserted) {
         ++uploadCount_;
         uploadedBytes_ += static_cast<std::uint64_t>(byteCount);
+        recordSamplerDiagnostics(&texture, role, texture.width, texture.height, mipLevels, samplerState, key.colorSpace);
     }
     return inserted ? &it->second.handle : nullptr;
 }
@@ -743,6 +808,64 @@ std::uint64_t VulkanTextureCache::uploadedBytes() const noexcept
 std::uint64_t VulkanTextureCache::textureCount() const noexcept
 {
     return static_cast<std::uint64_t>(textures_.size());
+}
+
+const VulkanTextureSamplerDiagnostics& VulkanTextureCache::samplerDiagnostics() const noexcept
+{
+    return samplerDiagnostics_;
+}
+
+void VulkanTextureCache::recordSamplerDiagnostics(
+    const assets::TextureAsset* sourceTexture,
+    VulkanTextureRole role,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t mipLevels,
+    const VulkanTextureSamplerState& samplerState,
+    VulkanTextureColorSpace colorSpace)
+{
+    ++samplerDiagnostics_.samplerCreateCount;
+    if (samplerState.anisotropyEnable == VK_TRUE) {
+        ++samplerDiagnostics_.anisotropicSamplerCount;
+    }
+    if (samplerState.minFilter == VK_FILTER_LINEAR
+        && samplerState.mipmapMode == VK_SAMPLER_MIPMAP_MODE_LINEAR
+        && samplerState.maxLod > 0.0F) {
+        ++samplerDiagnostics_.trilinearSamplerCount;
+    }
+
+    samplerDiagnostics_.lastTextureName = sourceTexture != nullptr && !sourceTexture->name.empty()
+        ? sourceTexture->name
+        : vulkanTextureRoleName(role);
+    samplerDiagnostics_.lastTextureRole = vulkanTextureRoleName(role);
+    samplerDiagnostics_.lastWidth = width;
+    samplerDiagnostics_.lastHeight = height;
+    samplerDiagnostics_.lastMipLevels = mipLevels;
+    samplerDiagnostics_.lastAnisotropyEnabled = samplerState.anisotropyEnable == VK_TRUE;
+    samplerDiagnostics_.lastMaxAnisotropy = samplerState.maxAnisotropy;
+    samplerDiagnostics_.lastMipLodBias = samplerState.mipLodBias;
+    samplerDiagnostics_.lastMinLod = samplerState.minLod;
+    samplerDiagnostics_.lastMaxLod = samplerState.maxLod;
+
+    std::ostringstream message;
+    message << "Vulkan texture sampler"
+            << " role=" << vulkanTextureRoleName(role)
+            << " name=" << samplerDiagnostics_.lastTextureName
+            << " id=" << (sourceTexture != nullptr ? sourceTexture->id.value() : 0ULL)
+            << " resolution=" << width << "x" << height
+            << " mipLevels=" << mipLevels
+            << " minFilter=" << filterName(samplerState.minFilter)
+            << " magFilter=" << filterName(samplerState.magFilter)
+            << " mipmapMode=" << mipmapModeName(samplerState.mipmapMode)
+            << " anisotropy=" << (samplerState.anisotropyEnable == VK_TRUE ? "on" : "off")
+            << " maxAnisotropy=" << samplerState.maxAnisotropy
+            << " mipLodBias=" << samplerState.mipLodBias
+            << " minLod=" << samplerState.minLod
+            << " maxLod=" << samplerState.maxLod
+            << " wrapU=" << addressModeName(samplerState.addressModeU)
+            << " wrapV=" << addressModeName(samplerState.addressModeV)
+            << " colorSpace=" << colorSpaceName(colorSpace);
+    core::logInfo(core::LogCategory::Renderer, message.str());
 }
 
 void VulkanTextureCache::destroy(TextureResource& texture) noexcept

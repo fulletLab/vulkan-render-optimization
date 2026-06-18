@@ -168,12 +168,27 @@ struct VulkanRenderer::Impl {
         stats.apiVersionPatch = vulkan::patch(properties.apiVersion);
         stats.validationEnabled = validationEnabled;
         stats.debugMarkersAvailable = debugMarkersAvailable;
+        stats.textureQuality = config.textureQuality;
         stats.gpuTimestampsSupported = queueFamilyIndex < families.size()
             && families[queueFamilyIndex].timestampValidBits > 0
             && properties.limits.timestampPeriod > 0.0F;
         VkPhysicalDeviceFeatures supportedFeatures {};
         vkGetPhysicalDeviceFeatures(physicalDevice, &supportedFeatures);
         geometryShaderSupported = supportedFeatures.geometryShader == VK_TRUE;
+        samplerAnisotropySupported = supportedFeatures.samplerAnisotropy == VK_TRUE;
+        deviceMaxSamplerAnisotropy = samplerAnisotropySupported
+            ? std::max(1.0F, properties.limits.maxSamplerAnisotropy)
+            : 1.0F;
+        activeMaxSamplerAnisotropy = samplerAnisotropySupported
+            ? std::clamp(
+                renderTextureQualityMaxAnisotropy(config.textureQuality),
+                1.0F,
+                deviceMaxSamplerAnisotropy)
+            : 1.0F;
+        stats.samplerAnisotropySupported = samplerAnisotropySupported;
+        stats.samplerAnisotropyEnabled = samplerAnisotropySupported;
+        stats.deviceMaxSamplerAnisotropy = deviceMaxSamplerAnisotropy;
+        stats.activeMaxSamplerAnisotropy = activeMaxSamplerAnisotropy;
     }
 
     void createDevice()
@@ -187,6 +202,7 @@ struct VulkanRenderer::Impl {
 
         VkPhysicalDeviceFeatures features {};
         features.geometryShader = geometryShaderSupported ? VK_TRUE : VK_FALSE;
+        features.samplerAnisotropy = samplerAnisotropySupported ? VK_TRUE : VK_FALSE;
         VkDeviceCreateInfo createInfo {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.queueCreateInfoCount = 1;
@@ -200,6 +216,13 @@ struct VulkanRenderer::Impl {
             throw std::runtime_error("Failed to create Vulkan logical device");
         }
         vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsQueue);
+        core::logInfo(
+            core::LogCategory::Renderer,
+            "Vulkan logical device samplerAnisotropy="
+                + std::string(samplerAnisotropySupported ? "enabled" : "unsupported")
+                + " textureQuality=" + renderTextureQualityName(config.textureQuality)
+                + " deviceMaxAnisotropy=" + std::to_string(deviceMaxSamplerAnisotropy)
+                + " activeMaxAnisotropy=" + std::to_string(activeMaxSamplerAnisotropy));
     }
 
     void createAllocator()
@@ -431,6 +454,20 @@ struct VulkanRenderer::Impl {
             stats.lastFrameColorUploadBytes = dynamicColorBytes;
             stats.residentMeshCount = meshCache.meshCount();
             stats.residentTextureCount = textureCache.textureCount();
+            const auto& textureSamplerStats = textureCache.samplerDiagnostics();
+            stats.textureSamplerCreateCount = textureSamplerStats.samplerCreateCount;
+            stats.anisotropicTextureSamplerCount = textureSamplerStats.anisotropicSamplerCount;
+            stats.trilinearTextureSamplerCount = textureSamplerStats.trilinearSamplerCount;
+            stats.lastTextureSamplerName = textureSamplerStats.lastTextureName;
+            stats.lastTextureSamplerRole = textureSamplerStats.lastTextureRole;
+            stats.lastTextureSamplerWidth = textureSamplerStats.lastWidth;
+            stats.lastTextureSamplerHeight = textureSamplerStats.lastHeight;
+            stats.lastTextureSamplerMipLevels = textureSamplerStats.lastMipLevels;
+            stats.lastTextureSamplerAnisotropyEnabled = textureSamplerStats.lastAnisotropyEnabled;
+            stats.lastTextureSamplerMaxAnisotropy = textureSamplerStats.lastMaxAnisotropy;
+            stats.lastTextureSamplerMipLodBias = textureSamplerStats.lastMipLodBias;
+            stats.lastTextureSamplerMinLod = textureSamplerStats.lastMinLod;
+            stats.lastTextureSamplerMaxLod = textureSamplerStats.lastMaxLod;
             stats.totalMeshUploadCount = meshCache.uploadCount();
             stats.totalTextureUploadCount = textureCache.uploadCount();
             stats.totalStaticUploadBytes = meshCache.uploadedBytes() + textureCache.uploadedBytes();
@@ -467,12 +504,31 @@ struct VulkanRenderer::Impl {
 
     [[nodiscard]] VulkanViewportContext viewportContext() const noexcept
     {
-        return {instance, physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex, geometryShaderSupported};
+        return {
+            instance,
+            physicalDevice,
+            device,
+            graphicsQueue,
+            allocator,
+            queueFamilyIndex,
+            geometryShaderSupported,
+            samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F,
+            activeMaxSamplerAnisotropy,
+        };
     }
 
     [[nodiscard]] VulkanResourceContext resourceContext() const noexcept
     {
-        return {physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex, geometryShaderSupported};
+        return {
+            physicalDevice,
+            device,
+            graphicsQueue,
+            allocator,
+            queueFamilyIndex,
+            geometryShaderSupported,
+            samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F,
+            activeMaxSamplerAnisotropy,
+        };
     }
 
     RendererConfig config;
@@ -490,6 +546,9 @@ struct VulkanRenderer::Impl {
     bool validationEnabled {false};
     bool debugMarkersAvailable {false};
     bool geometryShaderSupported {false};
+    bool samplerAnisotropySupported {false};
+    float deviceMaxSamplerAnisotropy {1.0F};
+    float activeMaxSamplerAnisotropy {1.0F};
     bool ready {false};
 };
 

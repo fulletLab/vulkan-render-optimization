@@ -5,6 +5,8 @@
 #include <projectunity/renderer/RenderShadowCache.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 
+#include "VulkanTextureSamplerPolicy.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -200,6 +202,50 @@ int main()
         return fail("Renderer BRDF integration LUT contains no low-roughness response");
     }
 
+    projectunity::assets::TextureSamplerAsset defaultSurfaceSampler;
+    const auto highSamplerState = buildTextureSamplerState({true, 12.0F}, defaultSurfaceSampler, 9U);
+    if (highSamplerState.magFilter != VK_FILTER_LINEAR
+        || highSamplerState.minFilter != VK_FILTER_LINEAR
+        || highSamplerState.mipmapMode != VK_SAMPLER_MIPMAP_MODE_LINEAR
+        || highSamplerState.anisotropyEnable != VK_TRUE
+        || highSamplerState.maxAnisotropy != 12.0F
+        || highSamplerState.mipLodBias != 0.0F
+        || highSamplerState.minLod != 0.0F
+        || highSamplerState.maxLod != 8.0F) {
+        return fail("Default terrain/material sampler policy is not trilinear anisotropic with a valid mip LOD range");
+    }
+    if (renderTextureQualityMaxAnisotropy(RenderTextureQuality::High) != 16.0F) {
+        return fail("High texture quality should request 16x anisotropy before device-limit clamping");
+    }
+    const auto unsupportedAnisoState = buildTextureSamplerState({false, 16.0F}, defaultSurfaceSampler, 9U);
+    if (unsupportedAnisoState.anisotropyEnable != VK_FALSE
+        || unsupportedAnisoState.mipmapMode != VK_SAMPLER_MIPMAP_MODE_LINEAR
+        || unsupportedAnisoState.maxLod != 8.0F) {
+        return fail("Sampler policy did not fall back to trilinear when anisotropy is unsupported");
+    }
+    projectunity::assets::TextureSamplerAsset nearestSampler;
+    nearestSampler.magnificationFilter = projectunity::assets::TextureFilterMode::Nearest;
+    nearestSampler.minificationFilter = projectunity::assets::TextureFilterMode::Nearest;
+    nearestSampler.wrapU = projectunity::assets::TextureWrapMode::ClampToEdge;
+    nearestSampler.wrapV = projectunity::assets::TextureWrapMode::MirroredRepeat;
+    const auto nearestState = buildTextureSamplerState({true, 16.0F}, nearestSampler, 5U);
+    if (nearestState.magFilter != VK_FILTER_NEAREST
+        || nearestState.minFilter != VK_FILTER_NEAREST
+        || nearestState.anisotropyEnable != VK_FALSE
+        || nearestState.addressModeU != VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+        || nearestState.addressModeV != VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
+        || nearestState.maxLod != 4.0F) {
+        return fail("Sampler policy did not preserve nearest/wrap state for imported glTF samplers");
+    }
+    projectunity::assets::TextureSamplerAsset noMipSampler;
+    noMipSampler.useMipmaps = false;
+    const auto noMipState = buildTextureSamplerState({true, 16.0F}, noMipSampler, 7U);
+    if (noMipState.anisotropyEnable != VK_FALSE
+        || noMipState.mipmapMode != VK_SAMPLER_MIPMAP_MODE_NEAREST
+        || noMipState.maxLod != 0.0F) {
+        return fail("Sampler policy did not preserve imported no-mipmap usage");
+    }
+
     const auto irradianceCube = generateProceduralIrradianceCube(8U);
     if (irradianceCube.mips.size() != 1U
         || irradianceCube.mips.front().faceSize != 8U
@@ -278,6 +324,18 @@ int main()
     if (!stats.vmaAllocatorReady) {
         return fail("Vulkan renderer did not create VMA allocator");
     }
+    if (stats.textureQuality != RenderTextureQuality::High) {
+        return fail("Vulkan renderer did not default to High texture quality");
+    }
+    if (stats.samplerAnisotropySupported && !stats.samplerAnisotropyEnabled) {
+        return fail("Vulkan renderer did not enable samplerAnisotropy when the physical device supports it");
+    }
+    if (stats.deviceMaxSamplerAnisotropy < 1.0F
+        || stats.activeMaxSamplerAnisotropy < 1.0F
+        || stats.activeMaxSamplerAnisotropy > stats.deviceMaxSamplerAnisotropy
+        || stats.activeMaxSamplerAnisotropy > renderTextureQualityMaxAnisotropy(stats.textureQuality)) {
+        return fail("Vulkan renderer sampler anisotropy limit is outside the device/quality bounds");
+    }
     if (stats.lastFrameLightCount != 0
         || stats.lastFrameShadowCasterCount != 0
         || stats.lastFrameShadowViewCount != 0
@@ -335,6 +393,15 @@ int main()
         || stats.lastFrameColorUploadBytes != 0
         || stats.residentMeshCount != 0
         || stats.residentTextureCount != 0
+        || stats.textureSamplerCreateCount != 0
+        || stats.anisotropicTextureSamplerCount != 0
+        || stats.trilinearTextureSamplerCount != 0
+        || !stats.lastTextureSamplerName.empty()
+        || !stats.lastTextureSamplerRole.empty()
+        || stats.lastTextureSamplerWidth != 0
+        || stats.lastTextureSamplerHeight != 0
+        || stats.lastTextureSamplerMipLevels != 0
+        || stats.lastTextureSamplerAnisotropyEnabled
         || stats.totalMeshUploadCount != 0
         || stats.totalTextureUploadCount != 0
         || stats.totalStaticUploadBytes != 0

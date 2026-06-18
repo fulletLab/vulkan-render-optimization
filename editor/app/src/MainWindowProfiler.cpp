@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 120;
+constexpr int kProfilerRowCount = 128;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -182,6 +182,14 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("spatialCellTests"),
         QStringLiteral("spatialCellRejected"),
         QStringLiteral("spatialCellCandidateChunks"),
+        QStringLiteral("textureQuality"),
+        QStringLiteral("samplerAnisotropy"),
+        QStringLiteral("textureSamplerCounts"),
+        QStringLiteral("lastTextureSampler"),
+        QStringLiteral("lastTextureSamplerSize"),
+        QStringLiteral("lastTextureSamplerLod"),
+        QStringLiteral("lastTextureSamplerAniso"),
+        QStringLiteral("lastTextureSamplerRole"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -435,6 +443,44 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 117, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellTestCount)));
     setTableValue(profilerTable_, 118, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellRejectedCount)));
     setTableValue(profilerTable_, 119, QString::number(static_cast<qulonglong>(stats.lastFrameSpatialCellCandidateChunkCount)));
+    setTableValue(profilerTable_, 120, QString::fromLatin1(renderer::renderTextureQualityName(stats.textureQuality)));
+    setTableValue(
+        profilerTable_,
+        121,
+        QStringLiteral("supported=%1 feature=%2 deviceMax=%3 activeMax=%4")
+            .arg(stats.samplerAnisotropySupported ? QStringLiteral("yes") : QStringLiteral("no"))
+            .arg(stats.samplerAnisotropyEnabled ? QStringLiteral("yes") : QStringLiteral("no"))
+            .arg(stats.deviceMaxSamplerAnisotropy, 0, 'f', 1)
+            .arg(stats.activeMaxSamplerAnisotropy, 0, 'f', 1));
+    setTableValue(
+        profilerTable_,
+        122,
+        QStringLiteral("created=%1 aniso=%2 trilinear=%3")
+            .arg(static_cast<qulonglong>(stats.textureSamplerCreateCount))
+            .arg(static_cast<qulonglong>(stats.anisotropicTextureSamplerCount))
+            .arg(static_cast<qulonglong>(stats.trilinearTextureSamplerCount)));
+    setTableValue(profilerTable_, 123, QString::fromStdString(stats.lastTextureSamplerName));
+    setTableValue(
+        profilerTable_,
+        124,
+        QStringLiteral("%1x%2 mips=%3")
+            .arg(stats.lastTextureSamplerWidth)
+            .arg(stats.lastTextureSamplerHeight)
+            .arg(stats.lastTextureSamplerMipLevels));
+    setTableValue(
+        profilerTable_,
+        125,
+        QStringLiteral("bias=%1 min=%2 max=%3")
+            .arg(stats.lastTextureSamplerMipLodBias, 0, 'f', 2)
+            .arg(stats.lastTextureSamplerMinLod, 0, 'f', 2)
+            .arg(stats.lastTextureSamplerMaxLod, 0, 'f', 2));
+    setTableValue(
+        profilerTable_,
+        126,
+        QStringLiteral("%1 max=%2")
+            .arg(stats.lastTextureSamplerAnisotropyEnabled ? QStringLiteral("on") : QStringLiteral("off"))
+            .arg(stats.lastTextureSamplerMaxAnisotropy, 0, 'f', 1));
+    setTableValue(profilerTable_, 127, QString::fromStdString(stats.lastTextureSamplerRole));
 }
 
 } // namespace projectunity::editor

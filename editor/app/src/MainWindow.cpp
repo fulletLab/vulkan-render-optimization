@@ -179,12 +179,14 @@ MainWindow::MainWindow(QWidget* parent)
         const auto& stats = renderer_->stats();
         core::logInfo(
             core::LogCategory::Renderer,
-            QStringLiteral("Editor Vulkan renderer ready: %1 Vulkan %2.%3.%4 VMA=%5")
+            QStringLiteral("Editor Vulkan renderer ready: %1 Vulkan %2.%3.%4 VMA=%5 samplerAnisotropy=%6 activeMax=%7")
                 .arg(QString::fromStdString(stats.gpuName))
                 .arg(stats.apiVersionMajor)
                 .arg(stats.apiVersionMinor)
                 .arg(stats.apiVersionPatch)
                 .arg(stats.vmaAllocatorReady ? QStringLiteral("yes") : QStringLiteral("no"))
+                .arg(stats.samplerAnisotropyEnabled ? QStringLiteral("yes") : QStringLiteral("no"))
+                .arg(stats.activeMaxSamplerAnisotropy, 0, 'f', 1)
                 .toStdString());
     } else {
         core::logError(

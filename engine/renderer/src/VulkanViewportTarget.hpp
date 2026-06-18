@@ -31,10 +31,21 @@ struct VulkanViewportContext {
     VmaAllocator allocator {VK_NULL_HANDLE};
     std::uint32_t queueFamilyIndex {0};
     bool geometryShaderSupported {false};
+    bool samplerAnisotropyEnabled {false};
+    float maxSamplerAnisotropy {1.0F};
 
     [[nodiscard]] VulkanResourceContext resources() const noexcept
     {
-        return {physicalDevice, device, graphicsQueue, allocator, queueFamilyIndex, geometryShaderSupported};
+        return {
+            physicalDevice,
+            device,
+            graphicsQueue,
+            allocator,
+            queueFamilyIndex,
+            geometryShaderSupported,
+            samplerAnisotropyEnabled,
+            maxSamplerAnisotropy,
+        };
     }
 };
 

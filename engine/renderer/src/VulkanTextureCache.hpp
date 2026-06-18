@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VulkanResourceContext.hpp"
+#include "VulkanTextureSamplerPolicy.hpp"
 #include "VulkanUploadContext.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
@@ -18,6 +19,36 @@ enum class VulkanTextureColorSpace : std::uint8_t {
     Srgb,
 };
 
+enum class VulkanTextureRole : std::uint8_t {
+    Unknown,
+    FallbackWhite,
+    FallbackFlatNormal,
+    BaseColor,
+    Normal,
+    MetallicRoughness,
+    Occlusion,
+    Emissive,
+    BrdfLut,
+};
+
+[[nodiscard]] const char* vulkanTextureRoleName(VulkanTextureRole role) noexcept;
+
+struct VulkanTextureSamplerDiagnostics {
+    std::uint64_t samplerCreateCount {0};
+    std::uint64_t anisotropicSamplerCount {0};
+    std::uint64_t trilinearSamplerCount {0};
+    std::string lastTextureName;
+    std::string lastTextureRole;
+    std::uint32_t lastWidth {0};
+    std::uint32_t lastHeight {0};
+    std::uint32_t lastMipLevels {0};
+    bool lastAnisotropyEnabled {false};
+    float lastMaxAnisotropy {1.0F};
+    float lastMipLodBias {0.0F};
+    float lastMinLod {0.0F};
+    float lastMaxLod {0.0F};
+};
+
 struct VulkanTextureHandle {
     std::uint64_t key {0};
     VkImage image {VK_NULL_HANDLE};
@@ -33,17 +64,20 @@ public:
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
         const assets::TextureAsset* texture,
-        std::string* errorMessage);
+        std::string* errorMessage,
+        VulkanTextureRole role = VulkanTextureRole::Unknown);
     [[nodiscard]] const VulkanTextureHandle* ensureSrgbUploaded(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
         const assets::TextureAsset* texture,
-        std::string* errorMessage);
+        std::string* errorMessage,
+        VulkanTextureRole role = VulkanTextureRole::BaseColor);
     [[nodiscard]] const VulkanTextureHandle* ensureNormalUploaded(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
         const assets::TextureAsset* texture,
-        std::string* errorMessage);
+        std::string* errorMessage,
+        VulkanTextureRole role = VulkanTextureRole::Normal);
     [[nodiscard]] const VulkanTextureHandle* ensureBrdfLutUploaded(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
@@ -67,6 +101,7 @@ public:
     [[nodiscard]] std::uint64_t uploadCount() const noexcept;
     [[nodiscard]] std::uint64_t uploadedBytes() const noexcept;
     [[nodiscard]] std::uint64_t textureCount() const noexcept;
+    [[nodiscard]] const VulkanTextureSamplerDiagnostics& samplerDiagnostics() const noexcept;
 
 private:
     struct TextureKey {
@@ -104,12 +139,15 @@ private:
         std::uint32_t height,
         const std::uint8_t* rgba8,
         std::size_t byteCount,
+        const assets::TextureAsset* sourceTexture,
+        VulkanTextureRole role,
         std::string* errorMessage);
     [[nodiscard]] const VulkanTextureHandle* uploadGpuMipTexture(
         VulkanResourceContext context,
         VulkanUploadContext& uploads,
         TextureKey key,
         const assets::TextureAsset& texture,
+        VulkanTextureRole role,
         std::string* errorMessage);
     [[nodiscard]] bool uploadCubeMap(
         VulkanResourceContext context,
@@ -119,6 +157,14 @@ private:
         const RenderCubeMap& cube,
         std::string* errorMessage);
     void destroy(TextureResource& texture) noexcept;
+    void recordSamplerDiagnostics(
+        const assets::TextureAsset* sourceTexture,
+        VulkanTextureRole role,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t mipLevels,
+        const VulkanTextureSamplerState& samplerState,
+        VulkanTextureColorSpace colorSpace);
 
     std::unordered_map<TextureKey, TextureResource, TextureKeyHash> textures_;
     TextureResource irradianceCube_;
@@ -128,6 +174,7 @@ private:
     std::uint64_t nextHandleKey_ {1};
     std::uint64_t uploadCount_ {0};
     std::uint64_t uploadedBytes_ {0};
+    VulkanTextureSamplerDiagnostics samplerDiagnostics_;
 };
 
 } // namespace projectunity::renderer

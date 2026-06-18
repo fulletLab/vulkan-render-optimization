@@ -76,6 +76,7 @@ add_library(projectunity_renderer STATIC
     src/VulkanTextureCache.hpp
     src/VulkanTextureFormat.cpp
     src/VulkanTextureFormat.hpp
+    src/VulkanTextureSamplerPolicy.hpp
     src/VulkanTextureUploadBudget.cpp
     src/VulkanUploadContext.cpp
     src/VulkanUploadContext.hpp

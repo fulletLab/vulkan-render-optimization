@@ -23,11 +23,31 @@ VulkanMaterialTextureSet uploadMaterialTextureSet(
     std::string* errorMessage)
 {
     VulkanMaterialTextureSet textures;
-    textures.baseColor = textureCache.ensureSrgbUploaded(context, uploads, draw.baseColorTexture, errorMessage);
+    textures.baseColor = textureCache.ensureSrgbUploaded(
+        context,
+        uploads,
+        draw.baseColorTexture,
+        errorMessage,
+        VulkanTextureRole::BaseColor);
     textures.normal = textureCache.ensureNormalUploaded(context, uploads, draw.normalTexture, errorMessage);
-    textures.metallicRoughness = textureCache.ensureUploaded(context, uploads, draw.metallicRoughnessTexture, errorMessage);
-    textures.occlusion = textureCache.ensureUploaded(context, uploads, draw.occlusionTexture, errorMessage);
-    textures.emissive = textureCache.ensureSrgbUploaded(context, uploads, draw.emissiveTexture, errorMessage);
+    textures.metallicRoughness = textureCache.ensureUploaded(
+        context,
+        uploads,
+        draw.metallicRoughnessTexture,
+        errorMessage,
+        VulkanTextureRole::MetallicRoughness);
+    textures.occlusion = textureCache.ensureUploaded(
+        context,
+        uploads,
+        draw.occlusionTexture,
+        errorMessage,
+        VulkanTextureRole::Occlusion);
+    textures.emissive = textureCache.ensureSrgbUploaded(
+        context,
+        uploads,
+        draw.emissiveTexture,
+        errorMessage,
+        VulkanTextureRole::Emissive);
     textures.brdfLut = textureCache.ensureBrdfLutUploaded(context, uploads, errorMessage);
     textures.irradianceCube = textureCache.ensureIrradianceCubeUploaded(context, uploads, environment, errorMessage);
     textures.prefilteredEnvironment = textureCache.ensurePrefilteredEnvironmentCubeUploaded(context, uploads, environment, errorMessage);

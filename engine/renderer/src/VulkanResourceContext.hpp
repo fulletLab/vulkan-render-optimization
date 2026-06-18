@@ -15,6 +15,8 @@ struct VulkanResourceContext {
     VmaAllocator allocator {VK_NULL_HANDLE};
     std::uint32_t queueFamilyIndex {0};
     bool geometryShaderSupported {false};
+    bool samplerAnisotropyEnabled {false};
+    float maxSamplerAnisotropy {1.0F};
 };
 
 } // namespace projectunity::renderer

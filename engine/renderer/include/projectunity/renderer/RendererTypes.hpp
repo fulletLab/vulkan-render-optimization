@@ -24,10 +24,40 @@ enum class RenderShadowUpdateMode : std::uint8_t {
     Off,
 };
 
+enum class RenderTextureQuality : std::uint8_t {
+    Low,
+    Medium,
+    High,
+    Ultra,
+};
+
+[[nodiscard]] inline const char* renderTextureQualityName(RenderTextureQuality quality) noexcept
+{
+    switch (quality) {
+    case RenderTextureQuality::Low: return "Low";
+    case RenderTextureQuality::Medium: return "Medium";
+    case RenderTextureQuality::High: return "High";
+    case RenderTextureQuality::Ultra: return "Ultra";
+    }
+    return "Unknown";
+}
+
+[[nodiscard]] inline float renderTextureQualityMaxAnisotropy(RenderTextureQuality quality) noexcept
+{
+    switch (quality) {
+    case RenderTextureQuality::Low: return 1.0F;
+    case RenderTextureQuality::Medium: return 4.0F;
+    case RenderTextureQuality::High: return 16.0F;
+    case RenderTextureQuality::Ultra: return 16.0F;
+    }
+    return 1.0F;
+}
+
 struct RendererConfig {
     std::string applicationName {"ProjectUnity"};
     bool enableValidation {true};
     bool enableRenderDocMarkers {true};
+    RenderTextureQuality textureQuality {RenderTextureQuality::High};
 };
 
 constexpr std::uint32_t kRenderOverviewPrimitiveIndexBase = 0x80000000U;
@@ -86,6 +116,11 @@ struct RendererStats {
     bool validationEnabled {false};
     bool debugMarkersAvailable {false};
     bool vmaAllocatorReady {false};
+    RenderTextureQuality textureQuality {RenderTextureQuality::High};
+    bool samplerAnisotropySupported {false};
+    bool samplerAnisotropyEnabled {false};
+    float deviceMaxSamplerAnisotropy {1.0F};
+    float activeMaxSamplerAnisotropy {1.0F};
     std::uint64_t viewportFramesPresented {0};
     std::uint64_t viewportSurfacePrepareCount {0};
     std::uint64_t lastFrameCandidateMeshDrawCount {0};
@@ -218,6 +253,19 @@ struct RendererStats {
     std::uint64_t lastFrameColorUploadBytes {0};
     std::uint64_t residentMeshCount {0};
     std::uint64_t residentTextureCount {0};
+    std::uint64_t textureSamplerCreateCount {0};
+    std::uint64_t anisotropicTextureSamplerCount {0};
+    std::uint64_t trilinearTextureSamplerCount {0};
+    std::string lastTextureSamplerName;
+    std::string lastTextureSamplerRole;
+    std::uint32_t lastTextureSamplerWidth {0};
+    std::uint32_t lastTextureSamplerHeight {0};
+    std::uint32_t lastTextureSamplerMipLevels {0};
+    bool lastTextureSamplerAnisotropyEnabled {false};
+    float lastTextureSamplerMaxAnisotropy {1.0F};
+    float lastTextureSamplerMipLodBias {0.0F};
+    float lastTextureSamplerMinLod {0.0F};
+    float lastTextureSamplerMaxLod {0.0F};
     std::uint64_t totalMeshUploadCount {0};
     std::uint64_t totalTextureUploadCount {0};
     std::uint64_t totalStaticUploadBytes {0};
