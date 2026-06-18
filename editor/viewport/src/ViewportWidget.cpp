@@ -78,6 +78,12 @@ ViewportWidget::ViewportWidget(ViewportMode mode, QWidget* parent)
         rendererSurfaceReady_ = false;
         update();
     });
+
+    frameRateLimitTimer_ = new QTimer(this);
+    frameRateLimitTimer_->setSingleShot(true);
+    connect(frameRateLimitTimer_, &QTimer::timeout, this, [this]() {
+        update();
+    });
 }
 
 ViewportWidget::~ViewportWidget()
@@ -109,8 +115,12 @@ void ViewportWidget::setRenderer(renderer::IRenderer* renderer)
     rendererSurfaceReady_ = false;
     rendererSurfaceResizePending_ = false;
     lastRendererStats_.reset();
+    hasLastRendererFrameTime_ = false;
     if (rendererSurfaceResizeTimer_ != nullptr) {
         rendererSurfaceResizeTimer_->stop();
+    }
+    if (frameRateLimitTimer_ != nullptr) {
+        frameRateLimitTimer_->stop();
     }
     update();
 }
@@ -514,6 +524,7 @@ void ViewportWidget::resizeEvent(QResizeEvent* event)
         rendererSurfaceResizePending_ = true;
         rendererSurfaceAttempted_ = false;
         rendererSurfaceReady_ = false;
+        hasLastRendererFrameTime_ = false;
         if (rendererSurfaceResizeTimer_ != nullptr) {
             rendererSurfaceResizeTimer_->start();
         }
@@ -521,6 +532,7 @@ void ViewportWidget::resizeEvent(QResizeEvent* event)
         rendererSurfaceResizePending_ = false;
         rendererSurfaceAttempted_ = false;
         rendererSurfaceReady_ = false;
+        hasLastRendererFrameTime_ = false;
     }
     QWidget::resizeEvent(event);
 }

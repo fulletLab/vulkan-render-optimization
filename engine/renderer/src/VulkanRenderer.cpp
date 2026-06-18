@@ -179,14 +179,17 @@ struct VulkanRenderer::Impl {
         deviceMaxSamplerAnisotropy = samplerAnisotropySupported
             ? std::max(1.0F, properties.limits.maxSamplerAnisotropy)
             : 1.0F;
+        const auto requestedAnisotropy = config.requestedMaxSamplerAnisotropy > 0.0F
+            ? config.requestedMaxSamplerAnisotropy
+            : renderTextureQualityMaxAnisotropy(config.textureQuality);
         activeMaxSamplerAnisotropy = samplerAnisotropySupported
             ? std::clamp(
-                renderTextureQualityMaxAnisotropy(config.textureQuality),
+                requestedAnisotropy,
                 1.0F,
                 deviceMaxSamplerAnisotropy)
             : 1.0F;
         stats.samplerAnisotropySupported = samplerAnisotropySupported;
-        stats.samplerAnisotropyEnabled = samplerAnisotropySupported;
+        stats.samplerAnisotropyEnabled = samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F;
         stats.deviceMaxSamplerAnisotropy = deviceMaxSamplerAnisotropy;
         stats.activeMaxSamplerAnisotropy = activeMaxSamplerAnisotropy;
     }
@@ -219,10 +222,11 @@ struct VulkanRenderer::Impl {
         core::logInfo(
             core::LogCategory::Renderer,
             "Vulkan logical device samplerAnisotropy="
-                + std::string(samplerAnisotropySupported ? "enabled" : "unsupported")
+                + std::string(samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F ? "enabled" : "disabled")
                 + " textureQuality=" + renderTextureQualityName(config.textureQuality)
                 + " deviceMaxAnisotropy=" + std::to_string(deviceMaxSamplerAnisotropy)
-                + " activeMaxAnisotropy=" + std::to_string(activeMaxSamplerAnisotropy));
+                + " activeMaxAnisotropy=" + std::to_string(activeMaxSamplerAnisotropy)
+                + " mipLodBias=" + std::to_string(config.textureMipLodBias));
     }
 
     void createAllocator()
@@ -514,6 +518,7 @@ struct VulkanRenderer::Impl {
             geometryShaderSupported,
             samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F,
             activeMaxSamplerAnisotropy,
+            std::clamp(config.textureMipLodBias, -1.0F, 1.0F),
         };
     }
 
@@ -528,6 +533,7 @@ struct VulkanRenderer::Impl {
             geometryShaderSupported,
             samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F,
             activeMaxSamplerAnisotropy,
+            std::clamp(config.textureMipLodBias, -1.0F, 1.0F),
         };
     }
 

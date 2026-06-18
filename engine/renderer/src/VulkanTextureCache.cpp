@@ -593,7 +593,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     }
 
     const auto samplerState = buildTextureSamplerState(
-        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy},
+        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy, context.textureMipLodBias},
         key.sampler,
         mipLevels);
     VkSamplerCreateInfo samplerInfo {};
@@ -762,7 +762,7 @@ const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
     }
 
     const auto samplerState = buildTextureSamplerState(
-        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy},
+        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy, context.textureMipLodBias},
         key.sampler,
         mipLevels);
     VkSamplerCreateInfo samplerInfo {};

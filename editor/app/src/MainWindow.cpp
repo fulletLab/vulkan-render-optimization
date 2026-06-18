@@ -1,5 +1,6 @@
 #include <projectunity/editor/MainWindow.hpp>
 
+#include <projectunity/editor/ProjectBrowserWidget.hpp>
 #include <projectunity/editor/SceneHierarchyWidget.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
 #include <projectunity/renderer/VulkanRenderer.hpp>
@@ -19,6 +20,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -44,8 +46,10 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <utility>
+#include <vector>
 
 namespace projectunity::editor {
 namespace {
@@ -136,6 +140,194 @@ void setSpinBoxesEnabled(const std::array<QDoubleSpinBox*, 9>& spinBoxes, bool e
     case 4: return scene::ColliderShape::Terrain;
     default: return scene::ColliderShape::Box;
     }
+}
+
+constexpr int kMaterialSlotColumn = 0;
+constexpr int kMaterialNameColumn = 1;
+constexpr int kBaseColorColumn = 2;
+constexpr int kNormalColumn = 3;
+constexpr int kMetallicRoughnessColumn = 4;
+constexpr int kEmissiveColumn = 5;
+constexpr int kTilingColumn = 6;
+constexpr int kOffsetColumn = 7;
+constexpr int kOverrideColumn = 8;
+constexpr int kMaterialSlotIndexRole = Qt::UserRole + 31;
+constexpr int kMaterialSourceIndexRole = Qt::UserRole + 32;
+
+struct MaterialSlotDescriptor {
+    std::uint32_t slotIndex {0};
+    std::optional<std::uint32_t> sourceMaterialIndex;
+    QString name;
+};
+
+enum class MaterialReferenceKind : std::uint8_t {
+    Material,
+    Texture,
+};
+
+[[nodiscard]] QString materialName(
+    const assets::ModelAsset& model,
+    std::optional<std::uint32_t> materialIndex)
+{
+    if (!materialIndex.has_value() || *materialIndex >= model.materials.size()) {
+        return QStringLiteral("Material original");
+    }
+    auto name = QString::fromStdString(model.materials[*materialIndex].name);
+    return name.isEmpty() ? QStringLiteral("Material %1").arg(*materialIndex + 1U) : name;
+}
+
+[[nodiscard]] std::optional<std::uint32_t> sourceMaterialForPrimitive(
+    const assets::ModelAsset& model,
+    std::uint32_t primitiveIndex)
+{
+    if (primitiveIndex >= model.primitives.size()) {
+        return std::nullopt;
+    }
+    return static_cast<std::uint32_t>(model.primitives[primitiveIndex].materialIndex);
+}
+
+[[nodiscard]] std::optional<std::uint32_t> sourcePrimitiveForRenderer(
+    const scene::MeshRendererComponent& renderer,
+    const assets::ModelAsset& model)
+{
+    if (renderer.editorInstanceIndex.has_value()) {
+        const auto index = *renderer.editorInstanceIndex;
+        if (index < model.editorInstances.size()) {
+            return model.editorInstances[index].sourcePrimitiveIndex;
+        }
+    }
+    if (renderer.primitiveInstanceIndex.has_value()) {
+        const auto index = *renderer.primitiveInstanceIndex;
+        if (index < model.primitiveInstances.size()) {
+            return model.primitiveInstances[index].primitiveIndex;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::vector<MaterialSlotDescriptor> materialSlotsForEntity(
+    const scene::Entity& entity,
+    const assets::IAssetManager& assetManager)
+{
+    std::vector<MaterialSlotDescriptor> slots;
+    if (!entity.meshRenderer.has_value()) {
+        return slots;
+    }
+    const auto model = assetManager.model(entity.meshRenderer->modelAssetId);
+    if (model == nullptr) {
+        return slots;
+    }
+    if (entity.meshRenderer->editorInstanceIndex.has_value()
+        || entity.meshRenderer->primitiveInstanceIndex.has_value()) {
+        const auto primitiveIndex = sourcePrimitiveForRenderer(*entity.meshRenderer, *model);
+        const auto materialIndex = primitiveIndex.has_value()
+            ? sourceMaterialForPrimitive(*model, *primitiveIndex)
+            : std::nullopt;
+        slots.push_back({0U, materialIndex, materialName(*model, materialIndex)});
+        return slots;
+    }
+    const auto materialCount = std::max<std::size_t>(model->materials.size(), 1U);
+    slots.reserve(materialCount);
+    for (std::uint32_t index = 0; index < materialCount; ++index) {
+        const auto materialIndex = index < model->materials.size()
+            ? std::optional<std::uint32_t>(index)
+            : std::nullopt;
+        slots.push_back({index, materialIndex, materialName(*model, materialIndex)});
+    }
+    return slots;
+}
+
+[[nodiscard]] const scene::MaterialSlotOverride* findMaterialSlotOverride(
+    const scene::MaterialOverrideComponent* overrides,
+    std::uint32_t slotIndex)
+{
+    if (overrides == nullptr) {
+        return nullptr;
+    }
+    const auto it = std::find_if(overrides->slots.begin(), overrides->slots.end(), [slotIndex](const auto& slot) {
+        return slot.slotIndex == slotIndex;
+    });
+    return it == overrides->slots.end() ? nullptr : &*it;
+}
+
+[[nodiscard]] scene::MaterialSlotOverride& ensureMaterialSlotOverride(
+    scene::MaterialOverrideComponent& overrides,
+    std::uint32_t slotIndex,
+    std::optional<std::uint32_t> sourceMaterialIndex)
+{
+    const auto it = std::find_if(overrides.slots.begin(), overrides.slots.end(), [slotIndex](const auto& slot) {
+        return slot.slotIndex == slotIndex;
+    });
+    if (it != overrides.slots.end()) {
+        return *it;
+    }
+    overrides.slots.push_back({});
+    auto& slot = overrides.slots.back();
+    slot.slotIndex = slotIndex;
+    slot.sourceMaterialIndex = sourceMaterialIndex;
+    return slot;
+}
+
+[[nodiscard]] QString assetReferenceLabel(
+    const assets::IAssetManager& assetManager,
+    const scene::AssetSlotReference& reference,
+    MaterialReferenceKind kind)
+{
+    if (!reference.isValid()) {
+        return QStringLiteral("-");
+    }
+    if (reference.subAssetIndex.has_value()) {
+        const auto model = assetManager.model(reference.assetId);
+        if (model != nullptr) {
+            const auto index = *reference.subAssetIndex;
+            if (kind == MaterialReferenceKind::Material && index < model->materials.size()) {
+                auto name = QString::fromStdString(model->materials[index].name);
+                return name.isEmpty() ? QStringLiteral("Material %1").arg(index + 1U) : name;
+            }
+            if (kind == MaterialReferenceKind::Texture && index < model->textures.size()) {
+                auto name = QString::fromStdString(model->textures[index].name);
+                return name.isEmpty() ? QStringLiteral("Texture %1").arg(index + 1U) : name;
+            }
+        }
+    }
+    if (kind == MaterialReferenceKind::Texture) {
+        const auto texture = assetManager.texture(reference.assetId);
+        if (texture != nullptr) {
+            auto name = QString::fromStdString(texture->name);
+            return name.isEmpty() ? QStringLiteral("Texture asset") : name;
+        }
+    }
+    const auto records = assetManager.records();
+    const auto record = std::find_if(records.begin(), records.end(), [&reference](const assets::AssetRecord& candidate) {
+        return candidate.id == reference.assetId;
+    });
+    if (record != records.end()) {
+        return QString::fromStdString(record->displayName);
+    }
+    return QStringLiteral("Asset %1").arg(reference.assetId.value());
+}
+
+[[nodiscard]] QString originalTextureLabel(
+    const assets::ModelAsset* model,
+    std::optional<std::uint32_t> materialIndex,
+    std::optional<std::size_t> assets::MaterialAsset::*textureMember)
+{
+    if (model == nullptr || !materialIndex.has_value() || *materialIndex >= model->materials.size()) {
+        return QStringLiteral("-");
+    }
+    const auto textureIndex = model->materials[*materialIndex].*textureMember;
+    if (!textureIndex.has_value() || *textureIndex >= model->textures.size()) {
+        return QStringLiteral("-");
+    }
+    auto name = QString::fromStdString(model->textures[*textureIndex].name);
+    return name.isEmpty() ? QStringLiteral("Texture %1").arg(*textureIndex + 1U) : name;
+}
+
+[[nodiscard]] QTableWidgetItem* readOnlyItem(const QString& text)
+{
+    auto* item = new QTableWidgetItem(text);
+    item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+    return item;
 }
 
 [[nodiscard]] renderer::RenderLight editorSunFromAngles(
@@ -518,6 +710,21 @@ void MainWindow::updateInspector()
 
     const auto* entity = selectedEntityId_.isValid() ? scene_.findEntity(selectedEntityId_) : nullptr;
     const bool hasSelection = entity != nullptr;
+    if (componentSection_ != nullptr) {
+        componentSection_->setVisible(hasSelection);
+    }
+    if (scriptSection_ != nullptr) {
+        scriptSection_->setVisible(hasSelection);
+    }
+    if (rigidbodySection_ != nullptr) {
+        rigidbodySection_->setVisible(hasSelection && entity->rigidbody.has_value());
+    }
+    if (colliderSection_ != nullptr) {
+        colliderSection_->setVisible(hasSelection && entity->collider.has_value());
+    }
+    if (terrainQuickSection_ != nullptr) {
+        terrainQuickSection_->setVisible(hasSelection && entity->terrain.has_value());
+    }
 
     if (entityNameEdit_ != nullptr) {
         const QSignalBlocker blocker(entityNameEdit_);

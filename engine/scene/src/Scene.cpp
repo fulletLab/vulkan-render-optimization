@@ -188,9 +188,10 @@ Entity* Scene::duplicateEntityRecursive(EntityId sourceId, std::optional<EntityI
 
     const auto sourceSnapshot = *source;
     auto& duplicate = createEntity(sourceSnapshot.name + " Copy", parentOverride);
-    duplicate.transform = sourceSnapshot.transform;
-    duplicate.meshRenderer = sourceSnapshot.meshRenderer;
-    duplicate.light = sourceSnapshot.light;
+        duplicate.transform = sourceSnapshot.transform;
+        duplicate.meshRenderer = sourceSnapshot.meshRenderer;
+        duplicate.materialOverrides = sourceSnapshot.materialOverrides;
+        duplicate.light = sourceSnapshot.light;
     duplicate.camera = sourceSnapshot.camera;
     duplicate.terrain = sourceSnapshot.terrain;
     duplicate.rigidbody = sourceSnapshot.rigidbody;
@@ -298,6 +299,46 @@ bool Scene::setMeshRenderer(EntityId id, std::optional<MeshRendererComponent> co
 
     entity->meshRenderer = component;
     setSingletonComponentOrder(*entity, ComponentType::MeshRenderer, component.has_value());
+    return true;
+}
+
+bool Scene::setMaterialOverrides(EntityId id, std::optional<MaterialOverrideComponent> component)
+{
+    auto* entity = findEntityMutable(id);
+    if (entity == nullptr) {
+        return false;
+    }
+
+    if (component.has_value()) {
+        component->slots.erase(
+            std::remove_if(component->slots.begin(), component->slots.end(), [](const MaterialSlotOverride& slot) {
+                return !slot.hasAnyOverride();
+            }),
+            component->slots.end());
+        if (component->slots.size() > 1024U) {
+            core::logWarning(core::LogCategory::Assets, "Scene rejected material overrides with too many slots");
+            return false;
+        }
+        std::vector<std::uint32_t> seenSlots;
+        seenSlots.reserve(component->slots.size());
+        for (const auto& slot : component->slots) {
+            if (std::find(seenSlots.begin(), seenSlots.end(), slot.slotIndex) != seenSlots.end()) {
+                core::logWarning(core::LogCategory::Assets, "Scene rejected duplicate material override slot");
+                return false;
+            }
+            if (slot.tiling[0] <= 0.0F || slot.tiling[1] <= 0.0F) {
+                core::logWarning(core::LogCategory::Assets, "Scene rejected material override with invalid tiling");
+                return false;
+            }
+            seenSlots.push_back(slot.slotIndex);
+        }
+        if (component->slots.empty()) {
+            component = std::nullopt;
+        }
+    }
+
+    entity->materialOverrides = std::move(component);
+    setSingletonComponentOrder(*entity, ComponentType::MaterialOverrides, entity->materialOverrides.has_value());
     return true;
 }
 
@@ -592,6 +633,7 @@ void Scene::rebuildComponentOrder(Entity& entity)
     entity.componentOrder.clear();
     entity.componentOrder.push_back({ComponentType::Transform, {}});
     if (entity.meshRenderer.has_value()) { entity.componentOrder.push_back({ComponentType::MeshRenderer, {}}); }
+    if (entity.materialOverrides.has_value()) { entity.componentOrder.push_back({ComponentType::MaterialOverrides, {}}); }
     if (entity.light.has_value()) { entity.componentOrder.push_back({ComponentType::Light, {}}); }
     if (entity.camera.has_value()) { entity.componentOrder.push_back({ComponentType::Camera, {}}); }
     for (const auto& script : entity.scripts) {

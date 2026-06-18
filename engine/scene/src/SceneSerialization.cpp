@@ -14,6 +14,8 @@ namespace {
 
 constexpr int kSceneFormatVersion = 1;
 
+void setError(std::string* errorMessage, std::string message);
+
 [[nodiscard]] nlohmann::json vecToJson(const math::Vec3& value)
 {
     return nlohmann::json::array({value.x, value.y, value.z});
@@ -226,6 +228,120 @@ constexpr int kSceneFormatVersion = 1;
     return false;
 }
 
+[[nodiscard]] nlohmann::json vec2ToJson(const std::array<float, 2>& value)
+{
+    return nlohmann::json::array({value[0], value[1]});
+}
+
+[[nodiscard]] bool vec2FromJson(const nlohmann::json& json, std::array<float, 2>& output)
+{
+    if (!json.is_array() || json.size() != 2U || !json.at(0).is_number() || !json.at(1).is_number()) {
+        return false;
+    }
+    output = {json.at(0).get<float>(), json.at(1).get<float>()};
+    return true;
+}
+
+[[nodiscard]] nlohmann::json assetSlotReferenceToJson(const AssetSlotReference& reference)
+{
+    nlohmann::json output {
+        {"assetId", reference.assetId.value()},
+    };
+    if (reference.subAssetIndex.has_value()) {
+        output["subAssetIndex"] = *reference.subAssetIndex;
+    }
+    return output;
+}
+
+[[nodiscard]] bool assetSlotReferenceFromJson(const nlohmann::json& json, AssetSlotReference& output)
+{
+    if (!json.is_object() || !json.contains("assetId")) {
+        return false;
+    }
+    output.assetId = core::StableId(json.value("assetId", std::uint64_t {0}));
+    output.subAssetIndex = std::nullopt;
+    if (json.contains("subAssetIndex")) {
+        output.subAssetIndex = json.at("subAssetIndex").get<std::uint32_t>();
+    }
+    return output.assetId.isValid();
+}
+
+void writeOptionalReference(nlohmann::json& json, const char* key, const AssetSlotReference& reference)
+{
+    if (reference.isValid()) {
+        json[key] = assetSlotReferenceToJson(reference);
+    }
+}
+
+[[nodiscard]] bool readOptionalReference(
+    const nlohmann::json& json,
+    const char* key,
+    AssetSlotReference& output,
+    std::string* errorMessage)
+{
+    output = {};
+    if (!json.contains(key)) {
+        return true;
+    }
+    if (!assetSlotReferenceFromJson(json.at(key), output)) {
+        setError(errorMessage, std::string("Scene material override reference is invalid: ") + key);
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] nlohmann::json materialSlotOverrideToJson(const MaterialSlotOverride& slot)
+{
+    nlohmann::json output {
+        {"slotIndex", slot.slotIndex},
+        {"overrideEnabled", slot.overrideEnabled},
+        {"tiling", vec2ToJson(slot.tiling)},
+        {"offset", vec2ToJson(slot.offset)},
+    };
+    if (slot.sourceMaterialIndex.has_value()) {
+        output["sourceMaterialIndex"] = *slot.sourceMaterialIndex;
+    }
+    writeOptionalReference(output, "material", slot.material);
+    writeOptionalReference(output, "baseColorTexture", slot.baseColorTexture.texture);
+    writeOptionalReference(output, "normalTexture", slot.normalTexture.texture);
+    writeOptionalReference(output, "metallicRoughnessTexture", slot.metallicRoughnessTexture.texture);
+    writeOptionalReference(output, "emissiveTexture", slot.emissiveTexture.texture);
+    return output;
+}
+
+[[nodiscard]] bool materialSlotOverrideFromJson(
+    const nlohmann::json& json,
+    MaterialSlotOverride& output,
+    std::string* errorMessage)
+{
+    if (!json.is_object()) {
+        setError(errorMessage, "Scene material override slot must be an object");
+        return false;
+    }
+    output.slotIndex = json.value("slotIndex", std::uint32_t {0});
+    output.sourceMaterialIndex = std::nullopt;
+    if (json.contains("sourceMaterialIndex")) {
+        output.sourceMaterialIndex = json.at("sourceMaterialIndex").get<std::uint32_t>();
+    }
+    output.overrideEnabled = json.value("overrideEnabled", true);
+    if (json.contains("tiling") && !vec2FromJson(json.at("tiling"), output.tiling)) {
+        setError(errorMessage, "Scene material override tiling is invalid");
+        return false;
+    }
+    if (json.contains("offset") && !vec2FromJson(json.at("offset"), output.offset)) {
+        setError(errorMessage, "Scene material override offset is invalid");
+        return false;
+    }
+    if (!readOptionalReference(json, "material", output.material, errorMessage)
+        || !readOptionalReference(json, "baseColorTexture", output.baseColorTexture.texture, errorMessage)
+        || !readOptionalReference(json, "normalTexture", output.normalTexture.texture, errorMessage)
+        || !readOptionalReference(json, "metallicRoughnessTexture", output.metallicRoughnessTexture.texture, errorMessage)
+        || !readOptionalReference(json, "emissiveTexture", output.emissiveTexture.texture, errorMessage)) {
+        return false;
+    }
+    return output.tiling[0] > 0.0F && output.tiling[1] > 0.0F;
+}
+
 [[nodiscard]] nlohmann::json rangeToJson(const std::array<float, 2>& value)
 {
     return nlohmann::json::array({value[0], value[1]});
@@ -362,6 +478,15 @@ std::string Scene::serialize(std::string* errorMessage) const
                 if (entity.meshRenderer->editorInstanceIndex.has_value()) {
                     item["meshRenderer"]["editorInstanceIndex"] = *entity.meshRenderer->editorInstanceIndex;
                 }
+            }
+            if (entity.materialOverrides.has_value() && !entity.materialOverrides->slots.empty()) {
+                nlohmann::json slots = nlohmann::json::array();
+                for (const auto& slot : entity.materialOverrides->slots) {
+                    slots.push_back(materialSlotOverrideToJson(slot));
+                }
+                item["materialOverrides"] = {
+                    {"slots", std::move(slots)},
+                };
             }
             if (entity.light.has_value()) {
                 item["light"] = {
@@ -537,6 +662,23 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     }
                 }
                 entity.meshRenderer = meshRenderer;
+            }
+
+            if (item.contains("materialOverrides")) {
+                const auto& overridesJson = item.at("materialOverrides");
+                if (!overridesJson.is_object() || !overridesJson.contains("slots") || !overridesJson.at("slots").is_array()) {
+                    setError(errorMessage, "Scene material overrides must contain a slots array");
+                    return false;
+                }
+                MaterialOverrideComponent overrides;
+                for (const auto& slotJson : overridesJson.at("slots")) {
+                    MaterialSlotOverride slot;
+                    if (!materialSlotOverrideFromJson(slotJson, slot, errorMessage)) {
+                        return false;
+                    }
+                    overrides.slots.push_back(std::move(slot));
+                }
+                entity.materialOverrides = std::move(overrides);
             }
 
             if (item.contains("light")) {
@@ -743,6 +885,7 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
             for (const auto& entry : entity.componentOrder) {
                 const bool present = entry.type == ComponentType::Transform
                     || (entry.type == ComponentType::MeshRenderer && entity.meshRenderer.has_value())
+                    || (entry.type == ComponentType::MaterialOverrides && entity.materialOverrides.has_value())
                     || (entry.type == ComponentType::Light && entity.light.has_value())
                     || (entry.type == ComponentType::Camera && entity.camera.has_value())
                     || (entry.type == ComponentType::Script && findScript(entity, entry.scriptInstanceId) != nullptr)

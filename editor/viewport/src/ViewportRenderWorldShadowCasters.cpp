@@ -153,6 +153,7 @@ void ViewportRenderWorld::collectShadowCasters(
     const renderer::RenderLight* shadowLight,
     const ViewportRenderWorldCamera& camera,
     int viewportHeight,
+    const ViewportAssetLodSettings& lodSettings,
     scene::EntityId selectedEntityId,
     std::vector<renderer::RenderMeshDraw>& shadowMeshDraws,
     ViewportRenderWorldStats& stats) const
@@ -161,7 +162,6 @@ void ViewportRenderWorld::collectShadowCasters(
     if (!shadowSelection.enabled) {
         return;
     }
-    const auto lodSettings = viewportAssetLodSettingsFromEnvironment();
     for (const auto* record : orderedRecords_) {
         if (record == nullptr) {
             continue;

@@ -205,6 +205,60 @@ renderer::RenderShadowUpdateMode ViewportWidget::shadowUpdateMode() const noexce
     return shadowUpdateMode_;
 }
 
+void ViewportWidget::setVSyncEnabled(bool enabled)
+{
+    if (vSyncEnabled_ == enabled) {
+        return;
+    }
+    vSyncEnabled_ = enabled;
+    if (renderer_ != nullptr && rendererSurfaceHandle_ != nullptr) {
+        renderer_->releaseSurface(rendererSurfaceHandle_);
+    }
+    rendererSurfaceHandle_ = nullptr;
+    rendererSurfaceWidth_ = 0;
+    rendererSurfaceHeight_ = 0;
+    rendererSurfaceAttempted_ = false;
+    rendererSurfaceReady_ = false;
+    rendererSurfaceResizePending_ = false;
+    hasLastRendererFrameTime_ = false;
+    update();
+}
+
+bool ViewportWidget::vSyncEnabled() const noexcept
+{
+    return vSyncEnabled_;
+}
+
+void ViewportWidget::setFrameRateLimitFps(int fps)
+{
+    const auto clamped = std::clamp(fps, 0, 1000);
+    if (frameRateLimitFps_ == clamped) {
+        return;
+    }
+    frameRateLimitFps_ = clamped;
+    hasLastRendererFrameTime_ = false;
+    if (frameRateLimitTimer_ != nullptr) {
+        frameRateLimitTimer_->stop();
+    }
+    update();
+}
+
+int ViewportWidget::frameRateLimitFps() const noexcept
+{
+    return frameRateLimitFps_;
+}
+
+void ViewportWidget::setAssetLodSettings(ViewportAssetLodSettings settings)
+{
+    assetLodSettings_ = sanitizeViewportAssetLodSettings(settings);
+    update();
+}
+
+ViewportAssetLodSettings ViewportWidget::assetLodSettings() const noexcept
+{
+    return assetLodSettings_;
+}
+
 void ViewportWidget::setEditorSunLight(renderer::RenderLight light)
 {
     light.type = renderer::RenderLightType::Directional;
@@ -240,7 +294,7 @@ bool ViewportWidget::ensureRendererSurface()
     desc.nativeWindowHandle = handle;
     desc.width = static_cast<std::uint32_t>(currentWidth);
     desc.height = static_cast<std::uint32_t>(currentHeight);
-    desc.vsync = true;
+    desc.vsync = vSyncEnabled_;
     std::string error;
     rendererSurfaceReady_ = renderer_->prepareSurface(desc, &error);
     if (!rendererSurfaceReady_) {
@@ -255,6 +309,19 @@ bool ViewportWidget::ensureRendererSurface()
 bool ViewportWidget::renderRendererFrame()
 {
     gpuMeshFrameRendered_ = false;
+    if (frameRateLimitFps_ > 0 && hasLastRendererFrameTime_) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto targetUs = 1'000'000 / std::max(frameRateLimitFps_, 1);
+        const auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            now - lastRendererFrameTime_).count();
+        if (elapsedUs < targetUs) {
+            if (frameRateLimitTimer_ != nullptr && !frameRateLimitTimer_->isActive()) {
+                const auto waitMs = static_cast<int>(std::max<std::int64_t>(1, (targetUs - elapsedUs + 999) / 1000));
+                frameRateLimitTimer_->start(waitMs);
+            }
+            return true;
+        }
+    }
     if (!ensureRendererSurface() || renderer_ == nullptr || rendererSurfaceHandle_ == nullptr) {
         return false;
     }
@@ -262,7 +329,7 @@ bool ViewportWidget::renderRendererFrame()
     desc.nativeWindowHandle = rendererSurfaceHandle_;
     desc.width = static_cast<std::uint32_t>(rendererSurfaceWidth_);
     desc.height = static_cast<std::uint32_t>(rendererSurfaceHeight_);
-    desc.vsync = true;
+    desc.vsync = vSyncEnabled_;
     renderer::RenderFrame frame;
     const auto editorBuildStart = std::chrono::steady_clock::now();
     frame.clearColor.red = mode_ == ViewportMode::Scene ? 0.12F : 0.02F;
@@ -393,6 +460,7 @@ bool ViewportWidget::renderRendererFrame()
             renderWorldCamera,
             viewProjection,
             height(),
+            assetLodSettings_,
             runtimeSnapshot,
             rendererMeshDraws_,
             rendererLights_);
@@ -541,6 +609,7 @@ bool ViewportWidget::renderRendererFrame()
                 shadowLight,
                 {cameraFrame.eye, cameraFrame.right, cameraFrame.up, cameraFrame.forward, cameraFrame.verticalFovRadians, cameraFrame.aspectRatio, cameraFrame.nearPlane, cameraFrame.farPlane},
                 height(),
+                assetLodSettings_,
                 (mode_ == ViewportMode::Game && gameRuntimeSnapshotEnabled_) ? scene::EntityId {} : selectedEntityId_,
                 rendererShadowMeshDraws_,
                 shadowStats);
@@ -781,6 +850,8 @@ bool ViewportWidget::renderRendererFrame()
     }
     std::string error;
     if (renderer_->renderSurfaceFrame(desc, frame, &error)) {
+        lastRendererFrameTime_ = std::chrono::steady_clock::now();
+        hasLastRendererFrameTime_ = true;
         lastRendererStats_ = renderer_->stats();
         gpuMeshFrameRendered_ = !rendererMeshDraws_.empty();
         return true;

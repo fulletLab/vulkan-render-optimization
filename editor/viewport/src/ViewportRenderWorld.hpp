@@ -115,6 +115,7 @@ public:
         const ViewportRenderWorldCamera& camera,
         const renderer::RenderMatrix4& viewProjection,
         int viewportHeight,
+        const ViewportAssetLodSettings& lodSettings,
         bool runtimeSnapshot,
         std::vector<renderer::RenderMeshDraw>& meshDraws,
         std::vector<renderer::RenderLight>& lights);
@@ -124,6 +125,7 @@ public:
         const renderer::RenderLight* shadowLight,
         const ViewportRenderWorldCamera& camera,
         int viewportHeight,
+        const ViewportAssetLodSettings& lodSettings,
         scene::EntityId selectedEntityId,
         std::vector<renderer::RenderMeshDraw>& shadowMeshDraws,
         ViewportRenderWorldStats& stats) const;

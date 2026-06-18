@@ -12,6 +12,7 @@ namespace projectunity::renderer {
 struct VulkanTextureSamplerCapabilities {
     bool samplerAnisotropyEnabled {false};
     float maxSamplerAnisotropy {1.0F};
+    float mipLodBias {0.0F};
 };
 
 struct VulkanTextureSamplerState {
@@ -66,7 +67,7 @@ struct VulkanTextureSamplerState {
     state.addressModeU = vulkanTextureAddressMode(sampler.wrapU);
     state.addressModeV = vulkanTextureAddressMode(sampler.wrapV);
     state.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    state.mipLodBias = 0.0F;
+    state.mipLodBias = std::clamp(capabilities.mipLodBias, -1.0F, 1.0F);
     state.minLod = 0.0F;
     state.maxLod = sampler.useMipmaps ? static_cast<float>(mipLevels - 1U) : 0.0F;
 

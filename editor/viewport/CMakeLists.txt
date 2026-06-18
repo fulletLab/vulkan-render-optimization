@@ -58,6 +58,7 @@ add_library(projectunity_editor_viewport STATIC
     src/ViewportWidgetSelfTest.cpp
     include/projectunity/editor/IEditorDebugDrawBackend.hpp
     include/projectunity/editor/IEditorGizmoBackend.hpp
+    include/projectunity/editor/ViewportQualitySettings.hpp
     include/projectunity/editor/ViewportWidget.hpp
 )
 

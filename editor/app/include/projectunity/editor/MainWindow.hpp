@@ -21,6 +21,7 @@ class QActionGroup;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -123,6 +124,13 @@ private:
     void addEntityToHierarchy(QTreeWidgetItem* parentItem, projectunity::scene::EntityId id);
     void updateInspector();
     void applyInspectorToSelection();
+    void applyMaterialOverrideDrop(
+        int row,
+        int column,
+        projectunity::assets::AssetId assetId,
+        int browserKind,
+        std::optional<std::uint32_t> subAssetIndex);
+    void resetSelectedMaterialOverride();
     void refreshViewports();
 
     [[nodiscard]] ads::CDockWidget* createDockWidget(const QString& title, QWidget* content);
@@ -171,6 +179,7 @@ private:
     QTreeWidget* hierarchyTree_ {nullptr};
     QLineEdit* sceneNameEdit_ {nullptr};
     QLineEdit* entityNameEdit_ {nullptr};
+    QGroupBox* transformSection_ {nullptr};
     QDoubleSpinBox* positionX_ {nullptr};
     QDoubleSpinBox* positionY_ {nullptr};
     QDoubleSpinBox* positionZ_ {nullptr};
@@ -180,19 +189,31 @@ private:
     QDoubleSpinBox* scaleX_ {nullptr};
     QDoubleSpinBox* scaleY_ {nullptr};
     QDoubleSpinBox* scaleZ_ {nullptr};
+    QGroupBox* componentSection_ {nullptr};
     QLabel* componentSummary_ {nullptr};
+    QGroupBox* materialOverrideSection_ {nullptr};
+    QTableWidget* materialSlotsTable_ {nullptr};
+    QLabel* materialOverrideStatus_ {nullptr};
+    QPushButton* resetMaterialOverrideButton_ {nullptr};
+    QGroupBox* terrainQuickSection_ {nullptr};
+    QLabel* terrainQuickStatus_ {nullptr};
+    QPushButton* terrainEditSelectionButton_ {nullptr};
+    QGroupBox* scriptSection_ {nullptr};
     QComboBox* scriptComponentCombo_ {nullptr};
     QComboBox* scriptAssetCombo_ {nullptr};
     QCheckBox* scriptEnabledCheck_ {nullptr};
     QTableWidget* scriptFieldsTable_ {nullptr};
     QLabel* scriptStatusLabel_ {nullptr};
+    QPushButton* addScriptButton_ {nullptr};
     QPushButton* removeScriptButton_ {nullptr};
+    QGroupBox* rigidbodySection_ {nullptr};
     QCheckBox* rigidbodyEnabledCheck_ {nullptr};
     QComboBox* rigidbodyBodyTypeCombo_ {nullptr};
     QDoubleSpinBox* rigidbodyMass_ {nullptr};
     QCheckBox* rigidbodyGravityCheck_ {nullptr};
     QDoubleSpinBox* rigidbodyLinearDrag_ {nullptr};
     QDoubleSpinBox* rigidbodyAngularDrag_ {nullptr};
+    QGroupBox* colliderSection_ {nullptr};
     QCheckBox* colliderEnabledCheck_ {nullptr};
     QComboBox* colliderShapeCombo_ {nullptr};
     QDoubleSpinBox* colliderSizeX_ {nullptr};
@@ -204,6 +225,8 @@ private:
     QDoubleSpinBox* colliderRadius_ {nullptr};
     QDoubleSpinBox* colliderHeight_ {nullptr};
     QCheckBox* colliderTriggerCheck_ {nullptr};
+    QLabel* physicsStatusLabel_ {nullptr};
+    QPushButton* showCollidersButton_ {nullptr};
     QPushButton* deleteEntityButton_ {nullptr};
     QPushButton* duplicateEntityButton_ {nullptr};
     QPushButton* addComponentButton_ {nullptr};

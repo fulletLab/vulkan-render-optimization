@@ -44,6 +44,57 @@ struct MeshRendererComponent {
     RuntimeCookComponent runtimeCook;
 };
 
+struct AssetSlotReference {
+    core::StableId assetId;
+    std::optional<std::uint32_t> subAssetIndex;
+
+    [[nodiscard]] bool isValid() const noexcept
+    {
+        return assetId.isValid();
+    }
+
+    [[nodiscard]] bool operator==(const AssetSlotReference&) const noexcept = default;
+};
+
+struct TextureOverride {
+    AssetSlotReference texture;
+
+    [[nodiscard]] bool enabled() const noexcept
+    {
+        return texture.isValid();
+    }
+
+    [[nodiscard]] bool operator==(const TextureOverride&) const noexcept = default;
+};
+
+struct MaterialSlotOverride {
+    std::uint32_t slotIndex {0};
+    std::optional<std::uint32_t> sourceMaterialIndex;
+    AssetSlotReference material;
+    TextureOverride baseColorTexture;
+    TextureOverride normalTexture;
+    TextureOverride metallicRoughnessTexture;
+    TextureOverride emissiveTexture;
+    std::array<float, 2> tiling {1.0F, 1.0F};
+    std::array<float, 2> offset {0.0F, 0.0F};
+    bool overrideEnabled {true};
+
+    [[nodiscard]] bool hasAnyOverride() const noexcept
+    {
+        return material.isValid()
+            || baseColorTexture.enabled()
+            || normalTexture.enabled()
+            || metallicRoughnessTexture.enabled()
+            || emissiveTexture.enabled()
+            || tiling != std::array<float, 2> {1.0F, 1.0F}
+            || offset != std::array<float, 2> {0.0F, 0.0F};
+    }
+};
+
+struct MaterialOverrideComponent {
+    std::vector<MaterialSlotOverride> slots;
+};
+
 enum class LightComponentType : std::uint8_t {
     Directional,
     Point,
@@ -99,6 +150,7 @@ void setScriptFieldValue(ScriptComponent& component, std::string name, float val
 enum class ComponentType : std::uint8_t {
     Transform,
     MeshRenderer,
+    MaterialOverrides,
     Light,
     Camera,
     Script,
@@ -155,6 +207,7 @@ struct Entity {
     std::string name;
     TransformComponent transform;
     std::optional<MeshRendererComponent> meshRenderer;
+    std::optional<MaterialOverrideComponent> materialOverrides;
     std::optional<LightComponent> light;
     std::optional<CameraComponent> camera;
     std::vector<ScriptComponent> scripts;
@@ -186,6 +239,7 @@ public:
     [[nodiscard]] bool setName(EntityId id, std::string name);
     [[nodiscard]] bool setTransform(EntityId id, const TransformComponent& transform);
     [[nodiscard]] bool setMeshRenderer(EntityId id, std::optional<MeshRendererComponent> component);
+    [[nodiscard]] bool setMaterialOverrides(EntityId id, std::optional<MaterialOverrideComponent> component);
     [[nodiscard]] bool setLight(EntityId id, std::optional<LightComponent> component);
     [[nodiscard]] bool setCamera(EntityId id, std::optional<CameraComponent> component);
     [[nodiscard]] std::optional<ScriptInstanceId> addScript(EntityId id, ScriptComponent component);

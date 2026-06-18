@@ -31,6 +31,28 @@ enum class RenderTextureQuality : std::uint8_t {
     Ultra,
 };
 
+enum class RenderFramePath : std::uint8_t {
+    SceneView,
+    GameView,
+    GameRuntime,
+};
+
+enum class RenderTextureDebugAnisotropyOverride : std::uint8_t {
+    Automatic,
+    ForceOff,
+    ForceOn,
+};
+
+struct RenderTextureDebugSettings {
+    bool forceMaxLodZero {false};
+    RenderTextureDebugAnisotropyOverride anisotropyOverride {RenderTextureDebugAnisotropyOverride::Automatic};
+    bool overrideMipLodBias {false};
+    float mipLodBias {0.0F};
+    std::uint64_t revision {0};
+
+    [[nodiscard]] bool operator==(const RenderTextureDebugSettings&) const noexcept = default;
+};
+
 [[nodiscard]] inline const char* renderTextureQualityName(RenderTextureQuality quality) noexcept
 {
     switch (quality) {
@@ -58,6 +80,8 @@ struct RendererConfig {
     bool enableValidation {true};
     bool enableRenderDocMarkers {true};
     RenderTextureQuality textureQuality {RenderTextureQuality::High};
+    float requestedMaxSamplerAnisotropy {0.0F};
+    float textureMipLodBias {0.0F};
 };
 
 constexpr std::uint32_t kRenderOverviewPrimitiveIndexBase = 0x80000000U;
@@ -256,6 +280,10 @@ struct RendererStats {
     std::uint64_t textureSamplerCreateCount {0};
     std::uint64_t anisotropicTextureSamplerCount {0};
     std::uint64_t trilinearTextureSamplerCount {0};
+    std::string lastFrameRenderPath;
+    std::string lastFrameSamplerDebugLine;
+    std::string lastFrameRuntimeSamplerDebugLine;
+    std::string lastFrameTextureDebugLine;
     std::string lastTextureSamplerName;
     std::string lastTextureSamplerRole;
     std::uint32_t lastTextureSamplerWidth {0};
@@ -357,6 +385,8 @@ struct RenderMeshDraw {
     float projectedLodErrorPixels {0.0F};
     RenderLodSelectionReason lodSelectionReason {RenderLodSelectionReason::Unspecified};
     bool lodHysteresisActive {false};
+    std::uint32_t materialIndex {UINT32_MAX};
+    bool generatedTerrainModel {false};
 };
 
 struct RenderColorVertex {
@@ -371,6 +401,8 @@ struct RenderColorMeshDraw {
 };
 
 struct RenderFrame {
+    RenderFramePath renderPath {RenderFramePath::SceneView};
+    RenderTextureDebugSettings textureDebug;
     RenderClearColor clearColor;
     RenderMatrix4 viewProjection;
     RenderMatrix4 shadowViewProjection;

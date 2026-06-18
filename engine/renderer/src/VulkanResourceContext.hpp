@@ -17,6 +17,7 @@ struct VulkanResourceContext {
     bool geometryShaderSupported {false};
     bool samplerAnisotropyEnabled {false};
     float maxSamplerAnisotropy {1.0F};
+    float textureMipLodBias {0.0F};
 };
 
 } // namespace projectunity::renderer

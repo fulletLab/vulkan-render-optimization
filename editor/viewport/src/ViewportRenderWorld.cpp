@@ -477,6 +477,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     const ViewportRenderWorldCamera& camera,
     const renderer::RenderMatrix4& viewProjection,
     int viewportHeight,
+    const ViewportAssetLodSettings& lodSettings,
     bool runtimeSnapshot,
     std::vector<renderer::RenderMeshDraw>& meshDraws,
     std::vector<renderer::RenderLight>& lights)
@@ -492,7 +493,6 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         assetManager_ = assetManager;
         return result;
     }
-    const auto lodSettings = viewportAssetLodSettingsFromEnvironment();
     result.stats.sceneNodeCount = scene->entityCount();
     const ViewportSceneEntityLookup entityLookup(*scene);
     bool recordsChanged = false;

@@ -33,6 +33,7 @@ struct VulkanViewportContext {
     bool geometryShaderSupported {false};
     bool samplerAnisotropyEnabled {false};
     float maxSamplerAnisotropy {1.0F};
+    float textureMipLodBias {0.0F};
 
     [[nodiscard]] VulkanResourceContext resources() const noexcept
     {
@@ -45,6 +46,7 @@ struct VulkanViewportContext {
             geometryShaderSupported,
             samplerAnisotropyEnabled,
             maxSamplerAnisotropy,
+            textureMipLodBias,
         };
     }
 };

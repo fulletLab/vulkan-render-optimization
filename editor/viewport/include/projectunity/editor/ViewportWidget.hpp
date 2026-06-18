@@ -4,6 +4,7 @@
 #include <projectunity/debug/DebugDraw.hpp>
 #include <projectunity/editor/IEditorDebugDrawBackend.hpp>
 #include <projectunity/editor/IEditorGizmoBackend.hpp>
+#include <projectunity/editor/ViewportQualitySettings.hpp>
 #include <projectunity/math/Vec3.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <projectunity/renderer/RendererTypes.hpp>
@@ -11,6 +12,7 @@
 #include <projectunity/scripting/InputState.hpp>
 
 #include <array>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -101,6 +103,12 @@ public:
     void setEditorSunLight(renderer::RenderLight light);
     void setShadowUpdateMode(renderer::RenderShadowUpdateMode mode);
     [[nodiscard]] renderer::RenderShadowUpdateMode shadowUpdateMode() const noexcept;
+    void setVSyncEnabled(bool enabled);
+    [[nodiscard]] bool vSyncEnabled() const noexcept;
+    void setFrameRateLimitFps(int fps);
+    [[nodiscard]] int frameRateLimitFps() const noexcept;
+    void setAssetLodSettings(ViewportAssetLodSettings settings);
+    [[nodiscard]] ViewportAssetLodSettings assetLodSettings() const noexcept;
     void setScene(scene::Scene* scene);
     void setSelectedEntity(scene::EntityId id);
     void setSelectionCallback(std::function<void(scene::EntityId)> callback);
@@ -255,6 +263,12 @@ private:
     bool rendererSurfaceReady_ {false};
     bool rendererSurfaceResizePending_ {false};
     QTimer* rendererSurfaceResizeTimer_ {nullptr};
+    QTimer* frameRateLimitTimer_ {nullptr};
+    std::chrono::steady_clock::time_point lastRendererFrameTime_ {};
+    bool hasLastRendererFrameTime_ {false};
+    bool vSyncEnabled_ {true};
+    int frameRateLimitFps_ {0};
+    ViewportAssetLodSettings assetLodSettings_ {viewportAssetLodSettingsFromEnvironment()};
     bool gpuMeshFrameRendered_ {false};
     bool meshWireOverlayEnabled_ {false};
     bool assetXrayDebugEnabled_ {false};

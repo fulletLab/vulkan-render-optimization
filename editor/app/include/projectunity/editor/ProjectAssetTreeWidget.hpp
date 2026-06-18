@@ -6,6 +6,8 @@ namespace projectunity::editor {
 
 inline constexpr auto kProjectUnityAssetIdMime = "application/x-projectunity-asset-id";
 inline constexpr auto kProjectUnityAssetPathMime = "application/x-projectunity-asset-path";
+inline constexpr auto kProjectUnityAssetKindMime = "application/x-projectunity-asset-kind";
+inline constexpr auto kProjectUnitySubAssetIndexMime = "application/x-projectunity-sub-asset-index";
 
 class ProjectAssetTreeWidget final : public QTreeWidget {
 public:

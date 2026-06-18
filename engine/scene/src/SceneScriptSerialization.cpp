@@ -12,6 +12,7 @@ namespace {
     switch (type) {
     case ComponentType::Transform: return "transform";
     case ComponentType::MeshRenderer: return "meshRenderer";
+    case ComponentType::MaterialOverrides: return "materialOverrides";
     case ComponentType::Light: return "light";
     case ComponentType::Camera: return "camera";
     case ComponentType::Script: return "script";
@@ -26,6 +27,7 @@ namespace {
 {
     if (name == "transform") { type = ComponentType::Transform; return true; }
     if (name == "meshRenderer") { type = ComponentType::MeshRenderer; return true; }
+    if (name == "materialOverrides") { type = ComponentType::MaterialOverrides; return true; }
     if (name == "light") { type = ComponentType::Light; return true; }
     if (name == "camera") { type = ComponentType::Camera; return true; }
     if (name == "script") { type = ComponentType::Script; return true; }
