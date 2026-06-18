@@ -248,6 +248,11 @@ void SceneHierarchyWidget::setAssetDropCallback(
     assetDropCallback_ = std::move(callback);
 }
 
+void SceneHierarchyWidget::setHierarchyChangedCallback(std::function<void(scene::EntityId)> callback)
+{
+    hierarchyChangedCallback_ = std::move(callback);
+}
+
 void SceneHierarchyWidget::rebuild(scene::EntityId selectedEntityId)
 {
     const QSignalBlocker blocker(this);
@@ -450,6 +455,9 @@ scene::EntityId SceneHierarchyWidget::materializeNode(QTreeWidgetItem& item)
             + " ownerObjectId=" + std::to_string(ownerId.value())
             + " assetId=" + std::to_string(assetId.value())
             + " nodeIndex=" + std::to_string(index));
+    if (hierarchyChangedCallback_) {
+        hierarchyChangedCallback_(proxyId);
+    }
     return proxyId;
 }
 

@@ -42,6 +42,10 @@
 #include <QVBoxLayout>
 #include <QVariant>
 
+#ifdef slots
+#undef slots
+#endif
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -1091,6 +1095,129 @@ void MainWindow::applyInspectorToSelection()
         rebuildHierarchy();
     }
     refreshViewports();
+}
+
+void MainWindow::applyMaterialOverrideDrop(
+    int row,
+    int column,
+    assets::AssetId assetId,
+    int browserKind,
+    std::optional<std::uint32_t> subAssetIndex)
+{
+    if (materialSlotsTable_ == nullptr || row < 0 || column < 0 || !assetId.isValid()) {
+        return;
+    }
+
+    auto* slotItem = materialSlotsTable_->item(row, kMaterialSlotColumn);
+    if (slotItem == nullptr) {
+        if (materialOverrideStatus_ != nullptr) {
+            materialOverrideStatus_->setText(QStringLiteral("Selecciona un slot de material valido."));
+        }
+        return;
+    }
+
+    bool ok = false;
+    const auto slotIndex = slotItem->data(kMaterialSlotIndexRole).toUInt(&ok);
+    if (!ok) {
+        if (materialOverrideStatus_ != nullptr) {
+            materialOverrideStatus_->setText(QStringLiteral("El slot seleccionado no tiene indice valido."));
+        }
+        return;
+    }
+
+    std::optional<std::uint32_t> sourceMaterialIndex;
+    const auto sourceData = slotItem->data(kMaterialSourceIndexRole);
+    if (sourceData.isValid()) {
+        bool sourceOk = false;
+        const auto value = sourceData.toUInt(&sourceOk);
+        if (sourceOk) {
+            sourceMaterialIndex = value;
+        }
+    }
+
+    auto* entity = selectedEntityId_.isValid() ? scene_.findEntity(selectedEntityId_) : nullptr;
+    if (entity == nullptr || !entity->meshRenderer.has_value()) {
+        return;
+    }
+
+    auto overrides = entity->materialOverrides.value_or(scene::MaterialOverrideComponent {});
+    auto& slot = ensureMaterialSlotOverride(overrides, slotIndex, sourceMaterialIndex);
+    const scene::AssetSlotReference reference {assetId, subAssetIndex};
+    const auto kind = static_cast<ProjectBrowserItemKind>(browserKind);
+
+    bool applied = false;
+    if (kind == ProjectBrowserItemKind::Material && column == kMaterialNameColumn) {
+        slot.material = reference;
+        applied = true;
+    } else if (kind == ProjectBrowserItemKind::Texture) {
+        switch (column) {
+        case kBaseColorColumn:
+            slot.baseColorTexture.texture = reference;
+            applied = true;
+            break;
+        case kNormalColumn:
+            slot.normalTexture.texture = reference;
+            applied = true;
+            break;
+        case kMetallicRoughnessColumn:
+            slot.metallicRoughnessTexture.texture = reference;
+            applied = true;
+            break;
+        case kEmissiveColumn:
+            slot.emissiveTexture.texture = reference;
+            applied = true;
+            break;
+        default:
+            break;
+        }
+    }
+
+    if (!applied) {
+        if (materialOverrideStatus_ != nullptr) {
+            materialOverrideStatus_->setText(QStringLiteral("Arrastra materiales a Material actual o texturas a sus columnas."));
+        }
+        return;
+    }
+
+    slot.overrideEnabled = true;
+    (void)scene_.setMaterialOverrides(selectedEntityId_, std::move(overrides));
+    updateInspector();
+    refreshViewports();
+    statusBar()->showMessage(QStringLiteral("Material override actualizado"), 2500);
+}
+
+void MainWindow::resetSelectedMaterialOverride()
+{
+    if (materialSlotsTable_ == nullptr || materialSlotsTable_->currentRow() < 0) {
+        return;
+    }
+
+    auto* slotItem = materialSlotsTable_->item(materialSlotsTable_->currentRow(), kMaterialSlotColumn);
+    if (slotItem == nullptr) {
+        return;
+    }
+
+    bool ok = false;
+    const auto slotIndex = slotItem->data(kMaterialSlotIndexRole).toUInt(&ok);
+    if (!ok) {
+        return;
+    }
+
+    auto* entity = selectedEntityId_.isValid() ? scene_.findEntity(selectedEntityId_) : nullptr;
+    if (entity == nullptr || !entity->materialOverrides.has_value()) {
+        return;
+    }
+
+    auto overrides = *entity->materialOverrides;
+    overrides.slots.erase(
+        std::remove_if(overrides.slots.begin(), overrides.slots.end(), [slotIndex](const auto& slot) {
+            return slot.slotIndex == slotIndex;
+        }),
+        overrides.slots.end());
+    (void)scene_.setMaterialOverrides(selectedEntityId_, std::move(overrides));
+    updateInspector();
+    refreshViewports();
+    statusBar()->showMessage(QStringLiteral("Material override reiniciado"), 2500);
 }
 
 void MainWindow::applyLightingSettings()

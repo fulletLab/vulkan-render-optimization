@@ -10,6 +10,7 @@
 #include <projectunity/renderer/IRenderer.hpp>
 #include <projectunity/renderer/RenderShadowSetup.hpp>
 #include <QString>
+#include <QTimer>
 #include <algorithm>
 #include <array>
 #include <chrono>

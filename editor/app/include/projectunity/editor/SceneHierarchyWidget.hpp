@@ -21,6 +21,7 @@ public:
     void setScene(scene::Scene* scene);
     void setAssetManager(const assets::IAssetManager* assetManager);
     void setAssetDropCallback(std::function<void(assets::AssetId, std::filesystem::path)> callback);
+    void setHierarchyChangedCallback(std::function<void(scene::EntityId)> callback);
 
     void rebuild(scene::EntityId selectedEntityId = {});
     [[nodiscard]] scene::EntityId selectedSceneEntity();
@@ -42,6 +43,7 @@ private:
     scene::Scene* scene_ {nullptr};
     const assets::IAssetManager* assetManager_ {nullptr};
     std::function<void(assets::AssetId, std::filesystem::path)> assetDropCallback_;
+    std::function<void(scene::EntityId)> hierarchyChangedCallback_;
 };
 
 } // namespace projectunity::editor
