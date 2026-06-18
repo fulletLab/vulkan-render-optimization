@@ -47,6 +47,9 @@ struct VulkanTextureSamplerDiagnostics {
     float lastMipLodBias {0.0F};
     float lastMinLod {0.0F};
     float lastMaxLod {0.0F};
+    std::uint64_t lastTextureHandleKey {0};
+    std::uint64_t lastSamplerPolicyRevision {0};
+    bool lastSamplerRecreatedAfterSettingsChange {false};
 };
 
 struct VulkanTextureHandle {
@@ -54,6 +57,14 @@ struct VulkanTextureHandle {
     VkImage image {VK_NULL_HANDLE};
     VkImageView view {VK_NULL_HANDLE};
     VkSampler sampler {VK_NULL_HANDLE};
+    std::uint32_t width {0};
+    std::uint32_t height {0};
+    std::uint32_t mipLevels {0};
+    VulkanTextureRole role {VulkanTextureRole::Unknown};
+    VulkanTextureColorSpace colorSpace {VulkanTextureColorSpace::Linear};
+    VulkanTextureSamplerState samplerState;
+    std::uint64_t samplerPolicyRevision {0};
+    bool samplerRecreatedAfterSettingsChange {false};
 };
 
 class VulkanTextureCache final {
@@ -98,6 +109,9 @@ public:
     [[nodiscard]] std::uint64_t estimatedNormalUploadBytes(const assets::TextureAsset* texture) const noexcept;
     [[nodiscard]] std::uint64_t estimatedBrdfLutUploadBytes() const noexcept;
     void clear() noexcept;
+    void invalidateTextureSamplers() noexcept;
+    void recreateSamplersForQualityChange() noexcept;
+    [[nodiscard]] std::uint64_t samplerPolicyRevision() const noexcept;
     [[nodiscard]] std::uint64_t uploadCount() const noexcept;
     [[nodiscard]] std::uint64_t uploadedBytes() const noexcept;
     [[nodiscard]] std::uint64_t textureCount() const noexcept;
@@ -109,6 +123,13 @@ private:
         VulkanTextureColorSpace colorSpace {VulkanTextureColorSpace::Linear};
         assets::TextureGpuFormat gpuFormat {assets::TextureGpuFormat::Rgba8Unorm};
         assets::TextureSamplerAsset sampler;
+        bool samplerAnisotropyEnabled {false};
+        float maxSamplerAnisotropy {1.0F};
+        float mipLodBias {0.0F};
+        bool forceMaxLodZero {false};
+        bool forceAnisotropyOff {false};
+        bool forceAnisotropyOn {false};
+        std::uint64_t samplerPolicyRevision {0};
 
         [[nodiscard]] bool operator==(const TextureKey&) const noexcept = default;
     };
@@ -156,6 +177,12 @@ private:
         std::uint64_t handleKey,
         const RenderCubeMap& cube,
         std::string* errorMessage);
+    [[nodiscard]] static TextureKey textureKeyFor(
+        VulkanResourceContext context,
+        std::uint64_t source,
+        VulkanTextureColorSpace colorSpace,
+        assets::TextureGpuFormat gpuFormat,
+        const assets::TextureSamplerAsset& sampler) noexcept;
     void destroy(TextureResource& texture) noexcept;
     void recordSamplerDiagnostics(
         const assets::TextureAsset* sourceTexture,
@@ -164,7 +191,10 @@ private:
         std::uint32_t height,
         std::uint32_t mipLevels,
         const VulkanTextureSamplerState& samplerState,
-        VulkanTextureColorSpace colorSpace);
+        VulkanTextureColorSpace colorSpace,
+        std::uint64_t handleKey,
+        std::uint64_t samplerPolicyRevision,
+        bool samplerRecreatedAfterSettingsChange);
 
     std::unordered_map<TextureKey, TextureResource, TextureKeyHash> textures_;
     TextureResource irradianceCube_;
@@ -172,6 +202,7 @@ private:
     std::uint64_t irradianceCubeEnvironmentKey_ {0};
     std::uint64_t prefilteredEnvironmentCubeEnvironmentKey_ {0};
     std::uint64_t nextHandleKey_ {1};
+    std::uint64_t samplerPolicyRevision_ {0};
     std::uint64_t uploadCount_ {0};
     std::uint64_t uploadedBytes_ {0};
     VulkanTextureSamplerDiagnostics samplerDiagnostics_;

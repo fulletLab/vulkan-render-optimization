@@ -18,6 +18,10 @@ struct VulkanResourceContext {
     bool samplerAnisotropyEnabled {false};
     float maxSamplerAnisotropy {1.0F};
     float textureMipLodBias {0.0F};
+    bool forceSamplerMaxLodZero {false};
+    bool forceSamplerAnisotropyOff {false};
+    bool forceSamplerAnisotropyOn {false};
+    std::uint64_t samplerPolicyRevision {0};
 };
 
 } // namespace projectunity::renderer

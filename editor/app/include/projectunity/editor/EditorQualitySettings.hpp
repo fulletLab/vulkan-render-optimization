@@ -93,6 +93,10 @@ struct LodSettings {
     int chunkBudget {48};
     int drawPacketBudget {192};
     int shadowCasterBudget {192};
+    bool terrainNearHighQualityEnabled {true};
+    float terrainNearHighQualityRadius {30.0F};
+    bool debugDisableTerrainHlod {false};
+    bool debugDisableTerrainChunkLod {false};
     bool debugColors {false};
     ViewportHlodDebugOverride debugOverride {ViewportHlodDebugOverride::Automatic};
 };
@@ -131,6 +135,11 @@ struct DebugSettings {
     bool shadowCasters {false};
     bool sourceObjects {false};
     bool sunDirection {false};
+    bool textureForceMaxLodZero {false};
+    renderer::RenderTextureDebugAnisotropyOverride textureAnisotropyOverride {
+        renderer::RenderTextureDebugAnisotropyOverride::Automatic};
+    bool textureOverrideMipLodBias {false};
+    float textureDebugMipLodBias {0.0F};
     bool normalsTangents {false};
     bool gpuProfiler {false};
 };

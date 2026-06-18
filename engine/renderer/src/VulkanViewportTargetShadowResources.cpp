@@ -159,6 +159,7 @@ bool VulkanViewportTarget::prepareShadowMeshBatchResources(
     preparedBatches.reserve(shadowMeshBatches_.size());
     std::uint64_t budgetBytes = 0;
     std::uint32_t budgetBatches = 0;
+    const auto resourceContext = context_.resources(frame.textureDebug);
 
     for (auto& batch : shadowMeshBatches_) {
         const auto& draw = *batch.draw;
@@ -175,13 +176,13 @@ bool VulkanViewportTarget::prepareShadowMeshBatchResources(
             budgetBytes = std::max<std::uint64_t>(nextBytes, 1U);
             ++budgetBatches;
         }
-        batch.mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+        batch.mesh = meshCache.ensureUploaded(resourceContext, uploads, meshKey, *draw.primitive, errorMessage);
         if (batch.mesh == nullptr) {
             return false;
         }
         if (needsAlphaShadowDescriptor(draw)) {
             const auto textures = uploadMaterialTextureSet(
-                context_.resources(),
+                resourceContext,
                 uploads,
                 textureCache,
                 draw,
@@ -191,6 +192,8 @@ bool VulkanViewportTarget::prepareShadowMeshBatchResources(
                 return false;
             }
             batch.materialDescriptor = textureDescriptor(
+                frame,
+                draw,
                 *textures.baseColor,
                 *textures.normal,
                 *textures.metallicRoughness,

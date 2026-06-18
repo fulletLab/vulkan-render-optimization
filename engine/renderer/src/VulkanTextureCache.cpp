@@ -164,6 +164,12 @@ std::size_t VulkanTextureCache::TextureKeyHash::operator()(const TextureKey& key
     const auto mix = [&hash](std::size_t value) {
         hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
     };
+    const auto mixFloat = [&mix](float value) {
+        std::uint32_t bits = 0;
+        static_assert(sizeof(bits) == sizeof(value));
+        std::memcpy(&bits, &value, sizeof(value));
+        mix(static_cast<std::size_t>(bits));
+    };
     mix(static_cast<std::size_t>(key.colorSpace));
     mix(static_cast<std::size_t>(key.gpuFormat));
     mix(static_cast<std::size_t>(key.sampler.magnificationFilter));
@@ -172,7 +178,36 @@ std::size_t VulkanTextureCache::TextureKeyHash::operator()(const TextureKey& key
     mix(static_cast<std::size_t>(key.sampler.wrapU));
     mix(static_cast<std::size_t>(key.sampler.wrapV));
     mix(key.sampler.useMipmaps ? 1U : 0U);
+    mix(key.samplerAnisotropyEnabled ? 1U : 0U);
+    mixFloat(key.maxSamplerAnisotropy);
+    mixFloat(key.mipLodBias);
+    mix(key.forceMaxLodZero ? 1U : 0U);
+    mix(key.forceAnisotropyOff ? 1U : 0U);
+    mix(key.forceAnisotropyOn ? 1U : 0U);
+    mix(static_cast<std::size_t>(key.samplerPolicyRevision));
     return hash;
+}
+
+VulkanTextureCache::TextureKey VulkanTextureCache::textureKeyFor(
+    VulkanResourceContext context,
+    std::uint64_t source,
+    VulkanTextureColorSpace colorSpace,
+    assets::TextureGpuFormat gpuFormat,
+    const assets::TextureSamplerAsset& sampler) noexcept
+{
+    TextureKey key;
+    key.source = source;
+    key.colorSpace = colorSpace;
+    key.gpuFormat = gpuFormat;
+    key.sampler = sampler;
+    key.samplerAnisotropyEnabled = context.samplerAnisotropyEnabled;
+    key.maxSamplerAnisotropy = std::max(1.0F, context.maxSamplerAnisotropy);
+    key.mipLodBias = std::clamp(context.textureMipLodBias, -1.0F, 1.0F);
+    key.forceMaxLodZero = context.forceSamplerMaxLodZero;
+    key.forceAnisotropyOff = context.forceSamplerAnisotropyOff;
+    key.forceAnisotropyOn = context.forceSamplerAnisotropyOn;
+    key.samplerPolicyRevision = context.samplerPolicyRevision;
+    return key;
 }
 
 const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
@@ -183,7 +218,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     VulkanTextureRole role)
 {
     if (textureHasGpuMips(texture)) {
-        const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
+        const auto key = textureKeyFor(
+            context,
+            texture->id.value(),
+            VulkanTextureColorSpace::Linear,
+            texture->gpuFormat,
+            texture->sampler);
         if (const auto existing = textures_.find(key); existing != textures_.end()) {
             return &existing->second.handle;
         }
@@ -198,7 +238,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureUploaded(
     if (!textureHasRgba8(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, texture->sampler};
+    const auto key = textureKeyFor(
+        context,
+        texture->id.value(),
+        VulkanTextureColorSpace::Linear,
+        assets::TextureGpuFormat::Rgba8Unorm,
+        texture->sampler);
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -223,7 +268,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
     VulkanTextureRole role)
 {
     if (textureHasGpuMips(texture)) {
-        const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Linear, texture->gpuFormat, texture->sampler};
+        const auto key = textureKeyFor(
+            context,
+            texture->id.value(),
+            VulkanTextureColorSpace::Linear,
+            texture->gpuFormat,
+            texture->sampler);
         if (const auto existing = textures_.find(key); existing != textures_.end()) {
             return &existing->second.handle;
         }
@@ -238,7 +288,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureSrgbUploaded(
     if (!textureHasRgba8(texture)) {
         return ensureWhiteTexture(context, uploads, errorMessage);
     }
-    const TextureKey key {texture->id.value(), VulkanTextureColorSpace::Srgb, assets::TextureGpuFormat::Rgba8Srgb, texture->sampler};
+    const auto key = textureKeyFor(
+        context,
+        texture->id.value(),
+        VulkanTextureColorSpace::Srgb,
+        assets::TextureGpuFormat::Rgba8Srgb,
+        texture->sampler);
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -277,7 +332,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureBrdfLutUploaded(
     sampler.wrapU = assets::TextureWrapMode::ClampToEdge;
     sampler.wrapV = assets::TextureWrapMode::ClampToEdge;
     sampler.useMipmaps = false;
-    const TextureKey key {kBrdfLutTextureKey, VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, sampler};
+    const auto key = textureKeyFor(
+        context,
+        kBrdfLutTextureKey,
+        VulkanTextureColorSpace::Linear,
+        assets::TextureGpuFormat::Rgba8Unorm,
+        sampler);
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -312,12 +372,33 @@ void VulkanTextureCache::clear() noexcept
     samplerDiagnostics_ = {};
 }
 
+void VulkanTextureCache::invalidateTextureSamplers() noexcept
+{
+    clear();
+    ++samplerPolicyRevision_;
+}
+
+void VulkanTextureCache::recreateSamplersForQualityChange() noexcept
+{
+    invalidateTextureSamplers();
+}
+
+std::uint64_t VulkanTextureCache::samplerPolicyRevision() const noexcept
+{
+    return samplerPolicyRevision_;
+}
+
 const VulkanTextureHandle* VulkanTextureCache::ensureWhiteTexture(
     VulkanResourceContext context,
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    const TextureKey key {kWhiteTextureKey, VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, {}};
+    const auto key = textureKeyFor(
+        context,
+        kWhiteTextureKey,
+        VulkanTextureColorSpace::Linear,
+        assets::TextureGpuFormat::Rgba8Unorm,
+        {});
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -340,7 +421,12 @@ const VulkanTextureHandle* VulkanTextureCache::ensureFlatNormalTexture(
     VulkanUploadContext& uploads,
     std::string* errorMessage)
 {
-    const TextureKey key {kFlatNormalTextureKey, VulkanTextureColorSpace::Linear, assets::TextureGpuFormat::Rgba8Unorm, {}};
+    const auto key = textureKeyFor(
+        context,
+        kFlatNormalTextureKey,
+        VulkanTextureColorSpace::Linear,
+        assets::TextureGpuFormat::Rgba8Unorm,
+        {});
     if (const auto existing = textures_.find(key); existing != textures_.end()) {
         return &existing->second.handle;
     }
@@ -593,9 +679,24 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     }
 
     const auto samplerState = buildTextureSamplerState(
-        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy, context.textureMipLodBias},
+        {
+            context.samplerAnisotropyEnabled,
+            context.maxSamplerAnisotropy,
+            context.textureMipLodBias,
+            context.forceSamplerMaxLodZero,
+            context.forceSamplerAnisotropyOff,
+            context.forceSamplerAnisotropyOn,
+        },
         key.sampler,
         mipLevels);
+    next.handle.width = width;
+    next.handle.height = height;
+    next.handle.mipLevels = mipLevels;
+    next.handle.role = role;
+    next.handle.colorSpace = key.colorSpace;
+    next.handle.samplerState = samplerState;
+    next.handle.samplerPolicyRevision = key.samplerPolicyRevision;
+    next.handle.samplerRecreatedAfterSettingsChange = key.samplerPolicyRevision > 0U;
     VkSamplerCreateInfo samplerInfo {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = samplerState.magFilter;
@@ -621,7 +722,17 @@ const VulkanTextureHandle* VulkanTextureCache::uploadTexture(
     if (inserted) {
         ++uploadCount_;
         uploadedBytes_ += static_cast<std::uint64_t>(byteCount);
-        recordSamplerDiagnostics(sourceTexture, role, width, height, mipLevels, samplerState, key.colorSpace);
+        recordSamplerDiagnostics(
+            sourceTexture,
+            role,
+            width,
+            height,
+            mipLevels,
+            samplerState,
+            key.colorSpace,
+            it->second.handle.key,
+            key.samplerPolicyRevision,
+            key.samplerPolicyRevision > 0U);
     }
     return inserted ? &it->second.handle : nullptr;
 }
@@ -762,9 +873,24 @@ const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
     }
 
     const auto samplerState = buildTextureSamplerState(
-        {context.samplerAnisotropyEnabled, context.maxSamplerAnisotropy, context.textureMipLodBias},
+        {
+            context.samplerAnisotropyEnabled,
+            context.maxSamplerAnisotropy,
+            context.textureMipLodBias,
+            context.forceSamplerMaxLodZero,
+            context.forceSamplerAnisotropyOff,
+            context.forceSamplerAnisotropyOn,
+        },
         key.sampler,
         mipLevels);
+    next.handle.width = texture.width;
+    next.handle.height = texture.height;
+    next.handle.mipLevels = mipLevels;
+    next.handle.role = role;
+    next.handle.colorSpace = key.colorSpace;
+    next.handle.samplerState = samplerState;
+    next.handle.samplerPolicyRevision = key.samplerPolicyRevision;
+    next.handle.samplerRecreatedAfterSettingsChange = key.samplerPolicyRevision > 0U;
     VkSamplerCreateInfo samplerInfo {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = samplerState.magFilter;
@@ -790,7 +916,17 @@ const VulkanTextureHandle* VulkanTextureCache::uploadGpuMipTexture(
     if (inserted) {
         ++uploadCount_;
         uploadedBytes_ += static_cast<std::uint64_t>(byteCount);
-        recordSamplerDiagnostics(&texture, role, texture.width, texture.height, mipLevels, samplerState, key.colorSpace);
+        recordSamplerDiagnostics(
+            &texture,
+            role,
+            texture.width,
+            texture.height,
+            mipLevels,
+            samplerState,
+            key.colorSpace,
+            it->second.handle.key,
+            key.samplerPolicyRevision,
+            key.samplerPolicyRevision > 0U);
     }
     return inserted ? &it->second.handle : nullptr;
 }
@@ -822,7 +958,10 @@ void VulkanTextureCache::recordSamplerDiagnostics(
     std::uint32_t height,
     std::uint32_t mipLevels,
     const VulkanTextureSamplerState& samplerState,
-    VulkanTextureColorSpace colorSpace)
+    VulkanTextureColorSpace colorSpace,
+    std::uint64_t handleKey,
+    std::uint64_t samplerPolicyRevision,
+    bool samplerRecreatedAfterSettingsChange)
 {
     ++samplerDiagnostics_.samplerCreateCount;
     if (samplerState.anisotropyEnable == VK_TRUE) {
@@ -846,12 +985,18 @@ void VulkanTextureCache::recordSamplerDiagnostics(
     samplerDiagnostics_.lastMipLodBias = samplerState.mipLodBias;
     samplerDiagnostics_.lastMinLod = samplerState.minLod;
     samplerDiagnostics_.lastMaxLod = samplerState.maxLod;
+    samplerDiagnostics_.lastTextureHandleKey = handleKey;
+    samplerDiagnostics_.lastSamplerPolicyRevision = samplerPolicyRevision;
+    samplerDiagnostics_.lastSamplerRecreatedAfterSettingsChange = samplerRecreatedAfterSettingsChange;
 
     std::ostringstream message;
     message << "Vulkan texture sampler"
             << " role=" << vulkanTextureRoleName(role)
             << " name=" << samplerDiagnostics_.lastTextureName
             << " id=" << (sourceTexture != nullptr ? sourceTexture->id.value() : 0ULL)
+            << " handleKey=" << handleKey
+            << " samplerPolicyRevision=" << samplerPolicyRevision
+            << " samplerRecreatedAfterSettingsChange=" << (samplerRecreatedAfterSettingsChange ? "yes" : "no")
             << " resolution=" << width << "x" << height
             << " mipLevels=" << mipLevels
             << " minFilter=" << filterName(samplerState.minFilter)

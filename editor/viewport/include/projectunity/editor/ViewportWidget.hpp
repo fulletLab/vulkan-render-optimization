@@ -109,6 +109,7 @@ public:
     [[nodiscard]] int frameRateLimitFps() const noexcept;
     void setAssetLodSettings(ViewportAssetLodSettings settings);
     [[nodiscard]] ViewportAssetLodSettings assetLodSettings() const noexcept;
+    void setTextureDebugSettings(renderer::RenderTextureDebugSettings settings);
     void setScene(scene::Scene* scene);
     void setSelectedEntity(scene::EntityId id);
     void setSelectionCallback(std::function<void(scene::EntityId)> callback);
@@ -269,6 +270,7 @@ private:
     bool vSyncEnabled_ {true};
     int frameRateLimitFps_ {0};
     ViewportAssetLodSettings assetLodSettings_ {viewportAssetLodSettingsFromEnvironment()};
+    renderer::RenderTextureDebugSettings textureDebugSettings_;
     bool gpuMeshFrameRendered_ {false};
     bool meshWireOverlayEnabled_ {false};
     bool assetXrayDebugEnabled_ {false};

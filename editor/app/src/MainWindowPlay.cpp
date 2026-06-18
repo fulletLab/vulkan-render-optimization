@@ -651,6 +651,7 @@ void MainWindow::showPlayRuntimeWindow()
     runtimeViewport->setScene(&playRuntimeScene_);
     runtimeViewport->setAssetManager(&assetManager_);
     runtimeViewport->setRenderer(renderer_.get());
+    applyQualitySettingsToViewport(runtimeViewport);
     runtimeViewport->setEnvironmentSettings(environmentSettings_);
     runtimeViewport->setEditorSunLight(editorSunLight_);
     runtimeViewport->setShadowUpdateMode(shadowUpdateMode_);

@@ -296,13 +296,30 @@ struct VulkanRenderer::Impl {
             }
             return false;
         }
+        if (!hasLastAppliedTextureDebug || !(lastAppliedTextureDebug == frame.textureDebug)) {
+            if (hasLastAppliedTextureDebug && device != VK_NULL_HANDLE) {
+                vkDeviceWaitIdle(device);
+                textureCache.recreateSamplersForQualityChange();
+            }
+            lastAppliedTextureDebug = frame.textureDebug;
+            hasLastAppliedTextureDebug = true;
+        }
+        auto frameWithSamplerPolicy = frame;
+        frameWithSamplerPolicy.textureDebug.revision = std::max(
+            frameWithSamplerPolicy.textureDebug.revision,
+            textureCache.samplerPolicyRevision());
         const auto meshUploadsBefore = meshCache.uploadCount();
         const auto textureUploadsBefore = textureCache.uploadCount();
         const auto meshBytesBefore = meshCache.uploadedBytes();
         const auto textureBytesBefore = textureCache.uploadedBytes();
         const auto dynamicColorBytes = colorUploadBytes(frame);
         const auto frameStart = std::chrono::steady_clock::now();
-        const auto rendered = existing->second->renderFrame(frame, *uploads, meshCache, textureCache, errorMessage);
+        const auto rendered = existing->second->renderFrame(
+            frameWithSamplerPolicy,
+            *uploads,
+            meshCache,
+            textureCache,
+            errorMessage);
         const auto frameElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - frameStart).count();
         if (rendered) {
@@ -362,6 +379,10 @@ struct VulkanRenderer::Impl {
             stats.lastFrameRenderWorldRebuiltRecordCount = frame.renderWorldRebuiltRecordCount;
             stats.lastFrameRenderWorldReusedRecordCount = frame.renderWorldReusedRecordCount;
             const auto& profile = existing->second->lastFrameProfile();
+            stats.lastFrameRenderPath = renderFramePathName(frame.renderPath);
+            stats.lastFrameSamplerDebugLine = profile.samplerDebugLine;
+            stats.lastFrameRuntimeSamplerDebugLine = profile.runtimeSamplerDebugLine;
+            stats.lastFrameTextureDebugLine = profile.textureDebugLine;
             stats.lastFrameShadowViewCount = profile.shadowViewCount;
             stats.lastFrameShadowBatchCount = profile.shadowBatchCount;
             stats.lastFrameShadowCulledBatchCount = profile.shadowCulledBatchCount;
@@ -518,7 +539,7 @@ struct VulkanRenderer::Impl {
             geometryShaderSupported,
             samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F,
             activeMaxSamplerAnisotropy,
-            std::clamp(config.textureMipLodBias, -1.0F, 1.0F),
+            std::clamp(config.textureMipLodBias, -1.0F, 1.0F)
         };
     }
 
@@ -534,6 +555,10 @@ struct VulkanRenderer::Impl {
             samplerAnisotropySupported && activeMaxSamplerAnisotropy > 1.0F,
             activeMaxSamplerAnisotropy,
             std::clamp(config.textureMipLodBias, -1.0F, 1.0F),
+            false,
+            false,
+            false,
+            0,
         };
     }
 
@@ -548,6 +573,8 @@ struct VulkanRenderer::Impl {
     VulkanMeshCache meshCache;
     VulkanTextureCache textureCache;
     std::unordered_map<void*, std::unique_ptr<VulkanViewportTarget>> surfaces;
+    RenderTextureDebugSettings lastAppliedTextureDebug;
+    bool hasLastAppliedTextureDebug {false};
     std::uint32_t queueFamilyIndex {0};
     bool validationEnabled {false};
     bool debugMarkersAvailable {false};

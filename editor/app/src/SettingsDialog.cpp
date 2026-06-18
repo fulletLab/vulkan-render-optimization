@@ -509,14 +509,14 @@ QWidget* SettingsDialog::createTexturesPage()
     auto* page = createPageContainer();
     auto* quality = makeCard(
         QStringLiteral("Texturas y filtrado"),
-        QStringLiteral("Anisotropía y mip bias se pasan al VkSampler al iniciar el renderer; samplers existentes requieren recreación futura."));
+        QStringLiteral("Anisotropía y mip bias se pasan al VkSampler; cambiar la política recrea renderer/samplers."));
     auto* grid = cardGrid(quality);
     textureQualityCombo_ = new QComboBox;
     addEnumItem(textureQualityCombo_, QStringLiteral("Bajo"), renderer::RenderTextureQuality::Low);
     addEnumItem(textureQualityCombo_, QStringLiteral("Medio"), renderer::RenderTextureQuality::Medium);
     addEnumItem(textureQualityCombo_, QStringLiteral("Alto"), renderer::RenderTextureQuality::High);
     addEnumItem(textureQualityCombo_, QStringLiteral("Ultra"), renderer::RenderTextureQuality::Ultra);
-    addRow(grid, 0, QStringLiteral("Calidad"), textureQualityCombo_, makePill(QStringLiteral("Reinicio renderer"), QStringLiteral("pending")));
+    addRow(grid, 0, QStringLiteral("Calidad"), textureQualityCombo_, makePill(QStringLiteral("Recrea renderer"), QStringLiteral("ok")));
 
     anisotropyCombo_ = new QComboBox;
     anisotropyCombo_->addItem(QStringLiteral("Off"), 1);
@@ -537,10 +537,10 @@ QWidget* SettingsDialog::createTexturesPage()
     addRow(grid, 3, QStringLiteral("Mipmaps"), disabledPendingControl(new QCheckBox(QStringLiteral("Activados"))), makePill(QStringLiteral("Pendiente"), QStringLiteral("pending")));
     auto* mipBias = sliderWithValue(mipBiasSlider_, mipBiasValue_, -100, 100);
     mipBiasSlider_->setToolTip(QStringLiteral("Valores negativos aumentan nitidez pero pueden causar shimmer."));
-    addRow(grid, 4, QStringLiteral("Bias de mipmap"), mipBias, makePill(QStringLiteral("Reinicio renderer"), QStringLiteral("pending")));
+    addRow(grid, 4, QStringLiteral("Bias de mipmap"), mipBias, makePill(QStringLiteral("Recrea sampler"), QStringLiteral("ok")));
     auto* recreate = new QPushButton(QStringLiteral("Recrear samplers"));
-    disabledPendingControl(recreate, QStringLiteral("Pendiente: falta API segura para recrear samplers cacheados en vivo."));
-    addRow(grid, 5, QStringLiteral("Samplers"), recreate, makePill(QStringLiteral("Pendiente"), QStringLiteral("pending")));
+    (void)disabledPendingControl(recreate, QStringLiteral("Los samplers se recrean al aplicar cambios de política."));
+    addRow(grid, 5, QStringLiteral("Samplers"), recreate, makePill(QStringLiteral("Auto"), QStringLiteral("ok")));
     addCard(page, quality);
 
     auto* diagnostics = makeCard(QStringLiteral("Textura / sampler reciente"));
@@ -671,6 +671,16 @@ QWidget* SettingsDialog::createLodPage()
     hlodOverrideCombo_->addItem(QStringLiteral("Detallado"), static_cast<int>(ViewportHlodDebugOverride::ForceDetailed));
     hlodOverrideCombo_->addItem(QStringLiteral("HLOD forzado"), static_cast<int>(ViewportHlodDebugOverride::ForceHlod));
     addRow(grid, 11, QStringLiteral("Override debug"), hlodOverrideCombo_, makePill(QStringLiteral("Real"), QStringLiteral("ok")));
+    terrainNearHighQualityCheck_ = new QCheckBox(QStringLiteral("Forzar LOD0 cerca del jugador"));
+    addRow(grid, 12, QStringLiteral("Terrain near HQ"), terrainNearHighQualityCheck_, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
+    terrainNearHighQualityRadiusSpin_ = new QSpinBox;
+    terrainNearHighQualityRadiusSpin_->setRange(0, 1000000);
+    terrainNearHighQualityRadiusSpin_->setSuffix(QStringLiteral(" m"));
+    addRow(grid, 13, QStringLiteral("Terrain HQ radius"), terrainNearHighQualityRadiusSpin_, makePill(QStringLiteral("Real"), QStringLiteral("ok")));
+    debugDisableTerrainHlodCheck_ = new QCheckBox(QStringLiteral("No usar HLOD para terrain"));
+    addRow(grid, 14, QStringLiteral("Disable terrain HLOD"), debugDisableTerrainHlodCheck_, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
+    debugDisableTerrainChunkLodCheck_ = new QCheckBox(QStringLiteral("No degradar chunks de terrain"));
+    addRow(grid, 15, QStringLiteral("Disable terrain chunk LOD"), debugDisableTerrainChunkLodCheck_, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
     addCard(page, card);
 
     const auto manualChange = [this]() {
@@ -702,6 +712,10 @@ QWidget* SettingsDialog::createLodPage()
     connect(chunkBudgetSpin_, &QSpinBox::valueChanged, this, manualChange);
     connect(drawPacketBudgetSpin_, &QSpinBox::valueChanged, this, manualChange);
     connect(shadowCasterBudgetSpin_, &QSpinBox::valueChanged, this, manualChange);
+    connect(terrainNearHighQualityCheck_, &QCheckBox::toggled, this, manualChange);
+    connect(terrainNearHighQualityRadiusSpin_, &QSpinBox::valueChanged, this, manualChange);
+    connect(debugDisableTerrainHlodCheck_, &QCheckBox::toggled, this, manualChange);
+    connect(debugDisableTerrainChunkLodCheck_, &QCheckBox::toggled, this, manualChange);
     connect(lodDebugColorsCheck_, &QCheckBox::toggled, this, manualChange);
     connect(hlodOverrideCombo_, &QComboBox::currentIndexChanged, this, manualChange);
     return page;
@@ -746,6 +760,17 @@ QWidget* SettingsDialog::createDebugPage()
     addRow(grid, 9, QStringLiteral("GPU profiler"), disabledPendingControl(new QCheckBox(QStringLiteral("Mostrar"))), makePill(QStringLiteral("Pendiente"), QStringLiteral("pending")));
     auto* snapshot = new QPushButton(QStringLiteral("Exportar snapshot JSON"));
     addRow(grid, 10, QStringLiteral("Snapshot"), disabledPendingControl(snapshot), makePill(QStringLiteral("Pendiente"), QStringLiteral("pending")));
+    textureForceMaxLodZeroCheck_ = new QCheckBox(QStringLiteral("Forzar maxLod = 0"));
+    addRow(grid, 11, QStringLiteral("Texture maxLod0"), textureForceMaxLodZeroCheck_, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
+    textureAnisotropyOverrideCombo_ = new QComboBox;
+    textureAnisotropyOverrideCombo_->addItem(QStringLiteral("Automático"), static_cast<int>(renderer::RenderTextureDebugAnisotropyOverride::Automatic));
+    textureAnisotropyOverrideCombo_->addItem(QStringLiteral("Forzar off"), static_cast<int>(renderer::RenderTextureDebugAnisotropyOverride::ForceOff));
+    textureAnisotropyOverrideCombo_->addItem(QStringLiteral("Forzar on"), static_cast<int>(renderer::RenderTextureDebugAnisotropyOverride::ForceOn));
+    addRow(grid, 12, QStringLiteral("Anisotropía debug"), textureAnisotropyOverrideCombo_, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
+    textureOverrideMipBiasCheck_ = new QCheckBox(QStringLiteral("Usar mip bias debug"));
+    addRow(grid, 13, QStringLiteral("Mip bias override"), textureOverrideMipBiasCheck_, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
+    auto* textureMipBias = sliderWithValue(textureDebugMipBiasSlider_, textureDebugMipBiasValue_, -100, 100);
+    addRow(grid, 14, QStringLiteral("Mip bias debug"), textureMipBias, makePill(QStringLiteral("Debug"), QStringLiteral("ok")));
     addCard(page, card);
 
     const auto manualChange = [this]() {
@@ -759,6 +784,15 @@ QWidget* SettingsDialog::createDebugPage()
     connect(debugShadowCastersCheck_, &QCheckBox::toggled, this, manualChange);
     connect(debugSourceObjectsCheck_, &QCheckBox::toggled, this, manualChange);
     connect(debugSunDirectionCheck_, &QCheckBox::toggled, this, manualChange);
+    connect(textureForceMaxLodZeroCheck_, &QCheckBox::toggled, this, manualChange);
+    connect(textureAnisotropyOverrideCombo_, &QComboBox::currentIndexChanged, this, manualChange);
+    connect(textureOverrideMipBiasCheck_, &QCheckBox::toggled, this, manualChange);
+    connect(textureDebugMipBiasSlider_, &QSlider::valueChanged, this, [this, manualChange](int value) {
+        if (textureDebugMipBiasValue_ != nullptr) {
+            textureDebugMipBiasValue_->setText(QStringLiteral("%1").arg(static_cast<double>(value) / 100.0, 0, 'f', 2));
+        }
+        manualChange();
+    });
     return page;
 }
 
@@ -828,6 +862,18 @@ void SettingsDialog::captureSettingsFromControls()
     if (shadowCasterBudgetSpin_ != nullptr) {
         settings_.lod.shadowCasterBudget = shadowCasterBudgetSpin_->value();
     }
+    if (terrainNearHighQualityCheck_ != nullptr) {
+        settings_.lod.terrainNearHighQualityEnabled = terrainNearHighQualityCheck_->isChecked();
+    }
+    if (terrainNearHighQualityRadiusSpin_ != nullptr) {
+        settings_.lod.terrainNearHighQualityRadius = static_cast<float>(terrainNearHighQualityRadiusSpin_->value());
+    }
+    if (debugDisableTerrainHlodCheck_ != nullptr) {
+        settings_.lod.debugDisableTerrainHlod = debugDisableTerrainHlodCheck_->isChecked();
+    }
+    if (debugDisableTerrainChunkLodCheck_ != nullptr) {
+        settings_.lod.debugDisableTerrainChunkLod = debugDisableTerrainChunkLodCheck_->isChecked();
+    }
     if (lodDebugColorsCheck_ != nullptr) {
         settings_.lod.debugColors = lodDebugColorsCheck_->isChecked();
         settings_.debug.lodColors = settings_.lod.debugColors;
@@ -854,6 +900,19 @@ void SettingsDialog::captureSettingsFromControls()
     }
     if (debugSunDirectionCheck_ != nullptr) {
         settings_.debug.sunDirection = debugSunDirectionCheck_->isChecked();
+    }
+    if (textureForceMaxLodZeroCheck_ != nullptr) {
+        settings_.debug.textureForceMaxLodZero = textureForceMaxLodZeroCheck_->isChecked();
+    }
+    if (textureAnisotropyOverrideCombo_ != nullptr) {
+        settings_.debug.textureAnisotropyOverride = static_cast<renderer::RenderTextureDebugAnisotropyOverride>(
+            comboData(textureAnisotropyOverrideCombo_, static_cast<int>(settings_.debug.textureAnisotropyOverride)));
+    }
+    if (textureOverrideMipBiasCheck_ != nullptr) {
+        settings_.debug.textureOverrideMipLodBias = textureOverrideMipBiasCheck_->isChecked();
+    }
+    if (textureDebugMipBiasSlider_ != nullptr) {
+        settings_.debug.textureDebugMipLodBias = static_cast<float>(textureDebugMipBiasSlider_->value()) / 100.0F;
     }
 }
 
@@ -932,6 +991,21 @@ void SettingsDialog::refreshControls()
     if (shadowCasterBudgetSpin_ != nullptr) {
         shadowCasterBudgetSpin_->setValue(settings_.lod.shadowCasterBudget);
     }
+    if (terrainNearHighQualityCheck_ != nullptr) {
+        terrainNearHighQualityCheck_->setChecked(settings_.lod.terrainNearHighQualityEnabled);
+    }
+    if (terrainNearHighQualityRadiusSpin_ != nullptr) {
+        terrainNearHighQualityRadiusSpin_->setValue(std::clamp(
+            static_cast<int>(settings_.lod.terrainNearHighQualityRadius),
+            0,
+            1000000));
+    }
+    if (debugDisableTerrainHlodCheck_ != nullptr) {
+        debugDisableTerrainHlodCheck_->setChecked(settings_.lod.debugDisableTerrainHlod);
+    }
+    if (debugDisableTerrainChunkLodCheck_ != nullptr) {
+        debugDisableTerrainChunkLodCheck_->setChecked(settings_.lod.debugDisableTerrainChunkLod);
+    }
     if (lodDebugColorsCheck_ != nullptr) {
         lodDebugColorsCheck_->setChecked(settings_.lod.debugColors);
     }
@@ -955,6 +1029,24 @@ void SettingsDialog::refreshControls()
     }
     if (debugSunDirectionCheck_ != nullptr) {
         debugSunDirectionCheck_->setChecked(settings_.debug.sunDirection);
+    }
+    if (textureForceMaxLodZeroCheck_ != nullptr) {
+        textureForceMaxLodZeroCheck_->setChecked(settings_.debug.textureForceMaxLodZero);
+    }
+    if (textureAnisotropyOverrideCombo_ != nullptr) {
+        setComboData(textureAnisotropyOverrideCombo_, static_cast<int>(settings_.debug.textureAnisotropyOverride));
+    }
+    if (textureOverrideMipBiasCheck_ != nullptr) {
+        textureOverrideMipBiasCheck_->setChecked(settings_.debug.textureOverrideMipLodBias);
+    }
+    if (textureDebugMipBiasSlider_ != nullptr) {
+        textureDebugMipBiasSlider_->setValue(static_cast<int>(std::clamp(
+            settings_.debug.textureDebugMipLodBias,
+            -1.0F,
+            1.0F) * 100.0F));
+    }
+    if (textureDebugMipBiasValue_ != nullptr) {
+        textureDebugMipBiasValue_->setText(QStringLiteral("%1").arg(settings_.debug.textureDebugMipLodBias, 0, 'f', 2));
     }
 
     syncingControls_ = false;
@@ -981,7 +1073,7 @@ void SettingsDialog::emitApply()
     captureSettingsFromControls();
     emit settingsApplied(settings_);
     if (footerStatus_ != nullptr) {
-        footerStatus_->setText(QStringLiteral("Ajustes aplicados. Texturas avanzadas se completan al reiniciar el renderer."));
+        footerStatus_->setText(QStringLiteral("Ajustes aplicados. La política de texturas recrea renderer/samplers si cambia."));
     }
 }
 

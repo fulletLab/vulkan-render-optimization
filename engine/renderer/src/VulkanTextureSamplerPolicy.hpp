@@ -13,6 +13,9 @@ struct VulkanTextureSamplerCapabilities {
     bool samplerAnisotropyEnabled {false};
     float maxSamplerAnisotropy {1.0F};
     float mipLodBias {0.0F};
+    bool forceMaxLodZero {false};
+    bool forceAnisotropyOff {false};
+    bool forceAnisotropyOn {false};
 };
 
 struct VulkanTextureSamplerState {
@@ -70,13 +73,17 @@ struct VulkanTextureSamplerState {
     state.mipLodBias = std::clamp(capabilities.mipLodBias, -1.0F, 1.0F);
     state.minLod = 0.0F;
     state.maxLod = sampler.useMipmaps ? static_cast<float>(mipLevels - 1U) : 0.0F;
+    if (capabilities.forceMaxLodZero) {
+        state.maxLod = 0.0F;
+    }
 
-    const auto canUseAnisotropy = capabilities.samplerAnisotropyEnabled
+    const auto canUseAnisotropy = !capabilities.forceAnisotropyOff
+        && capabilities.samplerAnisotropyEnabled
         && capabilities.maxSamplerAnisotropy > 1.0F
         && sampler.useMipmaps
         && mipLevels > 1U
         && state.minFilter == VK_FILTER_LINEAR;
-    if (canUseAnisotropy) {
+    if (canUseAnisotropy && (capabilities.forceAnisotropyOn || state.maxLod > 0.0F)) {
         state.anisotropyEnable = VK_TRUE;
         state.maxAnisotropy = std::max(1.0F, capabilities.maxSamplerAnisotropy);
     }

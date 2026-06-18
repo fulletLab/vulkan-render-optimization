@@ -37,11 +37,32 @@ enum class RenderFramePath : std::uint8_t {
     GameRuntime,
 };
 
+[[nodiscard]] inline const char* renderFramePathName(RenderFramePath path) noexcept
+{
+    switch (path) {
+    case RenderFramePath::SceneView: return "SceneView";
+    case RenderFramePath::GameView: return "GameView";
+    case RenderFramePath::GameRuntime: return "GameRuntime";
+    }
+    return "Unknown";
+}
+
 enum class RenderTextureDebugAnisotropyOverride : std::uint8_t {
     Automatic,
     ForceOff,
     ForceOn,
 };
+
+[[nodiscard]] inline const char* renderTextureDebugAnisotropyOverrideName(
+    RenderTextureDebugAnisotropyOverride value) noexcept
+{
+    switch (value) {
+    case RenderTextureDebugAnisotropyOverride::Automatic: return "automatic";
+    case RenderTextureDebugAnisotropyOverride::ForceOff: return "force-off";
+    case RenderTextureDebugAnisotropyOverride::ForceOn: return "force-on";
+    }
+    return "automatic";
+}
 
 struct RenderTextureDebugSettings {
     bool forceMaxLodZero {false};

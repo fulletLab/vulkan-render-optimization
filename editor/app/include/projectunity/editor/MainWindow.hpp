@@ -2,6 +2,7 @@
 
 #include <projectunity/assets/AssetManager.hpp>
 #include <projectunity/core/Log.hpp>
+#include <projectunity/editor/EditorQualitySettings.hpp>
 #include <projectunity/renderer/RendererTypes.hpp>
 #include <projectunity/scene/Scene.hpp>
 #include <projectunity/scripting/ScriptRuntime.hpp>
@@ -132,6 +133,8 @@ private:
         std::optional<std::uint32_t> subAssetIndex);
     void resetSelectedMaterialOverride();
     void refreshViewports();
+    void applyEditorQualitySettings(EditorQualitySettings settings, bool persist);
+    void applyQualitySettingsToViewport(ViewportWidget* viewport) const;
 
     [[nodiscard]] ads::CDockWidget* createDockWidget(const QString& title, QWidget* content);
     [[nodiscard]] QWidget* createSceneViewPanel();
@@ -298,6 +301,7 @@ private:
     float editorSunAzimuthDegrees_ {38.0F};
     float editorSunElevationDegrees_ {55.0F};
     renderer::RenderShadowUpdateMode shadowUpdateMode_ {renderer::RenderShadowUpdateMode::Off};
+    EditorQualitySettings qualitySettings_;
     std::shared_ptr<const assets::TextureAsset> environmentTexture_;
     assets::AssetId environmentTextureId_;
     scene::EntityId selectedEntityId_;

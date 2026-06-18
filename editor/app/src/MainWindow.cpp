@@ -114,6 +114,52 @@ constexpr int kEntityIdRole = Qt::UserRole + 1;
     return fallback;
 }
 
+[[nodiscard]] std::uint64_t mixQualityHash(std::uint64_t seed, std::uint64_t value) noexcept
+{
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+}
+
+[[nodiscard]] renderer::RendererConfig rendererConfigFromQuality(const EditorQualitySettings& settings)
+{
+    renderer::RendererConfig config;
+    config.applicationName = "ProjectUnity Editor";
+    config.textureQuality = settings.texture.quality;
+    config.requestedMaxSamplerAnisotropy = requestedSamplerAnisotropy(settings);
+    config.textureMipLodBias = std::clamp(settings.texture.mipLodBias, -1.0F, 1.0F);
+    return config;
+}
+
+[[nodiscard]] bool rendererTexturePolicyChanged(
+    const EditorQualitySettings& lhs,
+    const EditorQualitySettings& rhs) noexcept
+{
+    return lhs.texture.quality != rhs.texture.quality
+        || requestedSamplerAnisotropy(lhs) != requestedSamplerAnisotropy(rhs)
+        || std::clamp(lhs.texture.mipLodBias, -1.0F, 1.0F) != std::clamp(rhs.texture.mipLodBias, -1.0F, 1.0F);
+}
+
+[[nodiscard]] renderer::RenderTextureDebugSettings textureDebugSettingsFromQuality(
+    const EditorQualitySettings& settings)
+{
+    renderer::RenderTextureDebugSettings debug;
+    debug.forceMaxLodZero = settings.debug.textureForceMaxLodZero;
+    debug.anisotropyOverride = settings.debug.textureAnisotropyOverride;
+    debug.overrideMipLodBias = settings.debug.textureOverrideMipLodBias;
+    debug.mipLodBias = std::clamp(settings.debug.textureDebugMipLodBias, -1.0F, 1.0F);
+    if (!debug.forceMaxLodZero
+        && debug.anisotropyOverride == renderer::RenderTextureDebugAnisotropyOverride::Automatic
+        && !debug.overrideMipLodBias) {
+        return debug;
+    }
+    auto revision = std::uint64_t {0x741e51d00dULL};
+    revision = mixQualityHash(revision, debug.forceMaxLodZero ? 1U : 0U);
+    revision = mixQualityHash(revision, static_cast<std::uint64_t>(debug.anisotropyOverride));
+    revision = mixQualityHash(revision, debug.overrideMipLodBias ? 1U : 0U);
+    revision = mixQualityHash(revision, static_cast<std::uint64_t>(std::llround((debug.mipLodBias + 1.0F) * 1000.0F)));
+    debug.revision = revision == 0U ? 1U : revision;
+    return debug;
+}
+
 void setSpinBoxesEnabled(const std::array<QDoubleSpinBox*, 9>& spinBoxes, bool enabled)
 {
     for (auto* spinBox : spinBoxes) {
@@ -362,14 +408,15 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , logSink_(std::make_shared<core::MemoryLogSink>())
     , assetManager_(editorAssetCacheRoot())
+    , qualitySettings_(loadEditorQualitySettings(projectGraphicsSettingsPath()))
 {
     core::Logger::instance().addSink(logSink_);
     (void)loadProjectScriptsModule(false);
     scriptRuntime_.setRegistry(&scriptRegistry_);
+    shadowUpdateMode_ = qualitySettings_.shadow.updateMode;
 
     std::string rendererError;
-    renderer::RendererConfig rendererConfig;
-    rendererConfig.applicationName = "ProjectUnity Editor";
+    const auto rendererConfig = rendererConfigFromQuality(qualitySettings_);
     renderer_ = renderer::createVulkanRenderer(rendererConfig, &rendererError);
     if (renderer_ != nullptr && renderer_->isReady()) {
         const auto& stats = renderer_->stats();
@@ -1325,6 +1372,72 @@ void MainWindow::refreshViewports()
         playRuntimeViewport_->setGameInputEnabled(playModeActive_);
         playRuntimeViewport_->setGameRuntimeSnapshotEnabled(playModeActive_);
     }
+}
+
+void MainWindow::applyEditorQualitySettings(EditorQualitySettings settings, bool persist)
+{
+    const auto recreateRenderer = rendererTexturePolicyChanged(qualitySettings_, settings);
+    qualitySettings_ = std::move(settings);
+    shadowUpdateMode_ = qualitySettings_.shadow.updateMode;
+
+    if (persist) {
+        std::string error;
+        if (!saveEditorQualitySettings(qualitySettings_, projectGraphicsSettingsPath(), &error)) {
+            core::logWarning(
+                core::LogCategory::Editor,
+                QStringLiteral("No se pudieron guardar ajustes de calidad: %1")
+                    .arg(QString::fromStdString(error))
+                    .toStdString());
+        }
+    }
+
+    if (recreateRenderer) {
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setRenderer(nullptr);
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->setRenderer(nullptr);
+        }
+        if (playRuntimeViewport_ != nullptr) {
+            playRuntimeViewport_->setRenderer(nullptr);
+        }
+        renderer_.reset();
+        std::string rendererError;
+        renderer_ = renderer::createVulkanRenderer(rendererConfigFromQuality(qualitySettings_), &rendererError);
+        if (renderer_ == nullptr || !renderer_->isReady()) {
+            core::logError(
+                core::LogCategory::Renderer,
+                QStringLiteral("No se pudo recrear renderer Vulkan para settings: %1")
+                    .arg(QString::fromStdString(rendererError.empty() ? "unknown error" : rendererError))
+                    .toStdString());
+        }
+        if (sceneViewport_ != nullptr) {
+            sceneViewport_->setRenderer(renderer_.get());
+        }
+        if (gameViewport_ != nullptr) {
+            gameViewport_->setRenderer(renderer_.get());
+        }
+        if (playRuntimeViewport_ != nullptr) {
+            playRuntimeViewport_->setRenderer(renderer_.get());
+        }
+    }
+
+    applyQualitySettingsToViewport(sceneViewport_);
+    applyQualitySettingsToViewport(gameViewport_);
+    applyQualitySettingsToViewport(playRuntimeViewport_);
+    refreshViewports();
+}
+
+void MainWindow::applyQualitySettingsToViewport(ViewportWidget* viewport) const
+{
+    if (viewport == nullptr) {
+        return;
+    }
+    viewport->setVSyncEnabled(qualitySettings_.graphics.vsync);
+    viewport->setFrameRateLimitFps(qualitySettings_.graphics.fpsLimit);
+    viewport->setAssetLodSettings(viewportAssetLodSettingsFromQuality(qualitySettings_));
+    viewport->setTextureDebugSettings(textureDebugSettingsFromQuality(qualitySettings_));
+    viewport->setShadowUpdateMode(shadowUpdateMode_);
 }
 
 } // namespace projectunity::editor

@@ -260,6 +260,15 @@ ViewportAssetLodSettings ViewportWidget::assetLodSettings() const noexcept
     return assetLodSettings_;
 }
 
+void ViewportWidget::setTextureDebugSettings(renderer::RenderTextureDebugSettings settings)
+{
+    if (textureDebugSettings_ == settings) {
+        return;
+    }
+    textureDebugSettings_ = settings;
+    update();
+}
+
 void ViewportWidget::setEditorSunLight(renderer::RenderLight light)
 {
     light.type = renderer::RenderLightType::Directional;
@@ -332,6 +341,11 @@ bool ViewportWidget::renderRendererFrame()
     desc.height = static_cast<std::uint32_t>(rendererSurfaceHeight_);
     desc.vsync = vSyncEnabled_;
     renderer::RenderFrame frame;
+    const auto runtimeSnapshot = mode_ == ViewportMode::Game && gameRuntimeSnapshotEnabled_;
+    frame.renderPath = mode_ == ViewportMode::Scene
+        ? renderer::RenderFramePath::SceneView
+        : (runtimeSnapshot ? renderer::RenderFramePath::GameRuntime : renderer::RenderFramePath::GameView);
+    frame.textureDebug = textureDebugSettings_;
     const auto editorBuildStart = std::chrono::steady_clock::now();
     frame.clearColor.red = mode_ == ViewportMode::Scene ? 0.12F : 0.02F;
     frame.clearColor.green = mode_ == ViewportMode::Scene ? 0.13F : 0.02F;
@@ -454,7 +468,7 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.nearPlane,
             cameraFrame.farPlane,
         };
-        const auto runtimeSnapshot = mode_ == ViewportMode::Game && gameRuntimeSnapshotEnabled_; const auto renderWorldFrame = renderWorld_->buildFrame(
+        const auto renderWorldFrame = renderWorld_->buildFrame(
             scene_,
             assetManager_,
             runtimeSnapshot ? scene::EntityId {} : selectedEntityId_,

@@ -174,6 +174,7 @@ void ViewportRenderWorld::collectShadowCasters(
         const auto recordOverDrawBudget = record->instances.size() > lodSettings.maxDrawPackets
             || record->sourceTriangleCount > lodSettings.maxDetailedTriangles;
         const auto useShadowOverview = !recordPinned
+            && !(record->generatedTerrainModel && lodSettings.debugDisableTerrainHlod)
             && record->worldBoundsValid
             && !record->overviewDraws.empty()
             && viewportRootHlodEligible(
@@ -243,6 +244,9 @@ void ViewportRenderWorld::collectShadowCasters(
                     renderChunkId,
                     record->entityId.value(),
                 });
+                auto& draw = shadowMeshDraws.back();
+                draw.materialIndex = static_cast<std::uint32_t>(overview.primitive->materialIndex);
+                draw.generatedTerrainModel = record->generatedTerrainModel;
                 ++stats.shadowHlodProxyDrawCount;
                 ++emittedShadowProxyDraws;
             }
@@ -290,7 +294,13 @@ void ViewportRenderWorld::collectShadowCasters(
             }
             const auto cameraDistance = (instance.worldBounds.center - camera.eye).length();
             const auto sortDepth = std::max(cameraDistance, camera.nearPlane);
-            const auto forceFullResolution = instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U;
+            const auto terrainEvaluation = evaluateViewportHlod(instance.worldBounds, camera, viewportHeight);
+            const auto forceFullResolution = (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U)
+                || (instance.generatedTerrainModel
+                    && (lodSettings.debugDisableTerrainChunkLod
+                        || (lodSettings.terrainNearHighQualityEnabled
+                            && (terrainEvaluation.insideBounds
+                                || terrainEvaluation.distance <= lodSettings.terrainNearHighQualityRadius))));
             const auto historyIt = lodSelectionHistory_.find(instance.renderInstanceId);
             const auto lodIndex = evaluateViewportMeshLod(
                 primitive,
@@ -326,6 +336,9 @@ void ViewportRenderWorld::collectShadowCasters(
                 instance.renderChunkId,
                 instance.sceneNodeId.value(),
             });
+            auto& draw = shadowMeshDraws.back();
+            draw.materialIndex = static_cast<std::uint32_t>(primitive.materialIndex);
+            draw.generatedTerrainModel = instance.generatedTerrainModel;
         }
     }
     applyViewportShadowPolicy(shadowMeshDraws, selectedEntityId, camera, viewportHeight, lodSettings, stats);

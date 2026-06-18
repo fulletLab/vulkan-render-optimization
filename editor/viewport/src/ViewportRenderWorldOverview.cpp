@@ -697,6 +697,10 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     if (!kOverviewHlodEnabled) {
         return false;
     }
+    if (record.generatedTerrainModel && lodSettings.debugDisableTerrainHlod) {
+        rootHlodHistory_.insert_or_assign(record.entityId.value(), false);
+        return false;
+    }
 
     std::uint64_t visibleChunkCount = 0;
     std::uint64_t visibleChunkInstanceReferences = 0;
@@ -739,6 +743,18 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     if (countVisibleChunks) {
         stats.visibleRenderChunkCount += visibleChunkCount;
     }
+    auto terrainChunkNearHighQuality = [&](const EntityRecord::Chunk& chunk) {
+        if (!record.generatedTerrainModel || !lodSettings.terrainNearHighQualityEnabled) {
+            return false;
+        }
+        const auto evaluation = evaluateViewportHlod(chunk.worldBounds, camera, viewportHeight);
+        return evaluation.insideBounds || evaluation.distance <= lodSettings.terrainNearHighQualityRadius;
+    };
+    const auto terrainNearHighQualityVisible = record.generatedTerrainModel
+        && lodSettings.terrainNearHighQualityEnabled
+        && std::any_of(visibleChunks.begin(), visibleChunks.end(), [&](const auto* chunk) {
+            return chunk != nullptr && terrainChunkNearHighQuality(*chunk);
+        });
     const auto visibleChunkRatio = record.chunks.empty()
         ? 0.0F
         : static_cast<float>(visibleChunkCount) / static_cast<float>(record.chunks.size());
@@ -763,6 +779,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         && enoughVisibleWork;
     ViewportHlodReason rootHlodReason = ViewportHlodReason::None;
     const auto wantsOverview = !record.overviewDraws.empty()
+        && !terrainNearHighQualityVisible
         && overviewCoverageEnough
         && overviewScreenEligible(
             record.worldBoundsValid,
@@ -854,6 +871,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
             record.entityId.value(),
         });
         auto& draw = meshDraws.back();
+        draw.materialIndex = static_cast<std::uint32_t>(overview.primitive->materialIndex);
+        draw.generatedTerrainModel = record.generatedTerrainModel;
         const auto evaluation = evaluateViewportHlod(overview.worldBounds, camera, viewportHeight);
         draw.distanceToCameraCenter = evaluation.distanceToCenter;
         draw.distanceToCameraBounds = evaluation.distance;
@@ -888,6 +907,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         const auto historyIt = chunkHlodHistory_.find(chunk->renderChunkId);
         const auto wasChunkHlodActive = historyIt != chunkHlodHistory_.end() && historyIt->second;
         ViewportHlodReason clusterReason = ViewportHlodReason::None;
+        const auto terrainClusterNearHighQuality = record.generatedTerrainModel
+            && terrainChunkNearHighQuality(*chunk);
         const auto clusterEligible = clusterOverviewScreenEligible(
                 chunk->worldBounds,
                 camera,
@@ -895,7 +916,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
                 lodSettings,
                 overChunkBudget || overDrawBudget,
                 wasChunkHlodActive,
-                clusterReason);
+                clusterReason)
+            && !terrainClusterNearHighQuality;
         chunkHlodHistory_.insert_or_assign(chunk->renderChunkId, clusterEligible);
         if (overviewCoveredChunkIds != nullptr && !clusterEligible) {
             ++stats.hlodRejectedClusterScreenCount;

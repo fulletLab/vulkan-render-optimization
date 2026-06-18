@@ -37,6 +37,11 @@ struct VulkanViewportContext {
 
     [[nodiscard]] VulkanResourceContext resources() const noexcept
     {
+        return resources({});
+    }
+
+    [[nodiscard]] VulkanResourceContext resources(RenderTextureDebugSettings textureDebug) const noexcept
+    {
         return {
             physicalDevice,
             device,
@@ -46,7 +51,11 @@ struct VulkanViewportContext {
             geometryShaderSupported,
             samplerAnisotropyEnabled,
             maxSamplerAnisotropy,
-            textureMipLodBias,
+            textureDebug.overrideMipLodBias ? textureDebug.mipLodBias : textureMipLodBias,
+            textureDebug.forceMaxLodZero,
+            textureDebug.anisotropyOverride == RenderTextureDebugAnisotropyOverride::ForceOff,
+            textureDebug.anisotropyOverride == RenderTextureDebugAnisotropyOverride::ForceOn,
+            textureDebug.revision,
         };
     }
 };
@@ -119,6 +128,9 @@ struct VulkanViewportFrameProfile {
     RenderLodBreakdown vkDrawIndexedLod;
     RenderMaterialBreakdown mainMaterialDraws;
     RenderMaterialBreakdown shadowMaterialDraws;
+    std::string samplerDebugLine;
+    std::string runtimeSamplerDebugLine;
+    std::string textureDebugLine;
 };
 
 class VulkanViewportTarget final {
@@ -150,6 +162,8 @@ private:
     void createCommands();
     void createSync();
     [[nodiscard]] VkDescriptorSet textureDescriptor(
+        const RenderFrame& frame,
+        const RenderMeshDraw& draw,
         const VulkanTextureHandle& baseColor,
         const VulkanTextureHandle& normal,
         const VulkanTextureHandle& metallicRoughness,
@@ -158,6 +172,9 @@ private:
         const VulkanTextureHandle& brdfLut,
         const VulkanTextureHandle& irradianceCube,
         const VulkanTextureHandle& prefilteredEnvironment,
+        std::string* errorMessage);
+    [[nodiscard]] bool rebuildMaterialDescriptorsIfSamplerChanged(
+        std::uint64_t samplerPolicyRevision,
         std::string* errorMessage);
     [[nodiscard]] bool recordFrameCommand(
         std::uint32_t imageIndex,
@@ -218,6 +235,9 @@ private:
     std::vector<VkFramebuffer> framebuffers_;
     VkDescriptorPool descriptorPool_ {VK_NULL_HANDLE};
     std::unordered_map<VulkanMaterialTextureKey, VkDescriptorSet, VulkanMaterialTextureKeyHash> textureDescriptors_;
+    std::uint64_t materialDescriptorSamplerRevision_ {0};
+    std::uint64_t runtimeSamplerLogFrame_ {0};
+    std::uint64_t lastRuntimeSamplerLogSignature_ {0};
     std::uint64_t descriptorIrradianceKey_ {0};
     std::uint64_t descriptorPrefilteredEnvironmentKey_ {0};
     bool descriptorEnvironmentKeyValid_ {false};

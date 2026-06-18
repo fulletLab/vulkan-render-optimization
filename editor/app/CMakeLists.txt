@@ -27,6 +27,7 @@ projectunity_resolve_qtads(PROJECTUNITY_QTADS_TARGET)
 qt_add_executable(projectunity_editor
     src/main.cpp
     src/EditorApp.cpp
+    src/EditorQualitySettings.cpp
     src/MainWindow.cpp
     src/MainWindowAssets.cpp
     src/MainWindowCullingProfile.cpp
@@ -41,10 +42,13 @@ qt_add_executable(projectunity_editor
     src/ProjectBrowserWidget.cpp
     src/SceneHierarchyWidget.cpp
     include/projectunity/editor/EditorApp.hpp
+    include/projectunity/editor/EditorQualitySettings.hpp
     include/projectunity/editor/MainWindow.hpp
     include/projectunity/editor/ProjectAssetTreeWidget.hpp
     include/projectunity/editor/ProjectBrowserWidget.hpp
     include/projectunity/editor/SceneHierarchyWidget.hpp
+    include/projectunity/editor/SettingsDialog.hpp
+    src/SettingsDialog.cpp
     resources/editor_resources.qrc
 )
 

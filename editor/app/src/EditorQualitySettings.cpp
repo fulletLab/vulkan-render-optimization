@@ -117,6 +117,33 @@ template <typename Enum>
     return "automatic";
 }
 
+[[nodiscard]] renderer::RenderTextureDebugAnisotropyOverride textureAnisotropyOverrideFromString(
+    const QString& text,
+    renderer::RenderTextureDebugAnisotropyOverride fallback)
+{
+    if (text == QStringLiteral("force-off")) {
+        return renderer::RenderTextureDebugAnisotropyOverride::ForceOff;
+    }
+    if (text == QStringLiteral("force-on")) {
+        return renderer::RenderTextureDebugAnisotropyOverride::ForceOn;
+    }
+    if (text == QStringLiteral("automatic")) {
+        return renderer::RenderTextureDebugAnisotropyOverride::Automatic;
+    }
+    return fallback;
+}
+
+[[nodiscard]] const char* textureAnisotropyOverrideName(
+    renderer::RenderTextureDebugAnisotropyOverride value) noexcept
+{
+    switch (value) {
+    case renderer::RenderTextureDebugAnisotropyOverride::Automatic: return "automatic";
+    case renderer::RenderTextureDebugAnisotropyOverride::ForceOff: return "force-off";
+    case renderer::RenderTextureDebugAnisotropyOverride::ForceOn: return "force-on";
+    }
+    return "automatic";
+}
+
 [[nodiscard]] QJsonObject graphicsToJson(const GraphicsSettings& settings)
 {
     return {
@@ -165,6 +192,10 @@ template <typename Enum>
         {"chunkBudget", settings.chunkBudget},
         {"drawPacketBudget", settings.drawPacketBudget},
         {"shadowCasterBudget", settings.shadowCasterBudget},
+        {"terrainNearHighQualityEnabled", settings.terrainNearHighQualityEnabled},
+        {"terrainNearHighQualityRadius", settings.terrainNearHighQualityRadius},
+        {"debugDisableTerrainHlod", settings.debugDisableTerrainHlod},
+        {"debugDisableTerrainChunkLod", settings.debugDisableTerrainChunkLod},
         {"debugColors", settings.debugColors},
         {"debugOverride", QString::fromLatin1(hlodDebugOverrideName(settings.debugOverride))},
     };
@@ -202,6 +233,10 @@ template <typename Enum>
         {"shadowCasters", settings.shadowCasters},
         {"sourceObjects", settings.sourceObjects},
         {"sunDirection", settings.sunDirection},
+        {"textureForceMaxLodZero", settings.textureForceMaxLodZero},
+        {"textureAnisotropyOverride", QString::fromLatin1(textureAnisotropyOverrideName(settings.textureAnisotropyOverride))},
+        {"textureOverrideMipLodBias", settings.textureOverrideMipLodBias},
+        {"textureDebugMipLodBias", settings.textureDebugMipLodBias},
         {"normalsTangents", settings.normalsTangents},
         {"gpuProfiler", settings.gpuProfiler},
     };
@@ -279,6 +314,18 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
     settings.lod.chunkBudget = intFromJson(lod, "chunkBudget", settings.lod.chunkBudget, 1, 1000000);
     settings.lod.drawPacketBudget = intFromJson(lod, "drawPacketBudget", settings.lod.drawPacketBudget, 1, 1000000);
     settings.lod.shadowCasterBudget = intFromJson(lod, "shadowCasterBudget", settings.lod.shadowCasterBudget, 1, 1000000);
+    settings.lod.terrainNearHighQualityEnabled = boolFromJson(
+        lod,
+        "terrainNearHighQualityEnabled",
+        settings.lod.terrainNearHighQualityEnabled);
+    settings.lod.terrainNearHighQualityRadius = floatFromJson(
+        lod,
+        "terrainNearHighQualityRadius",
+        settings.lod.terrainNearHighQualityRadius,
+        0.0F,
+        1000000.0F);
+    settings.lod.debugDisableTerrainHlod = boolFromJson(lod, "debugDisableTerrainHlod", settings.lod.debugDisableTerrainHlod);
+    settings.lod.debugDisableTerrainChunkLod = boolFromJson(lod, "debugDisableTerrainChunkLod", settings.lod.debugDisableTerrainChunkLod);
     settings.lod.debugColors = boolFromJson(lod, "debugColors", settings.lod.debugColors);
     settings.lod.debugOverride = hlodDebugOverrideFromString(
         stringFromJson(lod, "debugOverride", QString::fromLatin1(hlodDebugOverrideName(settings.lod.debugOverride))),
@@ -315,6 +362,23 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
     settings.debug.shadowCasters = boolFromJson(debug, "shadowCasters", settings.debug.shadowCasters);
     settings.debug.sourceObjects = boolFromJson(debug, "sourceObjects", settings.debug.sourceObjects);
     settings.debug.sunDirection = boolFromJson(debug, "sunDirection", settings.debug.sunDirection);
+    settings.debug.textureForceMaxLodZero = boolFromJson(debug, "textureForceMaxLodZero", settings.debug.textureForceMaxLodZero);
+    settings.debug.textureAnisotropyOverride = textureAnisotropyOverrideFromString(
+        stringFromJson(
+            debug,
+            "textureAnisotropyOverride",
+            QString::fromLatin1(textureAnisotropyOverrideName(settings.debug.textureAnisotropyOverride))),
+        settings.debug.textureAnisotropyOverride);
+    settings.debug.textureOverrideMipLodBias = boolFromJson(
+        debug,
+        "textureOverrideMipLodBias",
+        settings.debug.textureOverrideMipLodBias);
+    settings.debug.textureDebugMipLodBias = floatFromJson(
+        debug,
+        "textureDebugMipLodBias",
+        settings.debug.textureDebugMipLodBias,
+        -1.0F,
+        1.0F);
     settings.debug.normalsTangents = boolFromJson(debug, "normalsTangents", settings.debug.normalsTangents);
     settings.debug.gpuProfiler = boolFromJson(debug, "gpuProfiler", settings.debug.gpuProfiler);
 }
@@ -367,6 +431,10 @@ EditorQualitySettings loadEditorQualitySettings(const std::filesystem::path& pat
     settings.lod.chunkBudget = static_cast<int>(std::min<std::size_t>(envLod.maxVisibleChunksFromFar, 1000000U));
     settings.lod.drawPacketBudget = static_cast<int>(std::min<std::size_t>(envLod.maxDrawPackets, 1000000U));
     settings.lod.shadowCasterBudget = static_cast<int>(std::min<std::size_t>(envLod.maxShadowCasters, 1000000U));
+    settings.lod.terrainNearHighQualityEnabled = envLod.terrainNearHighQualityEnabled;
+    settings.lod.terrainNearHighQualityRadius = envLod.terrainNearHighQualityRadius;
+    settings.lod.debugDisableTerrainHlod = envLod.debugDisableTerrainHlod;
+    settings.lod.debugDisableTerrainChunkLod = envLod.debugDisableTerrainChunkLod;
     settings.lod.debugOverride = envLod.debugOverride;
 
     QFile file(pathToQString(path));
@@ -503,6 +571,10 @@ ViewportAssetLodSettings viewportAssetLodSettingsFromQuality(const EditorQuality
     result.maxShadowCasters = static_cast<std::size_t>(std::max(settings.lod.shadowCasterBudget, 1));
     result.lodHysteresisRatio = settings.lod.hysteresis;
     result.hlodHysteresisRatio = settings.lod.hysteresis;
+    result.terrainNearHighQualityEnabled = settings.lod.terrainNearHighQualityEnabled;
+    result.terrainNearHighQualityRadius = settings.lod.terrainNearHighQualityRadius;
+    result.debugDisableTerrainHlod = settings.lod.debugDisableTerrainHlod;
+    result.debugDisableTerrainChunkLod = settings.lod.debugDisableTerrainChunkLod;
 
     switch (settings.lod.quality) {
     case LodQuality::Performance: result.lodBias = 1.8F; break;

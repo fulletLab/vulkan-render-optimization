@@ -3,7 +3,9 @@
 #include <projectunity/editor/ProjectAssetTreeWidget.hpp>
 #include <projectunity/editor/ProjectBrowserWidget.hpp>
 #include <projectunity/editor/SceneHierarchyWidget.hpp>
+#include <projectunity/editor/SettingsDialog.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
+#include <projectunity/renderer/IRenderer.hpp>
 
 #include <DockAreaWidget.h>
 #include <DockManager.h>
@@ -257,7 +259,17 @@ void MainWindow::createMenus()
     editMenu->addAction(QStringLiteral("Eliminar"), this, [this] { deleteSelectedEntity(); });
     editMenu->addAction(QStringLiteral("Duplicar"), this, [this] { duplicateSelectedEntity(); });
     editMenu->addSeparator();
-    editMenu->addAction(QStringLiteral("Preferencias"));
+    editMenu->addAction(QStringLiteral("Preferencias"), this, [this] {
+        const auto* stats = sceneViewport_ != nullptr
+            ? sceneViewport_->lastRendererStats()
+            : (renderer_ != nullptr && renderer_->isReady() ? &renderer_->stats() : nullptr);
+        SettingsDialog dialog(qualitySettings_, stats, this);
+        connect(&dialog, &SettingsDialog::settingsApplied, this, [this](const EditorQualitySettings& settings) {
+            applyEditorQualitySettings(settings, true);
+            statusBar()->showMessage(QStringLiteral("Ajustes aplicados"), 2500);
+        });
+        dialog.exec();
+    });
 
     auto* assetsMenu = menuBar()->addMenu(QStringLiteral("&Assets"));
     assetsMenu->addAction(QStringLiteral("Importar asset"), this, [this] { importAsset(); });
@@ -531,6 +543,7 @@ QWidget* MainWindow::createSceneViewPanel()
     sceneViewport_->setScene(&scene_);
     sceneViewport_->setAssetManager(&assetManager_);
     sceneViewport_->setRenderer(renderer_.get());
+    applyQualitySettingsToViewport(sceneViewport_);
     sceneViewport_->setEnvironmentSettings(environmentSettings_);
     sceneViewport_->setEditorSunLight(editorSunLight_);
     sceneViewport_->setSelectionCallback([this](scene::EntityId id) {
@@ -568,6 +581,7 @@ QWidget* MainWindow::createGameViewPanel()
     gameViewport_->setScene(&scene_);
     gameViewport_->setAssetManager(&assetManager_);
     gameViewport_->setRenderer(renderer_.get());
+    applyQualitySettingsToViewport(gameViewport_);
     gameViewport_->setEnvironmentSettings(environmentSettings_);
     gameViewport_->setEditorSunLight(editorSunLight_);
     gameViewport_->setTransformEditedCallback([this](scene::EntityId id) {

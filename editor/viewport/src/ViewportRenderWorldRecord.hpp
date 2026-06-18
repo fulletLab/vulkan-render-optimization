@@ -62,6 +62,7 @@ struct ViewportRenderWorld::EntityRecord {
         renderer::RenderMatrix4 modelMatrix;
         ViewportWorldBounds worldBounds;
         bool flipsWinding {false};
+        bool generatedTerrainModel {false};
     };
 
     struct OverviewDraw {
@@ -93,6 +94,7 @@ struct ViewportRenderWorld::EntityRecord {
     std::uint64_t signature {0};
     bool hasMeshSceneContent {false};
     bool overviewOnly {false};
+    bool generatedTerrainModel {false};
     assets::AssetId coveredModelAssetId;
     renderer::RenderMatrix4 modelMatrix;
     std::vector<Instance> instances;

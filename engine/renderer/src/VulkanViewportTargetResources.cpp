@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -37,6 +38,21 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
     preparedBatches.reserve(meshBatches_.size());
     std::uint64_t budgetBytes = 0;
     std::uint32_t budgetBatches = 0;
+    const auto resourceContext = context_.resources(frame.textureDebug);
+    {
+        std::ostringstream line;
+        line << "renderPath=" << renderFramePathName(frame.renderPath)
+             << " samplerPolicyRevision=" << resourceContext.samplerPolicyRevision
+             << " forceMaxLod0=" << (resourceContext.forceSamplerMaxLodZero ? "yes" : "no")
+             << " anisotropyOverride="
+             << renderTextureDebugAnisotropyOverrideName(frame.textureDebug.anisotropyOverride)
+             << " mipLodBias=" << resourceContext.textureMipLodBias
+             << " mipBiasOverride=" << (frame.textureDebug.overrideMipLodBias ? "yes" : "no");
+        lastFrameProfile_.textureDebugLine = line.str();
+    }
+    if (!rebuildMaterialDescriptorsIfSamplerChanged(resourceContext.samplerPolicyRevision, errorMessage)) {
+        return false;
+    }
 
     for (auto& batch : meshBatches_) {
         const auto& draw = *batch.draw;
@@ -54,12 +70,12 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
             budgetBytes = std::max<std::uint64_t>(nextBytes, 1U);
             ++budgetBatches;
         }
-        batch.mesh = meshCache.ensureUploaded(context_.resources(), uploads, meshKey, *draw.primitive, errorMessage);
+        batch.mesh = meshCache.ensureUploaded(resourceContext, uploads, meshKey, *draw.primitive, errorMessage);
         if (batch.mesh == nullptr) {
             return false;
         }
         const auto textures = uploadMaterialTextureSet(
-            context_.resources(),
+            resourceContext,
             uploads,
             textureCache,
             draw,
@@ -69,6 +85,8 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
             return false;
         }
         batch.materialDescriptor = textureDescriptor(
+            frame,
+            draw,
             *textures.baseColor,
             *textures.normal,
             *textures.metallicRoughness,

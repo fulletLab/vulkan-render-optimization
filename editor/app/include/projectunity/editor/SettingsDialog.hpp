@@ -80,6 +80,10 @@ private:
     QSpinBox* chunkBudgetSpin_ {nullptr};
     QSpinBox* drawPacketBudgetSpin_ {nullptr};
     QSpinBox* shadowCasterBudgetSpin_ {nullptr};
+    QCheckBox* terrainNearHighQualityCheck_ {nullptr};
+    QSpinBox* terrainNearHighQualityRadiusSpin_ {nullptr};
+    QCheckBox* debugDisableTerrainHlodCheck_ {nullptr};
+    QCheckBox* debugDisableTerrainChunkLodCheck_ {nullptr};
     QCheckBox* lodDebugColorsCheck_ {nullptr};
     QComboBox* hlodOverrideCombo_ {nullptr};
 
@@ -92,6 +96,11 @@ private:
     QCheckBox* debugShadowCastersCheck_ {nullptr};
     QCheckBox* debugSourceObjectsCheck_ {nullptr};
     QCheckBox* debugSunDirectionCheck_ {nullptr};
+    QCheckBox* textureForceMaxLodZeroCheck_ {nullptr};
+    QComboBox* textureAnisotropyOverrideCombo_ {nullptr};
+    QCheckBox* textureOverrideMipBiasCheck_ {nullptr};
+    QSlider* textureDebugMipBiasSlider_ {nullptr};
+    QLabel* textureDebugMipBiasValue_ {nullptr};
 };
 
 } // namespace projectunity::editor

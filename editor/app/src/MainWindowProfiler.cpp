@@ -14,7 +14,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kProfilerRowCount = 128;
+constexpr int kProfilerRowCount = 132;
 
 [[nodiscard]] QString shadowUpdateModeName(renderer::RenderShadowUpdateMode mode)
 {
@@ -190,6 +190,10 @@ void ensureProfilerRows(QTableWidget* table)
         QStringLiteral("lastTextureSamplerLod"),
         QStringLiteral("lastTextureSamplerAniso"),
         QStringLiteral("lastTextureSamplerRole"),
+        QStringLiteral("lastFrameRenderPath"),
+        QStringLiteral("samplerDebugLine"),
+        QStringLiteral("runtimeSamplerDebugLine"),
+        QStringLiteral("textureDebugLine"),
     };
     for (int index = 0; index < rows.size(); ++index) {
         const auto row = 55 + index;
@@ -481,6 +485,10 @@ void MainWindow::updateProfilerPanel()
             .arg(stats.lastTextureSamplerAnisotropyEnabled ? QStringLiteral("on") : QStringLiteral("off"))
             .arg(stats.lastTextureSamplerMaxAnisotropy, 0, 'f', 1));
     setTableValue(profilerTable_, 127, QString::fromStdString(stats.lastTextureSamplerRole));
+    setTableValue(profilerTable_, 128, QString::fromStdString(stats.lastFrameRenderPath));
+    setTableValue(profilerTable_, 129, QString::fromStdString(stats.lastFrameSamplerDebugLine));
+    setTableValue(profilerTable_, 130, QString::fromStdString(stats.lastFrameRuntimeSamplerDebugLine));
+    setTableValue(profilerTable_, 131, QString::fromStdString(stats.lastFrameTextureDebugLine));
 }
 
 } // namespace projectunity::editor

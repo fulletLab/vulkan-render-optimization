@@ -97,6 +97,13 @@ void applyViewportTriangleBudget(
         if (pinSelectedDraws && draw.sceneNodeId == selectedEntityId.value()) {
             continue;
         }
+        if (draw.generatedTerrainModel
+            && (settings.debugDisableTerrainChunkLod
+                || (settings.terrainNearHighQualityEnabled
+                    && (draw.cameraInsideChunkBounds
+                        || draw.distanceToCameraBounds <= settings.terrainNearHighQualityRadius)))) {
+            continue;
+        }
         const auto nextLod = coarserViewportLod(*draw.primitive, draw.lodIndex);
         if (nextLod == draw.lodIndex) {
             continue;

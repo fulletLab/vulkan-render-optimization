@@ -172,8 +172,9 @@ bool VulkanViewportTarget::recordShadowPass(
             return opaqueShadowDescriptor;
         }
         const RenderMeshDraw defaultDraw {};
+        const auto resourceContext = context_.resources(frame.textureDebug);
         const auto textures = uploadMaterialTextureSet(
-            context_.resources(),
+            resourceContext,
             uploads,
             textureCache,
             defaultDraw,
@@ -183,6 +184,8 @@ bool VulkanViewportTarget::recordShadowPass(
             return VK_NULL_HANDLE;
         }
         opaqueShadowDescriptor = textureDescriptor(
+            frame,
+            defaultDraw,
             *textures.baseColor,
             *textures.normal,
             *textures.metallicRoughness,

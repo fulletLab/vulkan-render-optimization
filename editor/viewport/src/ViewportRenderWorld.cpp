@@ -309,6 +309,9 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
     record->entityId = entity.id;
     record->signature = signature;
     record->hasMeshSceneContent = !model->primitives.empty();
+    record->generatedTerrainModel = entity.terrain.has_value()
+        && entity.terrain->generatedModelAssetId.isValid()
+        && entity.meshRenderer->modelAssetId == entity.terrain->generatedModelAssetId;
     const auto entityModelMatrix = modelMatrix(entity, *worldPosition);
     record->modelMatrix = entityModelMatrix;
 
@@ -331,6 +334,7 @@ std::shared_ptr<ViewportRenderWorld::EntityRecord> ViewportRenderWorld::buildEnt
         instance.modelMatrix = matrix;
         instance.worldBounds = transformViewportBounds(matrix, primitive.bounds);
         instance.flipsWinding = flipsWinding;
+        instance.generatedTerrainModel = record->generatedTerrainModel;
         record->instances.push_back(instance);
         return std::optional<std::size_t> {record->instances.size() - 1U};
     };
@@ -881,10 +885,16 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     camera.nearPlane);
                 const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 visibleSourceTriangleCount += sourceTriangleCount;
+                const auto terrainNearHighQuality = instance.generatedTerrainModel
+                    && lodSettings.terrainNearHighQualityEnabled
+                    && (distanceToBounds <= lodSettings.terrainNearHighQualityRadius
+                        || pointInsideViewportBounds(camera.eye, instance.worldBounds.corners));
                 const auto forceFullResolution = selectedPrimitiveModel.isValid()
                     ? (selectedPrimitiveModel == instance.modelAssetId
                         && selectedPrimitiveIndex == instance.primitiveInstanceIndex)
                     : (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U);
+                const auto forceTerrainFullResolution = terrainNearHighQuality
+                    || (instance.generatedTerrainModel && lodSettings.debugDisableTerrainChunkLod);
                 const auto historyIt = lodSelectionHistory_.find(instance.renderInstanceId);
                 const auto lodSelection = evaluateViewportMeshLod(
                     primitive,
@@ -892,7 +902,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     std::max(distanceToCenter, camera.nearPlane),
                     camera.verticalFovRadians,
                     static_cast<float>(std::max(viewportHeight, 1)),
-                    forceFullResolution,
+                    forceFullResolution || forceTerrainFullResolution,
                     lodSettings.lodBias,
                     historyIt == lodSelectionHistory_.end()
                         ? std::optional<std::uint32_t> {}
@@ -967,6 +977,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 draw.projectedLodErrorPixels = lodSelection.projectedErrorPixels;
                 draw.lodSelectionReason = renderLodReason(lodSelection.reason);
                 draw.lodHysteresisActive = lodSelection.hysteresisActive;
+                draw.materialIndex = static_cast<std::uint32_t>(primitive.materialIndex);
+                draw.generatedTerrainModel = instance.generatedTerrainModel;
                 meshDraws.push_back(draw);
             }
         }
