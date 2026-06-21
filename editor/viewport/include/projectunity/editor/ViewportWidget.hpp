@@ -287,6 +287,7 @@ private:
     std::uint64_t cullingLogFrameCounter_ {0};
     std::uint64_t lastCullingLogFrame_ {0};
     std::uint64_t lastCullingLogSignature_ {0};
+    std::uint64_t lastSourceModelDebugSignature_ {0};
     std::optional<renderer::RendererStats> lastRendererStats_;
     std::vector<renderer::RenderMeshDraw> rendererMeshDraws_;
     std::vector<renderer::RenderMeshDraw> rendererShadowMeshDraws_;

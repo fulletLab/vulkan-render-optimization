@@ -328,13 +328,16 @@ private:
         const TextureAsset& asset,
         std::string* errorMessage) const;
     [[nodiscard]] bool writeCacheRecord(const AssetRecord& record, std::string* errorMessage) const;
+    void loadCacheRecords();
+    [[nodiscard]] std::shared_ptr<const ModelAsset> loadCachedModel(AssetId id) const;
+    [[nodiscard]] std::shared_ptr<const TextureAsset> loadCachedTexture(AssetId id) const;
     void storeRecord(const AssetRecord& record);
 
     std::filesystem::path cacheRoot_;
     mutable std::mutex mutex_;
-    std::vector<AssetRecord> records_;
-    std::vector<std::shared_ptr<const ModelAsset>> models_;
-    std::vector<std::shared_ptr<const TextureAsset>> textures_;
+    mutable std::vector<AssetRecord> records_;
+    mutable std::vector<std::shared_ptr<const ModelAsset>> models_;
+    mutable std::vector<std::shared_ptr<const TextureAsset>> textures_;
     std::uint64_t nextGeneratedAssetId_ {0xF000000000000001ULL};
 };
 

@@ -168,7 +168,9 @@ void buildViewportOcclusionBuffer(
     float sceneExtent,
     ViewportOcclusionBuffer& occlusionBuffer,
     std::unordered_set<std::uint64_t>& occluderChunkIds,
-    ViewportRenderWorldStats& stats)
+    ViewportRenderWorldStats& stats,
+    bool forceAllChunks = false,
+    float boundsPadding = 0.0F)
 {
     for (const auto* record : records) {
         if (record == nullptr) {
@@ -187,14 +189,15 @@ void buildViewportOcclusionBuffer(
                     camera.verticalFovRadians,
                     camera.aspectRatio,
                     camera.nearPlane,
-                    camera.farPlane)) {
+                    camera.farPlane,
+                    boundsPadding)) {
                 return;
             }
             if (occlusionBuffer.addOccluder(chunk.worldBounds)) {
                 occluderChunkIds.insert(chunk.renderChunkId);
                 ++stats.occlusionOccluderChunkCount;
             }
-        });
+        }, forceAllChunks, boundsPadding);
     }
 }
 

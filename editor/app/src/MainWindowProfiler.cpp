@@ -219,6 +219,7 @@ void MainWindow::updateProfilerPanel()
         if (performanceStatus_ != nullptr) {
             performanceStatus_->setText(QStringLiteral("FPS -"));
         }
+        updateViewportTuningStats();
         return;
     }
     ensureProfilerRows(profilerTable_);
@@ -230,6 +231,7 @@ void MainWindow::updateProfilerPanel()
         for (int row = 1; row < profilerTable_->rowCount(); ++row) {
             setTableValue(profilerTable_, row, QStringLiteral("-"));
         }
+        updateViewportTuningStats();
         return;
     }
 
@@ -489,6 +491,7 @@ void MainWindow::updateProfilerPanel()
     setTableValue(profilerTable_, 129, QString::fromStdString(stats.lastFrameSamplerDebugLine));
     setTableValue(profilerTable_, 130, QString::fromStdString(stats.lastFrameRuntimeSamplerDebugLine));
     setTableValue(profilerTable_, 131, QString::fromStdString(stats.lastFrameTextureDebugLine));
+    updateViewportTuningStats();
 }
 
 } // namespace projectunity::editor

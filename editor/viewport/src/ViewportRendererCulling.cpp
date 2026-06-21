@@ -27,6 +27,38 @@ namespace {
         && std::fabs(lhs.z - rhs.z) <= epsilon;
 }
 
+[[nodiscard]] bool finiteVec3(math::Vec3 value) noexcept
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+[[nodiscard]] bool pointInsideBounds(math::Vec3 point, const ViewportWorldBounds& bounds, float padding) noexcept
+{
+    if (!finiteVec3(point) || bounds.corners.empty()) {
+        return false;
+    }
+    auto minimum = bounds.corners.front();
+    auto maximum = bounds.corners.front();
+    for (const auto corner : bounds.corners) {
+        if (!finiteVec3(corner)) {
+            return false;
+        }
+        minimum.x = std::min(minimum.x, corner.x);
+        minimum.y = std::min(minimum.y, corner.y);
+        minimum.z = std::min(minimum.z, corner.z);
+        maximum.x = std::max(maximum.x, corner.x);
+        maximum.y = std::max(maximum.y, corner.y);
+        maximum.z = std::max(maximum.z, corner.z);
+    }
+    const auto safePadding = std::max(padding, 0.0F);
+    return point.x >= minimum.x - safePadding
+        && point.x <= maximum.x + safePadding
+        && point.y >= minimum.y - safePadding
+        && point.y <= maximum.y + safePadding
+        && point.z >= minimum.z - safePadding
+        && point.z <= maximum.z + safePadding;
+}
+
 } // namespace
 
 ViewportWorldBounds transformViewportBounds(const renderer::RenderMatrix4& matrix, const assets::MeshBounds& bounds)
@@ -66,13 +98,24 @@ bool viewportBoundsVisible(
     float verticalFovRadians,
     float aspectRatio,
     float nearPlane,
-    float farPlane)
+    float farPlane,
+    float boundsPadding)
 {
     if (bounds.radius < 0.0F || !std::isfinite(bounds.radius)) {
         return true;
     }
+    const auto safePadding = std::max(boundsPadding, 0.0F);
+    if (pointInsideBounds(eye, bounds, safePadding)) {
+        return true;
+    }
     const auto tanY = std::tan(verticalFovRadians * 0.5F);
     const auto tanX = tanY * std::max(aspectRatio, 0.001F);
+    if (!std::isfinite(tanX) || !std::isfinite(tanY) || tanX <= 0.0F || tanY <= 0.0F) {
+        return true;
+    }
+    const auto planePaddingX = safePadding * std::sqrt(tanX * tanX + 1.0F);
+    const auto planePaddingY = safePadding * std::sqrt(tanY * tanY + 1.0F);
+
     bool outsideNear = true;
     bool outsideFar = true;
     bool outsideLeft = true;
@@ -84,12 +127,12 @@ bool viewportBoundsVisible(
         const auto x = math::dot(relative, right);
         const auto y = math::dot(relative, up);
         const auto z = math::dot(relative, forward);
-        outsideNear = outsideNear && z < nearPlane;
-        outsideFar = outsideFar && z > farPlane;
-        outsideLeft = outsideLeft && (z * tanX + x) < 0.0F;
-        outsideRight = outsideRight && (z * tanX - x) < 0.0F;
-        outsideBottom = outsideBottom && (z * tanY + y) < 0.0F;
-        outsideTop = outsideTop && (z * tanY - y) < 0.0F;
+        outsideNear = outsideNear && z < nearPlane - safePadding;
+        outsideFar = outsideFar && z > farPlane + safePadding;
+        outsideLeft = outsideLeft && (z * tanX + x) < -planePaddingX;
+        outsideRight = outsideRight && (z * tanX - x) < -planePaddingX;
+        outsideBottom = outsideBottom && (z * tanY + y) < -planePaddingY;
+        outsideTop = outsideTop && (z * tanY - y) < -planePaddingY;
     }
     return !(outsideNear || outsideFar || outsideLeft || outsideRight || outsideBottom || outsideTop);
 }

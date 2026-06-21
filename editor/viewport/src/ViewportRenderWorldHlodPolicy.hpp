@@ -10,8 +10,71 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace projectunity::editor {
+
+namespace detail {
+
+struct ViewportHlodBoundsAabb {
+    math::Vec3 minimum;
+    math::Vec3 maximum;
+    bool valid {false};
+};
+
+[[nodiscard]] inline bool viewportHlodFinite(math::Vec3 value) noexcept
+{
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+[[nodiscard]] inline ViewportHlodBoundsAabb viewportHlodBoundsAabb(const ViewportWorldBounds& bounds) noexcept
+{
+    ViewportHlodBoundsAabb result;
+    for (const auto& corner : bounds.corners) {
+        if (!viewportHlodFinite(corner)) {
+            continue;
+        }
+        if (!result.valid) {
+            result.minimum = corner;
+            result.maximum = corner;
+            result.valid = true;
+            continue;
+        }
+        result.minimum.x = std::min(result.minimum.x, corner.x);
+        result.minimum.y = std::min(result.minimum.y, corner.y);
+        result.minimum.z = std::min(result.minimum.z, corner.z);
+        result.maximum.x = std::max(result.maximum.x, corner.x);
+        result.maximum.y = std::max(result.maximum.y, corner.y);
+        result.maximum.z = std::max(result.maximum.z, corner.z);
+    }
+    return result;
+}
+
+[[nodiscard]] inline float viewportHlodAxisDistance(float value, float minimum, float maximum) noexcept
+{
+    if (value < minimum) {
+        return minimum - value;
+    }
+    if (value > maximum) {
+        return value - maximum;
+    }
+    return 0.0F;
+}
+
+[[nodiscard]] inline float viewportHlodDistanceToAabb(
+    math::Vec3 point,
+    const ViewportHlodBoundsAabb& bounds) noexcept
+{
+    if (!bounds.valid || !viewportHlodFinite(point)) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    const auto dx = viewportHlodAxisDistance(point.x, bounds.minimum.x, bounds.maximum.x);
+    const auto dy = viewportHlodAxisDistance(point.y, bounds.minimum.y, bounds.maximum.y);
+    const auto dz = viewportHlodAxisDistance(point.z, bounds.minimum.z, bounds.maximum.z);
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+} // namespace detail
 
 enum class ViewportHlodReason : std::uint8_t {
     None,
@@ -37,11 +100,19 @@ struct ViewportHlodEvaluation {
 {
     ViewportHlodEvaluation result;
     result.distanceToCenter = (bounds.center - camera.eye).length();
-    result.insideBounds = std::isfinite(result.distanceToCenter)
-        && result.distanceToCenter <= bounds.radius;
-    result.distance = std::isfinite(result.distanceToCenter)
+    const auto sphereDistance = std::isfinite(result.distanceToCenter)
         ? std::max(result.distanceToCenter - bounds.radius, 0.0F)
         : 0.0F;
+    const auto boundsAabb = detail::viewportHlodBoundsAabb(bounds);
+    const auto distanceToAabb = detail::viewportHlodDistanceToAabb(camera.eye, boundsAabb);
+    if (boundsAabb.valid && std::isfinite(distanceToAabb)) {
+        result.insideBounds = distanceToAabb <= 0.0001F;
+        result.distance = result.insideBounds ? 0.0F : distanceToAabb;
+    } else {
+        result.insideBounds = std::isfinite(result.distanceToCenter)
+            && result.distanceToCenter <= bounds.radius;
+        result.distance = sphereDistance;
+    }
     if (bounds.radius <= 0.0F || viewportHeight <= 0 || result.distanceToCenter <= 0.05F) {
         return result;
     }

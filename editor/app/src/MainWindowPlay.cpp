@@ -254,6 +254,7 @@ std::filesystem::path MainWindow::projectScriptsModulePath() const
         / "Project"
         / "Binaries"
         / "Scripts"
+        / PROJECTUNITY_BUILD_CONFIG
         / kProjectScriptsModuleFileName;
 }
 

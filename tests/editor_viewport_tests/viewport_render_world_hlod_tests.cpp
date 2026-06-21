@@ -132,7 +132,8 @@ projectunity::editor::ViewportRenderWorldFrame buildFrame(
     std::vector<projectunity::renderer::RenderMeshDraw>& draws)
 {
     std::vector<projectunity::renderer::RenderLight> lights;
-    return world.buildFrame(&scene, &assets, {}, overviewCamera(), {}, 1080, false, draws, lights);
+    const auto settings = projectunity::editor::viewportAssetLodSettingsFromEnvironment();
+    return world.buildFrame(&scene, &assets, {}, overviewCamera(), {}, 1080, settings, false, draws, lights);
 }
 
 projectunity::editor::ViewportRenderWorldFrame buildFrameWithCamera(
@@ -144,7 +145,8 @@ projectunity::editor::ViewportRenderWorldFrame buildFrameWithCamera(
 {
     std::vector<projectunity::renderer::RenderLight> lights;
     draws.clear();
-    return world.buildFrame(&scene, &assets, {}, camera, {}, 1080, false, draws, lights);
+    const auto settings = projectunity::editor::viewportAssetLodSettingsFromEnvironment();
+    return world.buildFrame(&scene, &assets, {}, camera, {}, 1080, settings, false, draws, lights);
 }
 
 } // namespace
@@ -191,6 +193,35 @@ int main()
             || projectunity::editor::viewportRootHlodEligible(evaluation, settings, true, true, false, reason)) {
             return fail("HLOD activated inside enclosing asset bounds after a camera pitch change");
         }
+    }
+
+    projectunity::editor::ViewportWorldBounds flatAssetBounds;
+    flatAssetBounds.center = {0.0F, 0.0F, 150.0F};
+    flatAssetBounds.radius = projectunity::math::Vec3 {100.0F, 1.0F, 50.0F}.length();
+    flatAssetBounds.corners = {{
+        {-100.0F, -1.0F, 100.0F}, {100.0F, -1.0F, 100.0F},
+        {-100.0F, 1.0F, 100.0F}, {100.0F, 1.0F, 100.0F},
+        {-100.0F, -1.0F, 200.0F}, {100.0F, -1.0F, 200.0F},
+        {-100.0F, 1.0F, 200.0F}, {100.0F, 1.0F, 200.0F},
+    }};
+    auto overheadCamera = overviewCamera();
+    overheadCamera.eye = {0.0F, 40.0F, 150.0F};
+    overheadCamera.forward = {0.0F, -1.0F, 0.0F};
+    overheadCamera.up = {0.0F, 0.0F, 1.0F};
+    overheadCamera.right = {1.0F, 0.0F, 0.0F};
+    const auto overheadEvaluation = projectunity::editor::evaluateViewportHlod(flatAssetBounds, overheadCamera, 1080);
+    if (overheadEvaluation.insideBounds || std::abs(overheadEvaluation.distance - 39.0F) > 0.001F) {
+        return fail("HLOD treated an overhead camera outside a flat asset AABB as inside the asset");
+    }
+    projectunity::editor::ViewportHlodReason overheadReason = projectunity::editor::ViewportHlodReason::None;
+    if (!projectunity::editor::viewportRootHlodEligible(
+            overheadEvaluation,
+            settings,
+            true,
+            true,
+            false,
+            overheadReason)) {
+        return fail("HLOD proxy did not stay eligible above a large flat asset");
     }
 
     TestAssetManager rockAssets;
@@ -270,7 +301,7 @@ int main()
     const auto shadowSelection = projectunity::renderer::chooseShadowMap(lights, {0.0F, 0.0F, 90.0F}, 180.0F);
     std::vector<projectunity::renderer::RenderMeshDraw> shadowDraws;
     projectunity::editor::ViewportRenderWorldStats shadowStats;
-    world.collectShadowCasters(shadowSelection, &lights.front(), overviewCamera(), 1080, {}, shadowDraws, shadowStats);
+    world.collectShadowCasters(shadowSelection, &lights.front(), overviewCamera(), 1080, settings, {}, shadowDraws, shadowStats);
     if (shadowStats.shadowHlodProxyDrawCount == 0U || shadowDraws.size() > 4U) {
         std::cerr << "shadowDraws=" << shadowDraws.size() << " proxy=" << shadowStats.shadowHlodProxyDrawCount << '\n';
         return fail("Distant shadow casters did not use HLOD proxy draws");

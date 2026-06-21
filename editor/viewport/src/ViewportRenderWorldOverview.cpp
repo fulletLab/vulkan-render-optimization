@@ -717,7 +717,8 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
                 camera.verticalFovRadians,
                 camera.aspectRatio,
                 camera.nearPlane,
-                camera.farPlane)) {
+                camera.farPlane,
+                lodSettings.cullingBoundsPadding)) {
             return;
         }
         ++visibleChunkCount;
@@ -736,7 +737,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
         visibleChunkTriangles += chunk.triangleCount;
         visibleChunks.push_back(&chunk);
-    });
+    }, !lodSettings.spatialCellCullingEnabled, lodSettings.cullingBoundsPadding);
     if (visibleChunkCount == 0U) {
         return false;
     }

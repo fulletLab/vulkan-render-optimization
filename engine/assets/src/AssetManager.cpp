@@ -777,8 +777,7 @@ AssetImportResult AssetManager::importModel(
     reportProgress(progress, 92, "Writing asset cache");
     if (!writeCacheRecord(imported.record, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
     if (!batchComparisonMode && !writeFfultModelCache(*imported.asset, &error)) {
-        core::logError(core::LogCategory::Assets, error);
-        return {false, {}, std::move(error)};
+        core::logWarning(core::LogCategory::Assets, "Model imported, but FFULT cache was not refreshed: " + error);
     }
     {
         std::scoped_lock lock(mutex_);
@@ -793,7 +792,7 @@ AssetImportResult AssetManager::importModel(
     }
     storeRecord(imported.record);
     reportProgress(progress, 100, "Model imported");
-    core::logInfo(core::LogCategory::Assets, "Model asset imported and cached");
+    core::logInfo(core::LogCategory::Assets, "Model asset imported");
     return {true, imported.record, {}};
 }
 AssetImportResult AssetManager::importTexture(
@@ -826,7 +825,9 @@ AssetImportResult AssetManager::importTexture(
     record.cacheFile = std::to_string(record.id.value()) + ".asset.json";
     reportProgress(progress, 88, "Writing asset cache");
     if (!writeCacheRecord(record, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
-    if (!writeFfultTextureCache(*textureAsset, &error)) { core::logError(core::LogCategory::Assets, error); return {false, {}, std::move(error)}; }
+    if (!writeFfultTextureCache(*textureAsset, &error)) {
+        core::logWarning(core::LogCategory::Assets, "Texture imported, but FFULT cache was not refreshed: " + error);
+    }
     {
         std::scoped_lock lock(mutex_);
         auto existing = std::find_if(textures_.begin(), textures_.end(), [&textureAsset](const auto& texture) {
@@ -840,7 +841,7 @@ AssetImportResult AssetManager::importTexture(
     }
     storeRecord(record);
     reportProgress(progress, 100, "Texture imported");
-    core::logInfo(core::LogCategory::Assets, "Texture asset imported and cached");
+    core::logInfo(core::LogCategory::Assets, "Texture asset imported");
     return {true, std::move(record), {}};
 }
 } // namespace projectunity::assets

@@ -26,6 +26,7 @@ namespace {
 AssetManager::AssetManager(std::filesystem::path cacheRoot)
     : cacheRoot_(std::move(cacheRoot))
 {
+    loadCacheRecords();
 }
 
 AssetImportResult AssetManager::importAsset(const std::filesystem::path& sourcePath)

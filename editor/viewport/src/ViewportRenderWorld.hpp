@@ -164,6 +164,7 @@ private:
     bool dirty_ {true};
     bool runtimeSnapshot_ {false};
     std::uint64_t lastDebugSignature_ {0};
+    std::uint64_t lastSelectedAssetTraceSignature_ {0};
     std::unordered_map<std::uint64_t, std::shared_ptr<EntityRecord>> records_;
     std::unordered_map<std::uint64_t, std::uint32_t> lodSelectionHistory_;
     std::unordered_map<std::uint64_t, bool> rootHlodHistory_;

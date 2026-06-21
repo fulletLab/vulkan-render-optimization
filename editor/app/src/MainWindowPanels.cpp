@@ -10,6 +10,7 @@
 #include <DockAreaWidget.h>
 #include <DockManager.h>
 #include <DockWidget.h>
+#include <FloatingDockContainer.h>
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -41,6 +42,8 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QSlider>
+#include <QSpinBox>
 #include <QStyle>
 #include <QStatusBar>
 #include <QTableWidget>
@@ -86,6 +89,53 @@ constexpr int kOverrideColumn = 8;
     label->setObjectName(QStringLiteral("MutedLabel"));
     label->setWordWrap(true);
     return label;
+}
+
+[[nodiscard]] int comboData(const QComboBox* combo, int fallback)
+{
+    if (combo == nullptr || combo->currentIndex() < 0) {
+        return fallback;
+    }
+    return combo->currentData().toInt();
+}
+
+void setComboData(QComboBox* combo, int value)
+{
+    if (combo == nullptr) {
+        return;
+    }
+    const auto index = combo->findData(value);
+    combo->setCurrentIndex(index < 0 ? 0 : index);
+}
+
+[[nodiscard]] QWidget* makeSliderRow(QSlider*& slider, QLabel*& valueLabel, int minimum, int maximum)
+{
+    auto* row = new QWidget;
+    auto* layout = new QHBoxLayout(row);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
+    slider = new QSlider(Qt::Horizontal);
+    slider->setRange(minimum, maximum);
+    slider->setTracking(true);
+    slider->setSingleStep(1);
+    slider->setPageStep(std::max(1, (maximum - minimum) / 20));
+    slider->setMinimumWidth(180);
+    valueLabel = new QLabel(QStringLiteral("-"));
+    valueLabel->setMinimumWidth(72);
+    valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    layout->addWidget(slider, 1);
+    layout->addWidget(valueLabel);
+    return row;
+}
+
+[[nodiscard]] QSpinBox* makeBudgetSpinBox()
+{
+    auto* spin = new QSpinBox;
+    spin->setRange(1, 1000000);
+    spin->setSingleStep(8);
+    spin->setAccelerated(true);
+    spin->setKeyboardTracking(false);
+    return spin;
 }
 
 [[nodiscard]] QGroupBox* makeInspectorSection(const QString& title)
@@ -494,6 +544,8 @@ void MainWindow::createDockLayout()
     auto* importDock = createDockWidget(QStringLiteral("Importar"), createAssetImportPanel());
     auto* terrainDock = createDockWidget(QStringLiteral("Terreno"), createTerrainPanel());
     auto* lightingDock = createDockWidget(QStringLiteral("Iluminacion"), createLightingPanel());
+    auto* viewportTuningDock = createDockWidget(QStringLiteral("Viewport Tuning"), createViewportTuningPanel());
+    viewportTuningDock_ = viewportTuningDock;
     auto* physicsDock = createDockWidget(QStringLiteral("Fisica"), createTextPanel(
         QStringLiteral("Fisica"),
         {QStringLiteral("Cuerpos"), QStringLiteral("Colisionadores"), QStringLiteral("Consultas")}));
@@ -514,6 +566,9 @@ void MainWindow::createDockLayout()
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, importDock, bottomArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, terrainDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, lightingDock, rightArea);
+    auto* viewportTuningWindow = dockManager_->addDockWidgetFloating(viewportTuningDock);
+    viewportTuningWindow->resize(440, 720);
+    viewportTuningWindow->move(QPoint(80, 80));
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, physicsDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, navigationDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, serverDock, rightArea);
@@ -1107,6 +1162,439 @@ QWidget* MainWindow::createProfilerPanel()
     layout->addWidget(profilerTable_);
     updateProfilerPanel();
     return panel;
+}
+
+QWidget* MainWindow::createViewportTuningPanel()
+{
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+
+    auto* panel = new QWidget;
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(10);
+
+    auto* header = new QLabel(QStringLiteral("Viewport Tuning"));
+    header->setObjectName(QStringLiteral("PanelHeader"));
+    layout->addWidget(header);
+    layout->addWidget(makeMutedLabel(QStringLiteral("Ajustes vivos para diagnosticar popping, culling, HLOD y sombras sin recompilar.")));
+
+    auto* presetGroup = makeInspectorSection(QStringLiteral("Presets rapidos"));
+    auto* presetLayout = new QHBoxLayout(presetGroup);
+    auto* safeNearButton = makeToolButton(QStringLiteral("Seguro cerca"));
+    auto* noCullButton = makeToolButton(QStringLiteral("Sin culling"));
+    auto* balancedButton = makeToolButton(QStringLiteral("Balanceado"));
+    presetLayout->addWidget(safeNearButton);
+    presetLayout->addWidget(noCullButton);
+    presetLayout->addWidget(balancedButton);
+    layout->addWidget(presetGroup);
+
+    auto* lodGroup = makeInspectorSection(QStringLiteral("LOD / HLOD"));
+    auto* lodForm = new QFormLayout(lodGroup);
+    lodForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+    tuningHlodCheck_ = new QCheckBox(QStringLiteral("Activado"));
+    lodForm->addRow(QStringLiteral("HLOD"), tuningHlodCheck_);
+
+    tuningLodQualityCombo_ = new QComboBox;
+    tuningLodQualityCombo_->addItem(QStringLiteral("Rendimiento"), static_cast<int>(LodQuality::Performance));
+    tuningLodQualityCombo_->addItem(QStringLiteral("Balanceado"), static_cast<int>(LodQuality::Balanced));
+    tuningLodQualityCombo_->addItem(QStringLiteral("Calidad"), static_cast<int>(LodQuality::Quality));
+    tuningLodQualityCombo_->addItem(QStringLiteral("Ultra"), static_cast<int>(LodQuality::Ultra));
+    lodForm->addRow(QStringLiteral("Calidad LOD"), tuningLodQualityCombo_);
+
+    tuningHlodAggressivenessCombo_ = new QComboBox;
+    tuningHlodAggressivenessCombo_->addItem(QStringLiteral("Baja"), static_cast<int>(HlodAggressiveness::Low));
+    tuningHlodAggressivenessCombo_->addItem(QStringLiteral("Media"), static_cast<int>(HlodAggressiveness::Medium));
+    tuningHlodAggressivenessCombo_->addItem(QStringLiteral("Alta"), static_cast<int>(HlodAggressiveness::High));
+    lodForm->addRow(QStringLiteral("Agresividad"), tuningHlodAggressivenessCombo_);
+
+    tuningHlodOverrideCombo_ = new QComboBox;
+    tuningHlodOverrideCombo_->addItem(QStringLiteral("Automatico"), static_cast<int>(ViewportHlodDebugOverride::Automatic));
+    tuningHlodOverrideCombo_->addItem(QStringLiteral("Forzar detallado"), static_cast<int>(ViewportHlodDebugOverride::ForceDetailed));
+    tuningHlodOverrideCombo_->addItem(QStringLiteral("Forzar HLOD"), static_cast<int>(ViewportHlodDebugOverride::ForceHlod));
+    lodForm->addRow(QStringLiteral("Override"), tuningHlodOverrideCombo_);
+
+    lodForm->addRow(
+        QStringLiteral("Distancia"),
+        makeSliderRow(tuningLodDistanceSlider_, tuningLodDistanceValue_, 0, 250));
+    tuningLodDistanceSlider_->setToolTip(QStringLiteral("Sube este valor si los assets pasan a HLOD demasiado cerca."));
+
+    lodForm->addRow(
+        QStringLiteral("Screen error"),
+        makeSliderRow(tuningScreenErrorSlider_, tuningScreenErrorValue_, 5, 400));
+    tuningScreenErrorSlider_->setToolTip(QStringLiteral("Baja este valor si el HLOD aparece agresivamente o con popping visible."));
+
+    lodForm->addRow(
+        QStringLiteral("Hysteresis"),
+        makeSliderRow(tuningHysteresisSlider_, tuningHysteresisValue_, 0, 45));
+    tuningHysteresisSlider_->setToolTip(QStringLiteral("Sube este valor para reducir cambios de LOD al mover la camara."));
+
+    tuningChunkBudgetSpin_ = makeBudgetSpinBox();
+    lodForm->addRow(QStringLiteral("Chunk budget"), tuningChunkBudgetSpin_);
+    tuningDrawPacketBudgetSpin_ = makeBudgetSpinBox();
+    lodForm->addRow(QStringLiteral("Draw packets"), tuningDrawPacketBudgetSpin_);
+    tuningShadowCasterBudgetSpin_ = makeBudgetSpinBox();
+    lodForm->addRow(QStringLiteral("Shadow casters"), tuningShadowCasterBudgetSpin_);
+    layout->addWidget(lodGroup);
+
+    auto* cullingGroup = makeInspectorSection(QStringLiteral("Culling"));
+    auto* cullingForm = new QFormLayout(cullingGroup);
+    cullingForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    tuningOcclusionCullingCheck_ = new QCheckBox(QStringLiteral("Rechazar chunks ocultos"));
+    tuningOcclusionCullingCheck_->setToolTip(QStringLiteral("Apagalo si algo desaparece al mirar hacia assets o entre estructuras."));
+    cullingForm->addRow(QStringLiteral("Occlusion"), tuningOcclusionCullingCheck_);
+    tuningSpatialCullingCheck_ = new QCheckBox(QStringLiteral("Usar grilla espacial"));
+    tuningSpatialCullingCheck_->setToolTip(QStringLiteral("Apagalo para probar todos los chunks y descartar errores de spatial cells."));
+    cullingForm->addRow(QStringLiteral("Spatial cells"), tuningSpatialCullingCheck_);
+    cullingForm->addRow(
+        QStringLiteral("Bounds padding"),
+        makeSliderRow(tuningCullingPaddingSlider_, tuningCullingPaddingValue_, 0, 500));
+    tuningCullingPaddingSlider_->setToolTip(QStringLiteral("Inflado conservador de bounds usado solo para culling. Sube si algo desaparece muy cerca."));
+    layout->addWidget(cullingGroup);
+
+    auto* terrainGroup = makeInspectorSection(QStringLiteral("Terrain cerca"));
+    auto* terrainForm = new QFormLayout(terrainGroup);
+    terrainForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    tuningTerrainNearQualityCheck_ = new QCheckBox(QStringLiteral("Forzar detalle cerca"));
+    terrainForm->addRow(QStringLiteral("LOD0 cerca"), tuningTerrainNearQualityCheck_);
+    terrainForm->addRow(
+        QStringLiteral("Radio cerca"),
+        makeSliderRow(tuningTerrainNearRadiusSlider_, tuningTerrainNearRadiusValue_, 0, 500));
+    tuningTerrainNearRadiusSlider_->setToolTip(QStringLiteral("Radio en metros para mantener terrain detallado cerca de la camara."));
+    tuningDisableTerrainHlodCheck_ = new QCheckBox(QStringLiteral("No usar HLOD terrain"));
+    tuningDisableTerrainChunkLodCheck_ = new QCheckBox(QStringLiteral("No degradar chunks terrain"));
+    terrainForm->addRow(QStringLiteral("Disable HLOD"), tuningDisableTerrainHlodCheck_);
+    terrainForm->addRow(QStringLiteral("Disable chunk LOD"), tuningDisableTerrainChunkLodCheck_);
+    layout->addWidget(terrainGroup);
+
+    auto* shadowGroup = makeInspectorSection(QStringLiteral("Sombras"));
+    auto* shadowForm = new QFormLayout(shadowGroup);
+    tuningShadowModeCombo_ = new QComboBox;
+    tuningShadowModeCombo_->addItem(QStringLiteral("Off"), static_cast<int>(renderer::RenderShadowUpdateMode::Off));
+    tuningShadowModeCombo_->addItem(QStringLiteral("Live"), static_cast<int>(renderer::RenderShadowUpdateMode::Live));
+    tuningShadowModeCombo_->addItem(QStringLiteral("Frozen"), static_cast<int>(renderer::RenderShadowUpdateMode::Frozen));
+    shadowForm->addRow(QStringLiteral("Modo"), tuningShadowModeCombo_);
+    layout->addWidget(shadowGroup);
+
+    auto* debugGroup = makeInspectorSection(QStringLiteral("Overlays"));
+    auto* debugLayout = new QVBoxLayout(debugGroup);
+    tuningLodColorsCheck_ = new QCheckBox(QStringLiteral("Colores LOD / HLOD"));
+    tuningShadowCastersCheck_ = new QCheckBox(QStringLiteral("Shadow casters"));
+    tuningBoundsXrayCheck_ = new QCheckBox(QStringLiteral("Bounds / XRay"));
+    tuningSourceObjectsCheck_ = new QCheckBox(QStringLiteral("Source objects"));
+    tuningSunDirectionCheck_ = new QCheckBox(QStringLiteral("Direccion del sol"));
+    debugLayout->addWidget(tuningLodColorsCheck_);
+    debugLayout->addWidget(tuningShadowCastersCheck_);
+    debugLayout->addWidget(tuningBoundsXrayCheck_);
+    debugLayout->addWidget(tuningSourceObjectsCheck_);
+    debugLayout->addWidget(tuningSunDirectionCheck_);
+    layout->addWidget(debugGroup);
+
+    auto* statsGroup = makeInspectorSection(QStringLiteral("Frame actual"));
+    auto* statsLayout = new QVBoxLayout(statsGroup);
+    tuningStatsLabel_ = makeMutedLabel(QStringLiteral("Sin frame Vulkan todavia."));
+    statsLayout->addWidget(tuningStatsLabel_);
+    layout->addWidget(statsGroup);
+    layout->addStretch();
+
+    const auto apply = [this]() {
+        applyViewportTuningFromControls();
+    };
+    connect(safeNearButton, &QPushButton::clicked, this, [this] {
+        auto next = qualitySettings_;
+        next.graphics.preset = QualityPreset::Custom;
+        next.lod.hlodEnabled = false;
+        next.lod.debugOverride = ViewportHlodDebugOverride::ForceDetailed;
+        next.lod.quality = LodQuality::Ultra;
+        next.lod.aggressiveness = HlodAggressiveness::Low;
+        next.lod.lodDistance = 80.0F;
+        next.lod.screenError = 0.50F;
+        next.lod.hysteresis = 0.30F;
+        next.lod.chunkBudget = std::max(next.lod.chunkBudget, 256);
+        next.lod.drawPacketBudget = std::max(next.lod.drawPacketBudget, 1024);
+        next.lod.shadowCasterBudget = std::max(next.lod.shadowCasterBudget, 1024);
+        next.lod.cullingBoundsPadding = 1.0F;
+        next.lod.occlusionCullingEnabled = false;
+        next.lod.spatialCellCullingEnabled = true;
+        next.lod.terrainNearHighQualityEnabled = true;
+        next.lod.terrainNearHighQualityRadius = std::max(next.lod.terrainNearHighQualityRadius, 120.0F);
+        next.lod.debugDisableTerrainHlod = true;
+        next.lod.debugDisableTerrainChunkLod = true;
+        next.debug.boundsXray = true;
+        next.debug.lodColors = true;
+        next.lod.debugColors = true;
+        applyEditorQualitySettings(std::move(next), true);
+    });
+    connect(noCullButton, &QPushButton::clicked, this, [this] {
+        auto next = qualitySettings_;
+        next.graphics.preset = QualityPreset::Custom;
+        next.lod.hlodEnabled = false;
+        next.lod.debugOverride = ViewportHlodDebugOverride::ForceDetailed;
+        next.lod.occlusionCullingEnabled = false;
+        next.lod.spatialCellCullingEnabled = false;
+        next.lod.cullingBoundsPadding = 1.5F;
+        next.lod.chunkBudget = std::max(next.lod.chunkBudget, 512);
+        next.lod.drawPacketBudget = std::max(next.lod.drawPacketBudget, 2048);
+        next.lod.shadowCasterBudget = std::max(next.lod.shadowCasterBudget, 2048);
+        next.debug.boundsXray = true;
+        next.debug.sourceObjects = true;
+        applyEditorQualitySettings(std::move(next), true);
+    });
+    connect(balancedButton, &QPushButton::clicked, this, [this] {
+        auto next = qualitySettings_;
+        applyQualityPreset(QualityPreset::Medium, next);
+        next.graphics.preset = QualityPreset::Custom;
+        applyEditorQualitySettings(std::move(next), true);
+    });
+    connect(tuningHlodCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningLodQualityCombo_, &QComboBox::currentIndexChanged, this, [apply](int) { apply(); });
+    connect(tuningHlodAggressivenessCombo_, &QComboBox::currentIndexChanged, this, [apply](int) { apply(); });
+    connect(tuningHlodOverrideCombo_, &QComboBox::currentIndexChanged, this, [apply](int) { apply(); });
+    connect(tuningLodDistanceSlider_, &QSlider::valueChanged, this, [this, apply](int value) {
+        if (tuningLodDistanceValue_ != nullptr) {
+            tuningLodDistanceValue_->setText(QStringLiteral("%1 m").arg(value));
+        }
+        apply();
+    });
+    connect(tuningScreenErrorSlider_, &QSlider::valueChanged, this, [this, apply](int value) {
+        if (tuningScreenErrorValue_ != nullptr) {
+            tuningScreenErrorValue_->setText(QStringLiteral("%1").arg(static_cast<double>(value) / 100.0, 0, 'f', 2));
+        }
+        apply();
+    });
+    connect(tuningHysteresisSlider_, &QSlider::valueChanged, this, [this, apply](int value) {
+        if (tuningHysteresisValue_ != nullptr) {
+            tuningHysteresisValue_->setText(QStringLiteral("%1").arg(static_cast<double>(value) / 100.0, 0, 'f', 2));
+        }
+        apply();
+    });
+    connect(tuningChunkBudgetSpin_, &QSpinBox::valueChanged, this, [apply](int) { apply(); });
+    connect(tuningDrawPacketBudgetSpin_, &QSpinBox::valueChanged, this, [apply](int) { apply(); });
+    connect(tuningShadowCasterBudgetSpin_, &QSpinBox::valueChanged, this, [apply](int) { apply(); });
+    connect(tuningOcclusionCullingCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningSpatialCullingCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningCullingPaddingSlider_, &QSlider::valueChanged, this, [this, apply](int value) {
+        if (tuningCullingPaddingValue_ != nullptr) {
+            tuningCullingPaddingValue_->setText(QStringLiteral("%1 m").arg(static_cast<double>(value) / 100.0, 0, 'f', 2));
+        }
+        apply();
+    });
+    connect(tuningTerrainNearQualityCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningTerrainNearRadiusSlider_, &QSlider::valueChanged, this, [this, apply](int value) {
+        if (tuningTerrainNearRadiusValue_ != nullptr) {
+            tuningTerrainNearRadiusValue_->setText(QStringLiteral("%1 m").arg(value));
+        }
+        apply();
+    });
+    connect(tuningDisableTerrainHlodCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningDisableTerrainChunkLodCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningShadowModeCombo_, &QComboBox::currentIndexChanged, this, [apply](int) { apply(); });
+    connect(tuningLodColorsCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningShadowCastersCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningBoundsXrayCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningSourceObjectsCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+    connect(tuningSunDirectionCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
+
+    scroll->setWidget(panel);
+    syncViewportTuningPanel();
+    return scroll;
+}
+
+void MainWindow::applyViewportTuningFromControls()
+{
+    if (viewportTuningUpdating_) {
+        return;
+    }
+
+    auto next = qualitySettings_;
+    next.graphics.preset = QualityPreset::Custom;
+    if (tuningHlodCheck_ != nullptr) {
+        next.lod.hlodEnabled = tuningHlodCheck_->isChecked();
+    }
+    if (tuningLodQualityCombo_ != nullptr) {
+        next.lod.quality = static_cast<LodQuality>(
+            comboData(tuningLodQualityCombo_, static_cast<int>(next.lod.quality)));
+    }
+    if (tuningHlodAggressivenessCombo_ != nullptr) {
+        next.lod.aggressiveness = static_cast<HlodAggressiveness>(
+            comboData(tuningHlodAggressivenessCombo_, static_cast<int>(next.lod.aggressiveness)));
+    }
+    if (tuningHlodOverrideCombo_ != nullptr) {
+        next.lod.debugOverride = static_cast<ViewportHlodDebugOverride>(
+            comboData(tuningHlodOverrideCombo_, static_cast<int>(next.lod.debugOverride)));
+    }
+    if (tuningLodDistanceSlider_ != nullptr) {
+        next.lod.lodDistance = static_cast<float>(tuningLodDistanceSlider_->value());
+    }
+    if (tuningScreenErrorSlider_ != nullptr) {
+        next.lod.screenError = static_cast<float>(tuningScreenErrorSlider_->value()) / 100.0F;
+    }
+    if (tuningHysteresisSlider_ != nullptr) {
+        next.lod.hysteresis = static_cast<float>(tuningHysteresisSlider_->value()) / 100.0F;
+    }
+    if (tuningChunkBudgetSpin_ != nullptr) {
+        next.lod.chunkBudget = tuningChunkBudgetSpin_->value();
+    }
+    if (tuningDrawPacketBudgetSpin_ != nullptr) {
+        next.lod.drawPacketBudget = tuningDrawPacketBudgetSpin_->value();
+    }
+    if (tuningShadowCasterBudgetSpin_ != nullptr) {
+        next.lod.shadowCasterBudget = tuningShadowCasterBudgetSpin_->value();
+    }
+    if (tuningOcclusionCullingCheck_ != nullptr) {
+        next.lod.occlusionCullingEnabled = tuningOcclusionCullingCheck_->isChecked();
+    }
+    if (tuningSpatialCullingCheck_ != nullptr) {
+        next.lod.spatialCellCullingEnabled = tuningSpatialCullingCheck_->isChecked();
+    }
+    if (tuningCullingPaddingSlider_ != nullptr) {
+        next.lod.cullingBoundsPadding = static_cast<float>(tuningCullingPaddingSlider_->value()) / 100.0F;
+    }
+    if (tuningTerrainNearQualityCheck_ != nullptr) {
+        next.lod.terrainNearHighQualityEnabled = tuningTerrainNearQualityCheck_->isChecked();
+    }
+    if (tuningTerrainNearRadiusSlider_ != nullptr) {
+        next.lod.terrainNearHighQualityRadius = static_cast<float>(tuningTerrainNearRadiusSlider_->value());
+    }
+    if (tuningDisableTerrainHlodCheck_ != nullptr) {
+        next.lod.debugDisableTerrainHlod = tuningDisableTerrainHlodCheck_->isChecked();
+    }
+    if (tuningDisableTerrainChunkLodCheck_ != nullptr) {
+        next.lod.debugDisableTerrainChunkLod = tuningDisableTerrainChunkLodCheck_->isChecked();
+    }
+    if (tuningShadowModeCombo_ != nullptr) {
+        next.shadow.updateMode = static_cast<renderer::RenderShadowUpdateMode>(
+            comboData(tuningShadowModeCombo_, static_cast<int>(next.shadow.updateMode)));
+        next.shadow.quality = next.shadow.updateMode == renderer::RenderShadowUpdateMode::Off
+            ? ShadowQuality::Off
+            : (next.shadow.quality == ShadowQuality::Off ? ShadowQuality::High : next.shadow.quality);
+    }
+    if (tuningLodColorsCheck_ != nullptr) {
+        next.lod.debugColors = tuningLodColorsCheck_->isChecked();
+        next.debug.lodColors = next.lod.debugColors;
+    }
+    if (tuningShadowCastersCheck_ != nullptr) {
+        next.debug.shadowCasters = tuningShadowCastersCheck_->isChecked();
+    }
+    if (tuningBoundsXrayCheck_ != nullptr) {
+        next.debug.boundsXray = tuningBoundsXrayCheck_->isChecked();
+    }
+    if (tuningSourceObjectsCheck_ != nullptr) {
+        next.debug.sourceObjects = tuningSourceObjectsCheck_->isChecked();
+    }
+    if (tuningSunDirectionCheck_ != nullptr) {
+        next.debug.sunDirection = tuningSunDirectionCheck_->isChecked();
+    }
+
+    applyEditorQualitySettings(std::move(next), true);
+}
+
+void MainWindow::syncViewportTuningPanel()
+{
+    if (tuningHlodCheck_ == nullptr) {
+        return;
+    }
+
+    viewportTuningUpdating_ = true;
+    const auto clearUpdating = [this]() {
+        viewportTuningUpdating_ = false;
+    };
+
+    const QSignalBlocker blockHlod(tuningHlodCheck_);
+    const QSignalBlocker blockLodQuality(tuningLodQualityCombo_);
+    const QSignalBlocker blockAggressiveness(tuningHlodAggressivenessCombo_);
+    const QSignalBlocker blockOverride(tuningHlodOverrideCombo_);
+    const QSignalBlocker blockDistance(tuningLodDistanceSlider_);
+    const QSignalBlocker blockScreen(tuningScreenErrorSlider_);
+    const QSignalBlocker blockHysteresis(tuningHysteresisSlider_);
+    const QSignalBlocker blockChunk(tuningChunkBudgetSpin_);
+    const QSignalBlocker blockPackets(tuningDrawPacketBudgetSpin_);
+    const QSignalBlocker blockShadowCasters(tuningShadowCasterBudgetSpin_);
+    const QSignalBlocker blockOcclusion(tuningOcclusionCullingCheck_);
+    const QSignalBlocker blockSpatial(tuningSpatialCullingCheck_);
+    const QSignalBlocker blockPadding(tuningCullingPaddingSlider_);
+    const QSignalBlocker blockTerrainNear(tuningTerrainNearQualityCheck_);
+    const QSignalBlocker blockTerrainRadius(tuningTerrainNearRadiusSlider_);
+    const QSignalBlocker blockTerrainHlod(tuningDisableTerrainHlodCheck_);
+    const QSignalBlocker blockTerrainChunkLod(tuningDisableTerrainChunkLodCheck_);
+    const QSignalBlocker blockShadowMode(tuningShadowModeCombo_);
+    const QSignalBlocker blockLodColors(tuningLodColorsCheck_);
+    const QSignalBlocker blockShadowOverlay(tuningShadowCastersCheck_);
+    const QSignalBlocker blockBounds(tuningBoundsXrayCheck_);
+    const QSignalBlocker blockSourceObjects(tuningSourceObjectsCheck_);
+    const QSignalBlocker blockSun(tuningSunDirectionCheck_);
+
+    tuningHlodCheck_->setChecked(qualitySettings_.lod.hlodEnabled);
+    setComboData(tuningLodQualityCombo_, static_cast<int>(qualitySettings_.lod.quality));
+    setComboData(tuningHlodAggressivenessCombo_, static_cast<int>(qualitySettings_.lod.aggressiveness));
+    setComboData(tuningHlodOverrideCombo_, static_cast<int>(qualitySettings_.lod.debugOverride));
+    tuningLodDistanceSlider_->setValue(std::clamp(static_cast<int>(qualitySettings_.lod.lodDistance), 0, 250));
+    tuningLodDistanceValue_->setText(QStringLiteral("%1 m").arg(tuningLodDistanceSlider_->value()));
+    tuningScreenErrorSlider_->setValue(std::clamp(static_cast<int>(qualitySettings_.lod.screenError * 100.0F), 5, 400));
+    tuningScreenErrorValue_->setText(QStringLiteral("%1").arg(qualitySettings_.lod.screenError, 0, 'f', 2));
+    tuningHysteresisSlider_->setValue(std::clamp(static_cast<int>(qualitySettings_.lod.hysteresis * 100.0F), 0, 45));
+    tuningHysteresisValue_->setText(QStringLiteral("%1").arg(qualitySettings_.lod.hysteresis, 0, 'f', 2));
+    tuningChunkBudgetSpin_->setValue(qualitySettings_.lod.chunkBudget);
+    tuningDrawPacketBudgetSpin_->setValue(qualitySettings_.lod.drawPacketBudget);
+    tuningShadowCasterBudgetSpin_->setValue(qualitySettings_.lod.shadowCasterBudget);
+    tuningOcclusionCullingCheck_->setChecked(qualitySettings_.lod.occlusionCullingEnabled);
+    tuningSpatialCullingCheck_->setChecked(qualitySettings_.lod.spatialCellCullingEnabled);
+    tuningCullingPaddingSlider_->setValue(std::clamp(static_cast<int>(qualitySettings_.lod.cullingBoundsPadding * 100.0F), 0, 500));
+    tuningCullingPaddingValue_->setText(QStringLiteral("%1 m").arg(
+        static_cast<double>(tuningCullingPaddingSlider_->value()) / 100.0,
+        0,
+        'f',
+        2));
+    tuningTerrainNearQualityCheck_->setChecked(qualitySettings_.lod.terrainNearHighQualityEnabled);
+    tuningTerrainNearRadiusSlider_->setValue(std::clamp(static_cast<int>(qualitySettings_.lod.terrainNearHighQualityRadius), 0, 500));
+    tuningTerrainNearRadiusValue_->setText(QStringLiteral("%1 m").arg(tuningTerrainNearRadiusSlider_->value()));
+    tuningDisableTerrainHlodCheck_->setChecked(qualitySettings_.lod.debugDisableTerrainHlod);
+    tuningDisableTerrainChunkLodCheck_->setChecked(qualitySettings_.lod.debugDisableTerrainChunkLod);
+    setComboData(tuningShadowModeCombo_, static_cast<int>(qualitySettings_.shadow.updateMode));
+    tuningLodColorsCheck_->setChecked(qualitySettings_.debug.lodColors || qualitySettings_.lod.debugColors);
+    tuningShadowCastersCheck_->setChecked(qualitySettings_.debug.shadowCasters);
+    tuningBoundsXrayCheck_->setChecked(qualitySettings_.debug.boundsXray);
+    tuningSourceObjectsCheck_->setChecked(qualitySettings_.debug.sourceObjects);
+    tuningSunDirectionCheck_->setChecked(qualitySettings_.debug.sunDirection);
+
+    clearUpdating();
+    updateViewportTuningStats();
+}
+
+void MainWindow::updateViewportTuningStats()
+{
+    if (tuningStatsLabel_ == nullptr) {
+        return;
+    }
+    const auto* stats = sceneViewport_ != nullptr ? sceneViewport_->lastRendererStats() : nullptr;
+    if (stats == nullptr && renderer_ != nullptr && renderer_->isReady()) {
+        stats = &renderer_->stats();
+    }
+    if (stats == nullptr) {
+        tuningStatsLabel_->setText(QStringLiteral("Sin frame Vulkan todavia."));
+        return;
+    }
+    tuningStatsLabel_->setText(QStringLiteral(
+        "FPS %1 | chunks %2/%3 final %4 | draws %5/%6 culled %7 | HLOD %8 %9 reason %10 | OCC %11 %12/%13 | CELL %14 rej %15 | SH %16/%17 rejected %18")
+        .arg(stats->FPS, 0, 'f', 1)
+        .arg(static_cast<qulonglong>(stats->lastFrameVisibleRenderChunkCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameRenderChunkCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameFinalVisibleChunkCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameMeshDrawCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameCandidateMeshDrawCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameCulledMeshDrawCount))
+        .arg(qualitySettings_.lod.hlodEnabled ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(static_cast<qulonglong>(stats->lastFrameHlodMeshDrawCount))
+        .arg(QString::fromStdString(stats->lastFrameHlodReason.empty() ? "inactive" : stats->lastFrameHlodReason))
+        .arg(qualitySettings_.lod.occlusionCullingEnabled ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(static_cast<qulonglong>(stats->lastFrameOcclusionTestedChunkCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameOcclusionRejectedChunkCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameSpatialCellTestCount))
+        .arg(static_cast<qulonglong>(stats->lastFrameSpatialCellRejectedCount))
+        .arg(static_cast<qulonglong>(stats->shadowBatchesSubmitted))
+        .arg(static_cast<qulonglong>(stats->shadowCandidateInstances))
+        .arg(static_cast<qulonglong>(stats->shadowPolicyRejectedInstances)));
 }
 
 QWidget* MainWindow::createTextPanel(const QString& title, const QStringList& lines) const

@@ -192,8 +192,11 @@ template <typename Enum>
         {"chunkBudget", settings.chunkBudget},
         {"drawPacketBudget", settings.drawPacketBudget},
         {"shadowCasterBudget", settings.shadowCasterBudget},
+        {"cullingBoundsPadding", settings.cullingBoundsPadding},
         {"terrainNearHighQualityEnabled", settings.terrainNearHighQualityEnabled},
         {"terrainNearHighQualityRadius", settings.terrainNearHighQualityRadius},
+        {"occlusionCullingEnabled", settings.occlusionCullingEnabled},
+        {"spatialCellCullingEnabled", settings.spatialCellCullingEnabled},
         {"debugDisableTerrainHlod", settings.debugDisableTerrainHlod},
         {"debugDisableTerrainChunkLod", settings.debugDisableTerrainChunkLod},
         {"debugColors", settings.debugColors},
@@ -314,6 +317,12 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
     settings.lod.chunkBudget = intFromJson(lod, "chunkBudget", settings.lod.chunkBudget, 1, 1000000);
     settings.lod.drawPacketBudget = intFromJson(lod, "drawPacketBudget", settings.lod.drawPacketBudget, 1, 1000000);
     settings.lod.shadowCasterBudget = intFromJson(lod, "shadowCasterBudget", settings.lod.shadowCasterBudget, 1, 1000000);
+    settings.lod.cullingBoundsPadding = floatFromJson(
+        lod,
+        "cullingBoundsPadding",
+        settings.lod.cullingBoundsPadding,
+        0.0F,
+        1000.0F);
     settings.lod.terrainNearHighQualityEnabled = boolFromJson(
         lod,
         "terrainNearHighQualityEnabled",
@@ -324,6 +333,14 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
         settings.lod.terrainNearHighQualityRadius,
         0.0F,
         1000000.0F);
+    settings.lod.occlusionCullingEnabled = boolFromJson(
+        lod,
+        "occlusionCullingEnabled",
+        settings.lod.occlusionCullingEnabled);
+    settings.lod.spatialCellCullingEnabled = boolFromJson(
+        lod,
+        "spatialCellCullingEnabled",
+        settings.lod.spatialCellCullingEnabled);
     settings.lod.debugDisableTerrainHlod = boolFromJson(lod, "debugDisableTerrainHlod", settings.lod.debugDisableTerrainHlod);
     settings.lod.debugDisableTerrainChunkLod = boolFromJson(lod, "debugDisableTerrainChunkLod", settings.lod.debugDisableTerrainChunkLod);
     settings.lod.debugColors = boolFromJson(lod, "debugColors", settings.lod.debugColors);
@@ -431,8 +448,11 @@ EditorQualitySettings loadEditorQualitySettings(const std::filesystem::path& pat
     settings.lod.chunkBudget = static_cast<int>(std::min<std::size_t>(envLod.maxVisibleChunksFromFar, 1000000U));
     settings.lod.drawPacketBudget = static_cast<int>(std::min<std::size_t>(envLod.maxDrawPackets, 1000000U));
     settings.lod.shadowCasterBudget = static_cast<int>(std::min<std::size_t>(envLod.maxShadowCasters, 1000000U));
+    settings.lod.cullingBoundsPadding = envLod.cullingBoundsPadding;
     settings.lod.terrainNearHighQualityEnabled = envLod.terrainNearHighQualityEnabled;
     settings.lod.terrainNearHighQualityRadius = envLod.terrainNearHighQualityRadius;
+    settings.lod.occlusionCullingEnabled = envLod.occlusionCullingEnabled;
+    settings.lod.spatialCellCullingEnabled = envLod.spatialCellCullingEnabled;
     settings.lod.debugDisableTerrainHlod = envLod.debugDisableTerrainHlod;
     settings.lod.debugDisableTerrainChunkLod = envLod.debugDisableTerrainChunkLod;
     settings.lod.debugOverride = envLod.debugOverride;
@@ -493,6 +513,12 @@ void applyQualityPreset(QualityPreset preset, EditorQualitySettings& settings)
     settings.lod.automaticLod = true;
     settings.lod.hlodEnabled = true;
     settings.lod.debugOverride = ViewportHlodDebugOverride::Automatic;
+    settings.lod.cullingBoundsPadding = 0.25F;
+    settings.lod.occlusionCullingEnabled = true;
+    settings.lod.spatialCellCullingEnabled = true;
+    settings.lod.terrainNearHighQualityEnabled = true;
+    settings.lod.debugDisableTerrainHlod = false;
+    settings.lod.debugDisableTerrainChunkLod = false;
 
     switch (preset) {
     case QualityPreset::Low:
@@ -571,8 +597,11 @@ ViewportAssetLodSettings viewportAssetLodSettingsFromQuality(const EditorQuality
     result.maxShadowCasters = static_cast<std::size_t>(std::max(settings.lod.shadowCasterBudget, 1));
     result.lodHysteresisRatio = settings.lod.hysteresis;
     result.hlodHysteresisRatio = settings.lod.hysteresis;
+    result.cullingBoundsPadding = settings.lod.cullingBoundsPadding;
     result.terrainNearHighQualityEnabled = settings.lod.terrainNearHighQualityEnabled;
     result.terrainNearHighQualityRadius = settings.lod.terrainNearHighQualityRadius;
+    result.occlusionCullingEnabled = settings.lod.occlusionCullingEnabled;
+    result.spatialCellCullingEnabled = settings.lod.spatialCellCullingEnabled;
     result.debugDisableTerrainHlod = settings.lod.debugDisableTerrainHlod;
     result.debugDisableTerrainChunkLod = settings.lod.debugDisableTerrainChunkLod;
 

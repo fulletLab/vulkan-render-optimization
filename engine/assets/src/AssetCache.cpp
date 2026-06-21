@@ -1,10 +1,15 @@
 #include <projectunity/assets/AssetManager.hpp>
+#include <projectunity/core/Log.hpp>
+
+#include "AssetImportUtils.hpp"
+#include "FfultAssetFormat.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <system_error>
 
 namespace projectunity::assets {
@@ -17,24 +22,81 @@ void setError(std::string* errorMessage, std::string message)
     }
 }
 
+[[nodiscard]] std::optional<AssetType> assetTypeFromString(const std::string& type)
+{
+    if (type == "Model") {
+        return AssetType::Model;
+    }
+    if (type == "Texture2D") {
+        return AssetType::Texture2D;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<AssetRecord> readCacheRecord(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return std::nullopt;
+    }
+
+    nlohmann::json root;
+    try {
+        root = nlohmann::json::parse(file, nullptr, true, true);
+    } catch (const std::exception& exception) {
+        core::logWarning(core::LogCategory::Assets, std::string("Ignoring invalid asset cache record: ") + exception.what());
+        return std::nullopt;
+    }
+
+    const auto type = assetTypeFromString(root.value("type", std::string {}));
+    AssetRecord record;
+    record.id = AssetId(root.value("id", std::uint64_t {0}));
+    if (!record.id.isValid() || !type.has_value()) {
+        core::logWarning(core::LogCategory::Assets, "Ignoring asset cache record with invalid id or type");
+        return std::nullopt;
+    }
+
+    record.type = *type;
+    record.displayName = root.value("displayName", std::string {});
+    record.sourceName = root.value("sourceName", std::string {});
+    record.cacheFile = path.filename().string();
+    record.vertexCount = root.value("vertices", std::size_t {0});
+    record.indexCount = root.value("indices", std::size_t {0});
+    record.textureCount = root.value("textures", std::size_t {0});
+    if (record.displayName.empty()) {
+        record.displayName = record.sourceName.empty() ? std::to_string(record.id.value()) : record.sourceName;
+    }
+    return record;
+}
+
 } // namespace
 
 std::shared_ptr<const ModelAsset> AssetManager::model(AssetId id) const
 {
-    std::scoped_lock lock(mutex_);
-    const auto it = std::find_if(models_.begin(), models_.end(), [id](const auto& asset) {
-        return asset != nullptr && asset->id == id;
-    });
-    return it == models_.end() ? nullptr : *it;
+    {
+        std::scoped_lock lock(mutex_);
+        const auto it = std::find_if(models_.begin(), models_.end(), [id](const auto& asset) {
+            return asset != nullptr && asset->id == id;
+        });
+        if (it != models_.end()) {
+            return *it;
+        }
+    }
+    return loadCachedModel(id);
 }
 
 std::shared_ptr<const TextureAsset> AssetManager::texture(AssetId id) const
 {
-    std::scoped_lock lock(mutex_);
-    const auto it = std::find_if(textures_.begin(), textures_.end(), [id](const auto& asset) {
-        return asset != nullptr && asset->id == id;
-    });
-    return it == textures_.end() ? nullptr : *it;
+    {
+        std::scoped_lock lock(mutex_);
+        const auto it = std::find_if(textures_.begin(), textures_.end(), [id](const auto& asset) {
+            return asset != nullptr && asset->id == id;
+        });
+        if (it != textures_.end()) {
+            return *it;
+        }
+    }
+    return loadCachedTexture(id);
 }
 
 std::vector<AssetRecord> AssetManager::records() const
@@ -127,6 +189,111 @@ bool AssetManager::writeCacheRecord(const AssetRecord& record, std::string* erro
         return false;
     }
     return true;
+}
+
+void AssetManager::loadCacheRecords()
+{
+    if (cacheRoot_.empty()) {
+        return;
+    }
+
+    std::error_code error;
+    if (!std::filesystem::exists(cacheRoot_, error) || error) {
+        return;
+    }
+
+    std::vector<AssetRecord> loaded;
+    for (const auto& entry : std::filesystem::directory_iterator(cacheRoot_, error)) {
+        if (error) {
+            core::logWarning(core::LogCategory::Assets, "Asset cache scan stopped: " + error.message());
+            break;
+        }
+        if (!entry.is_regular_file(error) || entry.path().extension() != ".json") {
+            continue;
+        }
+        if (auto record = readCacheRecord(entry.path())) {
+            loaded.push_back(std::move(*record));
+        }
+    }
+
+    std::sort(loaded.begin(), loaded.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.displayName == rhs.displayName
+            ? lhs.id.value() < rhs.id.value()
+            : lhs.displayName < rhs.displayName;
+    });
+
+    std::scoped_lock lock(mutex_);
+    records_ = std::move(loaded);
+}
+
+std::shared_ptr<const ModelAsset> AssetManager::loadCachedModel(AssetId id) const
+{
+    const auto path = cacheRoot_ / (std::to_string(id.value()) + ".ffult");
+    if (!id.isValid() || !std::filesystem::exists(path)) {
+        return nullptr;
+    }
+
+    std::string error;
+    const auto bytes = detail::readBytes(path, &error);
+    auto imported = bytes.empty() ? detail::FfultModelAsset {} : detail::readFfultModel(path, bytes, &error);
+    if (imported.asset == nullptr || imported.asset->id != id) {
+        core::logWarning(core::LogCategory::Assets, error.empty() ? "Unable to load cached model asset" : error);
+        return nullptr;
+    }
+
+    std::scoped_lock lock(mutex_);
+    auto existing = std::find_if(models_.begin(), models_.end(), [&imported](const auto& model) {
+        return model != nullptr && model->id == imported.asset->id;
+    });
+    if (existing == models_.end()) {
+        models_.push_back(imported.asset);
+    } else {
+        *existing = imported.asset;
+    }
+    auto record = imported.record;
+    record.cacheFile = std::to_string(record.id.value()) + ".asset.json";
+    auto recordIt = std::find_if(records_.begin(), records_.end(), [&record](const auto& item) {
+        return item.id == record.id && item.type == record.type;
+    });
+    if (recordIt == records_.end()) {
+        records_.push_back(std::move(record));
+    }
+    return imported.asset;
+}
+
+std::shared_ptr<const TextureAsset> AssetManager::loadCachedTexture(AssetId id) const
+{
+    const auto path = cacheRoot_ / (std::to_string(id.value()) + ".ffult");
+    if (!id.isValid() || !std::filesystem::exists(path)) {
+        return nullptr;
+    }
+
+    std::string error;
+    const auto bytes = detail::readBytes(path, &error);
+    auto imported = bytes.empty() ? detail::FfultTextureAsset {} : detail::readFfultTexture(path, bytes, &error);
+    if (imported.asset == nullptr || imported.asset->id != id) {
+        core::logWarning(core::LogCategory::Assets, error.empty() ? "Unable to load cached texture asset" : error);
+        return nullptr;
+    }
+
+    std::scoped_lock lock(mutex_);
+    auto existing = std::find_if(textures_.begin(), textures_.end(), [&imported](const auto& texture) {
+        return texture != nullptr && texture->id == imported.asset->id;
+    });
+    if (existing == textures_.end()) {
+        textures_.push_back(imported.asset);
+    } else {
+        *existing = imported.asset;
+    }
+    auto record = imported.record;
+    record.cacheFile = std::to_string(record.id.value()) + ".asset.json";
+    auto recordIt = std::find_if(records_.begin(), records_.end(), [&record](const auto& item) {
+        return item.id == record.id && item.type == record.type;
+    });
+    if (recordIt == records_.end()) {
+        records_.push_back(std::move(record));
+    }
+    return imported.asset;
 }
 
 void AssetManager::storeRecord(const AssetRecord& record)

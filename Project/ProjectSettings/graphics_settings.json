@@ -1,0 +1,74 @@
+{
+    "debug": {
+        "boundsXray": true,
+        "colliders": false,
+        "gpuProfiler": false,
+        "lodColors": true,
+        "normalsTangents": false,
+        "shadowCasters": false,
+        "sourceObjects": true,
+        "sunDirection": false,
+        "terrainBrush": false,
+        "textureAnisotropyOverride": "automatic",
+        "textureDebugMipLodBias": 0,
+        "textureForceMaxLodZero": false,
+        "textureOverrideMipLodBias": false,
+        "wireframe": false
+    },
+    "graphics": {
+        "fpsLimit": 0,
+        "preset": "custom",
+        "resolutionScalePercent": 100,
+        "vsync": true
+    },
+    "lod": {
+        "aggressiveness": "low",
+        "automaticLod": true,
+        "chunkBudget": 512,
+        "cullingBoundsPadding": 1,
+        "debugColors": true,
+        "debugDisableTerrainChunkLod": true,
+        "debugDisableTerrainHlod": true,
+        "debugOverride": "detailed",
+        "drawPacketBudget": 2048,
+        "hlodEnabled": false,
+        "hysteresis": 0.30000001192092896,
+        "lodDistance": 80,
+        "occlusionCullingEnabled": false,
+        "quality": "ultra",
+        "screenError": 0.5,
+        "shadowCasterBudget": 2048,
+        "spatialCellCullingEnabled": true,
+        "terrainNearHighQualityEnabled": true,
+        "terrainNearHighQualityRadius": 179
+    },
+    "performance": {
+        "advancedStats": false,
+        "fpsOverlay": false,
+        "mode": "balanced",
+        "profilerOverlay": false
+    },
+    "shadow": {
+        "alphaMaskShadows": false,
+        "cascadeCount": 4,
+        "distance": 120,
+        "quality": "medium",
+        "resolution": 4096,
+        "shadowHlodProxy": false,
+        "updateMode": "live"
+    },
+    "terrain": {
+        "generateNormals": true,
+        "generateTangents": true,
+        "quality": "medium",
+        "terrainColliders": true,
+        "terrainLodDistance": 120
+    },
+    "texture": {
+        "anisotropyLevel": 4,
+        "filtering": "anisotropic",
+        "mipLodBias": 0,
+        "mipmapsEnabled": true,
+        "quality": "medium"
+    }
+}

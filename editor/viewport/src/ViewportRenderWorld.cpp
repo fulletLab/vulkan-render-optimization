@@ -14,14 +14,19 @@
 #include "ViewportRendererCulling.hpp"
 #include "ViewportSceneLookup.hpp"
 
+#include <projectunity/core/Log.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <optional>
 #include <span>
+#include <sstream>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -32,6 +37,43 @@ namespace {
 [[nodiscard]] std::uint64_t mixHash(std::uint64_t seed, std::uint64_t value) noexcept
 {
     return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+}
+
+[[nodiscard]] bool viewportEnvFlagEnabled(const char* name) noexcept
+{
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (::_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+        return false;
+    }
+    const bool enabled = length > 1U && value[0] != '\0' && value[0] != '0';
+    std::free(value);
+    return enabled;
+#else
+    const auto* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+#endif
+}
+
+struct SelectedAssetDebugFlags {
+    bool trace {false};
+    bool disableAllCulling {false};
+    bool renderAllDrawPackets {false};
+
+    [[nodiscard]] bool enabled() const noexcept
+    {
+        return trace || disableAllCulling || renderAllDrawPackets;
+    }
+};
+
+[[nodiscard]] SelectedAssetDebugFlags selectedAssetDebugFlags() noexcept
+{
+    return {
+        viewportEnvFlagEnabled("PROJECTUNITY_TRACE_SELECTED_ASSET"),
+        viewportEnvFlagEnabled("PROJECTUNITY_DISABLE_ALL_CULLING_FOR_SELECTED"),
+        viewportEnvFlagEnabled("PROJECTUNITY_RENDER_ALL_DRAW_PACKETS_FOR_SELECTED"),
+    };
 }
 
 [[nodiscard]] std::uint64_t floatBits(float value) noexcept
@@ -278,6 +320,299 @@ namespace {
     const auto projectionScale = (static_cast<float>(viewportHeight) * 0.5F) / tangent;
     const auto projected = radius * projectionScale / distance;
     return std::isfinite(projected) ? projected : 0.0F;
+}
+
+template<typename Record>
+[[nodiscard]] bool recordMatchesSelectedAsset(
+    const Record& record,
+    scene::EntityId selectedEntityId,
+    assets::AssetId selectedPrimitiveModel,
+    std::uint32_t selectedPrimitiveIndex) noexcept
+{
+    if (!selectedEntityId.isValid()) {
+        return false;
+    }
+    if (record.entityId == selectedEntityId) {
+        return true;
+    }
+    for (const auto& instance : record.instances) {
+        if (instance.sceneNodeId == selectedEntityId) {
+            return true;
+        }
+        if (selectedPrimitiveModel.isValid()
+            && instance.modelAssetId == selectedPrimitiveModel
+            && instance.primitiveInstanceIndex == selectedPrimitiveIndex) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] std::string vec3Text(math::Vec3 value)
+{
+    std::ostringstream text;
+    text << value.x << "," << value.y << "," << value.z;
+    return text.str();
+}
+
+[[nodiscard]] std::string boundsExtentsText(const ViewportWorldBounds& bounds)
+{
+    const auto frame = viewportBoundsFrame(bounds.corners);
+    if (!frame.valid) {
+        return "invalid";
+    }
+    return vec3Text(frame.maximum - frame.minimum);
+}
+
+[[nodiscard]] std::string viewMatrixText(const ViewportRenderWorldCamera& camera)
+{
+    std::ostringstream text;
+    text << "["
+         << camera.right.x << "," << camera.right.y << "," << camera.right.z << "," << -math::dot(camera.right, camera.eye) << ";"
+         << camera.up.x << "," << camera.up.y << "," << camera.up.z << "," << -math::dot(camera.up, camera.eye) << ";"
+         << camera.forward.x << "," << camera.forward.y << "," << camera.forward.z << "," << -math::dot(camera.forward, camera.eye) << ";"
+         << "0,0,0,1]";
+    return text.str();
+}
+
+[[nodiscard]] std::string projectionMatrixText(const ViewportRenderWorldCamera& camera)
+{
+    const auto focal = 1.0F / std::max(std::tan(camera.verticalFovRadians * 0.5F), 0.001F);
+    std::ostringstream text;
+    text << "["
+         << focal / std::max(camera.aspectRatio, 0.001F) << ",0,0,0;"
+         << "0," << -focal << ",0,0;"
+         << "0,0," << camera.farPlane / std::max(camera.farPlane - camera.nearPlane, 0.001F)
+         << "," << -(camera.nearPlane * camera.farPlane) / std::max(camera.farPlane - camera.nearPlane, 0.001F) << ";"
+         << "0,0,1,0]";
+    return text.str();
+}
+
+[[nodiscard]] std::string renderPathText(bool runtimeSnapshot) noexcept
+{
+    return runtimeSnapshot ? "GameRuntime" : "SceneOrGameView";
+}
+
+template<typename Record>
+[[nodiscard]] std::uint64_t forceAppendSelectedRecordDraws(
+    const Record& record,
+    const ViewportRenderWorldCamera& camera,
+    const renderer::RenderMatrix4& viewProjection,
+    int viewportHeight,
+    std::vector<renderer::RenderMeshDraw>& meshDraws,
+    ViewportFrameBounds& visibleBounds,
+    std::uint64_t& visibleSourceTriangleCount)
+{
+    std::unordered_set<std::uint64_t> selectedInstanceIds;
+    std::unordered_set<std::uint64_t> selectedChunkIds;
+    selectedInstanceIds.reserve(record.instances.size());
+    selectedChunkIds.reserve(record.chunks.size());
+    for (const auto& instance : record.instances) {
+        selectedInstanceIds.insert(instance.renderInstanceId);
+    }
+    for (const auto& chunk : record.chunks) {
+        selectedChunkIds.insert(chunk.renderChunkId);
+    }
+
+    const auto rootSceneNodeId = record.entityId.value();
+    meshDraws.erase(
+        std::remove_if(
+            meshDraws.begin(),
+            meshDraws.end(),
+            [&](const renderer::RenderMeshDraw& draw) {
+                return draw.sceneNodeId == rootSceneNodeId
+                    || selectedInstanceIds.find(draw.renderInstanceId) != selectedInstanceIds.end()
+                    || (draw.renderChunkId != 0U && selectedChunkIds.find(draw.renderChunkId) != selectedChunkIds.end());
+            }),
+        meshDraws.end());
+
+    std::uint64_t submitted = 0;
+    for (const auto& instance : record.instances) {
+        if (instance.model == nullptr || instance.primitiveIndex >= instance.model->primitives.size()) {
+            continue;
+        }
+        const auto& primitive = instance.model->primitives[instance.primitiveIndex];
+        if (primitive.materialIndex >= instance.model->materials.size()) {
+            continue;
+        }
+        const auto& material = instance.model->materials[primitive.materialIndex];
+        const auto distanceToCenter = (instance.worldBounds.center - camera.eye).length();
+        const auto distanceToBounds = viewportLodDistanceToBounds(
+            camera.eye,
+            camera.forward,
+            instance.worldBounds.corners,
+            camera.nearPlane);
+        auto draw = renderer::RenderMeshDraw {
+            instance.modelAssetId,
+            instance.primitiveIndex,
+            0U,
+            &primitive,
+            &material,
+            modelTexture(*instance.model, material.baseColorTexture),
+            modelTexture(*instance.model, material.normalTexture),
+            modelTexture(*instance.model, material.metallicRoughnessTexture),
+            modelTexture(*instance.model, material.occlusionTexture),
+            modelTexture(*instance.model, material.emissiveTexture),
+            math::dot(instance.worldBounds.center - camera.eye, camera.forward),
+            {instance.worldBounds.center.x, instance.worldBounds.center.y, instance.worldBounds.center.z},
+            instance.worldBounds.radius,
+            instance.modelMatrix,
+            multiply(viewProjection, instance.modelMatrix),
+            instance.flipsWinding,
+            true,
+            instance.renderInstanceId,
+            instance.renderChunkId,
+            instance.sceneNodeId.value(),
+        };
+        draw.worldBoundsHalfExtent = vec3Array(viewportBoundsHalfExtent(instance.worldBounds.corners));
+        draw.distanceToCameraCenter = std::isfinite(distanceToCenter) ? distanceToCenter : 0.0F;
+        draw.distanceToCameraBounds = distanceToBounds;
+        draw.projectedRadiusPixels = renderWorldProjectedRadiusPixels(
+            instance.worldBounds.radius,
+            std::max(draw.distanceToCameraCenter, camera.nearPlane),
+            camera.verticalFovRadians,
+            viewportHeight);
+        draw.rootBoundsHalfExtent = record.worldBoundsValid
+            ? vec3Array(viewportBoundsHalfExtent(record.worldBounds.corners))
+            : std::array<float, 3> {0.0F, 0.0F, 0.0F};
+        draw.cameraInsideRootBounds = record.worldBoundsValid
+            && pointInsideViewportBounds(camera.eye, record.worldBounds.corners);
+        draw.cameraInsideChunkBounds = pointInsideViewportBounds(camera.eye, instance.worldBounds.corners);
+        draw.previousLodIndex = 0U;
+        draw.projectedLodErrorPixels = 0.0F;
+        draw.lodSelectionReason = renderer::RenderLodSelectionReason::FullResolution;
+        draw.materialIndex = static_cast<std::uint32_t>(primitive.materialIndex);
+        draw.generatedTerrainModel = instance.generatedTerrainModel;
+        meshDraws.push_back(draw);
+        visibleBounds.includeSphere(instance.worldBounds.center, instance.worldBounds.radius);
+        visibleSourceTriangleCount += static_cast<std::uint64_t>(primitive.indices.size() / 3U);
+        ++submitted;
+    }
+    return submitted;
+}
+
+template<typename Record>
+void logSelectedAssetTrace(
+    const Record& record,
+    const SelectedAssetDebugFlags& flags,
+    const ViewportRenderWorldCamera& camera,
+    const std::vector<ViewportRenderWorldChunkLogRow>& chunkRows,
+    const std::vector<renderer::RenderMeshDraw>& meshDraws,
+    bool runtimeSnapshot,
+    std::uint64_t forcedSubmitted,
+    std::uint64_t& lastSignature)
+{
+    std::unordered_set<std::uint64_t> finalChunkIds;
+    std::unordered_set<std::uint64_t> selectedInstanceIds;
+    finalChunkIds.reserve(meshDraws.size());
+    selectedInstanceIds.reserve(record.instances.size());
+    for (const auto& instance : record.instances) {
+        selectedInstanceIds.insert(instance.renderInstanceId);
+    }
+    std::uint64_t selectedFinalDraws = 0;
+    for (const auto& draw : meshDraws) {
+        if (selectedInstanceIds.find(draw.renderInstanceId) == selectedInstanceIds.end()) {
+            continue;
+        }
+        ++selectedFinalDraws;
+        if (draw.renderChunkId != 0U) {
+            finalChunkIds.insert(draw.renderChunkId);
+        }
+    }
+
+    auto signature = mixHash(record.entityId.value(), record.chunks.size());
+    signature = mixHash(signature, record.instances.size());
+    signature = mixHash(signature, selectedFinalDraws);
+    signature = mixHash(signature, forcedSubmitted);
+    signature = mixHash(signature, floatBits(camera.eye.x));
+    signature = mixHash(signature, floatBits(camera.eye.y));
+    signature = mixHash(signature, floatBits(camera.eye.z));
+    signature = mixHash(signature, floatBits(camera.forward.x));
+    signature = mixHash(signature, floatBits(camera.forward.y));
+    signature = mixHash(signature, floatBits(camera.forward.z));
+    if (signature == lastSignature) {
+        return;
+    }
+
+    std::unordered_map<std::uint64_t, const ViewportRenderWorldChunkLogRow*> rowByChunk;
+    rowByChunk.reserve(chunkRows.size());
+    for (const auto& row : chunkRows) {
+        rowByChunk.insert_or_assign(row.chunkId, &row);
+    }
+
+    const auto model = record.instances.empty() ? nullptr : record.instances.front().model.get();
+    std::ostringstream line;
+    line << "[SelectedAssetTrace]"
+         << " assetName=" << (model == nullptr ? "<none>" : model->name)
+         << " assetId=" << (model == nullptr || !model->id.isValid() ? 0U : model->id.value())
+         << " entityId=" << record.entityId.value()
+         << " cameraMode=" << renderPathText(runtimeSnapshot)
+         << " cameraPos=(" << vec3Text(camera.eye) << ")"
+         << " cameraForward=(" << vec3Text(camera.forward) << ")"
+         << " cameraViewMatrix=" << viewMatrixText(camera)
+         << " cameraProjMatrix=" << projectionMatrixText(camera)
+         << " rootBounds.center=(" << vec3Text(record.worldBounds.center) << ")"
+         << " rootBounds.extents=(" << boundsExtentsText(record.worldBounds) << ")"
+         << " rootBounds.radius=" << record.worldBounds.radius
+         << " cameraInsideRootBounds=" << (record.worldBoundsValid && pointInsideViewportBounds(camera.eye, record.worldBounds.corners) ? "true" : "false")
+         << " chunkCount=" << record.chunks.size()
+         << " drawPacketCount=" << selectedFinalDraws
+         << " flags.trace=" << (flags.trace ? "1" : "0")
+         << " flags.disableAllCulling=" << (flags.disableAllCulling ? "1" : "0")
+         << " flags.renderAllDrawPackets=" << (flags.renderAllDrawPackets ? "1" : "0");
+    if (flags.renderAllDrawPackets) {
+        line << " [SelectedAssetForceDraw]"
+             << " drawPacketsAvailable=" << record.instances.size()
+             << " drawPacketsSubmitted=" << forcedSubmitted
+             << " mode=FORCE_DRAW_SELECTED";
+    }
+
+    const auto maxLoggedChunks = std::min<std::size_t>(record.chunks.size(), 48U);
+    for (std::size_t chunkIndex = 0; chunkIndex < maxLoggedChunks; ++chunkIndex) {
+        const auto& chunk = record.chunks[chunkIndex];
+        const auto frame = viewportBoundsFrame(chunk.worldBounds.corners);
+        const auto dotForward = math::dot(chunk.worldBounds.center - camera.eye, camera.forward);
+        const auto frustumVisible = viewportBoundsVisible(
+            chunk.worldBounds,
+            camera.eye,
+            camera.right,
+            camera.up,
+            camera.forward,
+            camera.verticalFovRadians,
+            camera.aspectRatio,
+            camera.nearPlane,
+            camera.farPlane);
+        const auto rowIt = rowByChunk.find(chunk.renderChunkId);
+        const auto* row = rowIt == rowByChunk.end() ? nullptr : rowIt->second;
+        const auto finalSubmitted = finalChunkIds.find(chunk.renderChunkId) != finalChunkIds.end();
+        const auto rejectReason = row == nullptr ? "not-candidate" : row->reason;
+        const auto occlusionCulled = std::strcmp(rejectReason, "occlusion-culled") == 0;
+        const auto hlodCovered = std::strcmp(rejectReason, "hlod-covered") == 0;
+        line << " chunkIndex=" << chunkIndex
+             << " chunkId=" << chunk.renderChunkId
+             << " chunkBounds.center=(" << vec3Text(chunk.worldBounds.center) << ")"
+             << " chunkBounds.extents=(" << (frame.valid ? vec3Text(frame.maximum - frame.minimum) : std::string {"invalid"}) << ")"
+             << " chunkBounds.radius=" << chunk.worldBounds.radius
+             << " distanceToCamera=" << (chunk.worldBounds.center - camera.eye).length()
+             << " dotCameraForwardToChunk=" << dotForward
+             << " isInFrontByDot=" << (dotForward > camera.nearPlane ? "true" : "false")
+             << " frustumResult=" << (frustumVisible ? "inside/intersect" : "outside")
+             << " occlusionResult=" << (occlusionCulled ? "occluded" : "visible/skipped")
+             << " hlodResult=" << (hlodCovered ? "overview/proxy" : "realChunk/skipped")
+             << " spatialResult=" << (row == nullptr ? "rejected" : "kept")
+             << " budgetResult=" << (finalSubmitted ? "kept" : "unknown/rejected")
+             << " finalSubmitted=" << (finalSubmitted ? "true" : "false")
+             << " rejectReason=" << rejectReason
+             << " [FrustumSanity]"
+             << " expectedInFront=" << (dotForward > camera.nearPlane ? "true" : "false")
+             << " frustumSaysVisible=" << (frustumVisible ? "true" : "false")
+             << " MISMATCH=" << ((dotForward > camera.nearPlane) != frustumVisible ? "true" : "false");
+    }
+    if (record.chunks.size() > maxLoggedChunks) {
+        line << " chunkLogTruncated=" << (record.chunks.size() - maxLoggedChunks);
+    }
+    core::logInfo(core::LogCategory::Renderer, line.str());
+    lastSignature = signature;
 }
 
 } // namespace
@@ -646,6 +981,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             selectedPrimitiveIndex = *selectedIndex;
         }
     }
+    const auto selectedDebug = selectedAssetDebugFlags();
+    const EntityRecord* selectedTraceRecord = nullptr;
+    std::uint64_t selectedForceDrawSubmittedCount = 0;
     ViewportFrameBounds allChunkBounds;
     accumulateViewportRenderWorldRecordStats(orderedRecords_, result, allChunkBounds);
     for (const auto& overviewRecord : overviewRecords_) {
@@ -662,7 +1000,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         })
         : 0.0F;
     const auto largeChunkExtent = sceneExtent > 0.0001F ? sceneExtent * 0.35F : std::numeric_limits<float>::infinity();
-    const auto collectChunkDebug = result.stats.renderInstanceCount >= 512U || result.stats.renderChunkCount > 32U;
+    const auto collectChunkDebug = selectedDebug.enabled()
+        || result.stats.renderInstanceCount >= 512U
+        || result.stats.renderChunkCount > 32U;
     if (collectChunkDebug) {
         result.debugChunks.reserve(static_cast<std::size_t>(std::min<std::uint64_t>(result.stats.renderChunkCount, 512U)));
     }
@@ -678,13 +1018,22 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     ViewportOcclusionBuffer occlusionBuffer(camera, viewportHeight);
     std::unordered_set<std::uint64_t> occluderChunkIds;
     occluderChunkIds.reserve(result.stats.renderChunkCount);
-    buildViewportOcclusionBuffer(
-        orderedRecords_,
-        camera,
-        sceneExtent,
-        occlusionBuffer,
-        occluderChunkIds,
-        result.stats);
+    const auto forceAllSpatialCells = !lodSettings.spatialCellCullingEnabled;
+    const auto cullingBoundsPadding = lodSettings.cullingBoundsPadding;
+    const auto occlusionEnabled = lodSettings.occlusionCullingEnabled;
+    if (occlusionEnabled) {
+        buildViewportOcclusionBuffer(
+            orderedRecords_,
+            camera,
+            sceneExtent,
+            occlusionBuffer,
+            occluderChunkIds,
+            result.stats,
+            forceAllSpatialCells,
+            cullingBoundsPadding);
+    }
+    const auto* activeOcclusionBuffer = occlusionEnabled ? &occlusionBuffer : nullptr;
+    const auto* activeOccluderChunkIds = occlusionEnabled ? &occluderChunkIds : nullptr;
     std::unordered_set<std::uint64_t> overviewCoveredModels;
     std::unordered_set<std::uint64_t> overviewCoveredChunkIds;
 
@@ -700,8 +1049,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 viewProjection,
                 viewportHeight,
                 lodSettings,
-                &occlusionBuffer,
-                &occluderChunkIds,
+                activeOcclusionBuffer,
+                activeOccluderChunkIds,
                 true,
                 meshDraws,
                 result.stats,
@@ -719,6 +1068,13 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             && overviewCoveredModels.find(record->instances.front().modelAssetId.value()) != overviewCoveredModels.end()) {
             continue;
         }
+        const auto selectedRecord = selectedDebug.enabled()
+            && recordMatchesSelectedAsset(*record, selectedEntityId, selectedPrimitiveModel, selectedPrimitiveIndex);
+        if (selectedRecord) {
+            selectedTraceRecord = record;
+        }
+        const auto selectedVisibilityBypass = selectedRecord
+            && (selectedDebug.disableAllCulling || selectedDebug.renderAllDrawPackets);
         visibleChunks.clear();
         visibleChunks.reserve(record->chunks.size());
         forEachSpatialChunkCandidate(*record, camera, result.stats, [&](std::size_t, const auto& chunk) {
@@ -728,7 +1084,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             if (largeChunk) {
                 ++result.stats.largeRenderChunkCount;
             }
-            const auto chunkVisible = viewportBoundsVisible(
+            const auto chunkVisible = selectedVisibilityBypass || viewportBoundsVisible(
                     chunk.worldBounds,
                     camera.eye,
                     camera.right,
@@ -737,7 +1093,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     camera.verticalFovRadians,
                     camera.aspectRatio,
                     camera.nearPlane,
-                    camera.farPlane);
+                    camera.farPlane,
+                    cullingBoundsPadding);
             auto chunkDebugRowIndex = SIZE_MAX;
             if (collectChunkDebug) {
                 auto chunkModelAssetId = std::uint64_t {0};
@@ -772,7 +1129,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 row.cameraInsideRootBounds = record->worldBoundsValid
                     && pointInsideViewportBounds(camera.eye, record->worldBounds.corners);
                 row.cameraInsideChunkBounds = pointInsideViewportBounds(camera.eye, chunk.worldBounds.corners);
-                row.reason = chunkVisible ? "frustum-visible" : "frustum-culled";
+                row.reason = chunkVisible
+                    ? (selectedVisibilityBypass ? "selected-debug-culling-bypass" : "frustum-visible")
+                    : "frustum-culled";
                 chunkDebugRowIndex = chunkDebugRows.size();
                 chunkDebugRows.push_back(row);
                 chunkDebugRowById.insert_or_assign(chunk.renderChunkId, chunkDebugRowIndex);
@@ -790,7 +1149,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             if (!chunkVisible) {
                 return;
             }
-            if (viewportChunkRejectedByOcclusion(
+            if (!selectedVisibilityBypass && occlusionEnabled && viewportChunkRejectedByOcclusion(
                 *record,
                 chunk,
                 selectedEntityId,
@@ -813,14 +1172,14 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             }
             ++result.stats.visibleRenderChunkCount;
             visibleChunks.push_back(&chunk);
-        });
+        }, selectedVisibilityBypass || forceAllSpatialCells, cullingBoundsPadding);
 
         if (visibleChunks.empty()) {
             continue;
         }
 
         overviewCoveredChunkIds.clear();
-        if (tryEmitOverviewRecord(
+        if (!selectedVisibilityBypass && tryEmitOverviewRecord(
                 *record,
                 selectedPrimitiveModel,
                 selectedPrimitiveIndex,
@@ -828,8 +1187,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 viewProjection,
                 viewportHeight,
                 lodSettings,
-                &occlusionBuffer,
-                &occluderChunkIds,
+                activeOcclusionBuffer,
+                activeOccluderChunkIds,
                 false,
                 meshDraws,
                 result.stats,
@@ -861,7 +1220,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 if (primitive.materialIndex >= instance.model->materials.size()) {
                     continue;
                 }
-                if (!viewportBoundsVisible(
+                if (!selectedVisibilityBypass && !viewportBoundsVisible(
                         instance.worldBounds,
                         camera.eye,
                         camera.right,
@@ -870,7 +1229,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                         camera.verticalFovRadians,
                         camera.aspectRatio,
                         camera.nearPlane,
-                        camera.farPlane)) {
+                        camera.farPlane,
+                        cullingBoundsPadding)) {
                     continue;
                 }
                 ++result.stats.visibleRenderInstanceCount;
@@ -883,6 +1243,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     camera.forward,
                     instance.worldBounds.corners,
                     camera.nearPlane);
+                const auto centerLodDistance = std::max(distanceToCenter, camera.nearPlane);
+                const auto boundsLodDistance = std::isfinite(distanceToBounds)
+                    ? std::max(distanceToBounds, camera.nearPlane)
+                    : centerLodDistance;
+                const auto lodDistance = std::min(centerLodDistance, boundsLodDistance);
                 const auto sourceTriangleCount = static_cast<std::uint64_t>(primitive.indices.size() / 3U);
                 visibleSourceTriangleCount += sourceTriangleCount;
                 const auto terrainNearHighQuality = instance.generatedTerrainModel
@@ -899,7 +1264,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 const auto lodSelection = evaluateViewportMeshLod(
                     primitive,
                     instance.worldBounds.radius,
-                    std::max(distanceToCenter, camera.nearPlane),
+                    lodDistance,
                     camera.verticalFovRadians,
                     static_cast<float>(std::max(viewportHeight, 1)),
                     forceFullResolution || forceTerrainFullResolution,
@@ -964,7 +1329,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 draw.distanceToCameraBounds = distanceToBounds;
                 draw.projectedRadiusPixels = renderWorldProjectedRadiusPixels(
                     instance.worldBounds.radius,
-                    std::max(draw.distanceToCameraCenter, camera.nearPlane),
+                    lodDistance,
                     camera.verticalFovRadians,
                     viewportHeight);
                 draw.rootBoundsHalfExtent = record->worldBoundsValid
@@ -998,6 +1363,17 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
 
     applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, lodSettings, result.stats);
 
+    if (selectedDebug.renderAllDrawPackets && selectedTraceRecord != nullptr) {
+        selectedForceDrawSubmittedCount = forceAppendSelectedRecordDraws(
+            *selectedTraceRecord,
+            camera,
+            viewProjection,
+            viewportHeight,
+            meshDraws,
+            visibleBounds,
+            visibleSourceTriangleCount);
+    }
+
     std::unordered_set<std::uint64_t> finalChunkIds;
     finalChunkIds.reserve(meshDraws.size());
     for (const auto& draw : meshDraws) {
@@ -1027,6 +1403,17 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
         : 0U;
     applyViewportShadowPolicy(meshDraws, selectedEntityId, camera, viewportHeight, lodSettings, result.stats);
     logRenderWorldChunkDiagnostics(result.stats, chunkDebugRows, meshDraws, camera, lastDebugSignature_);
+    if (selectedDebug.enabled() && selectedTraceRecord != nullptr) {
+        logSelectedAssetTrace(
+            *selectedTraceRecord,
+            selectedDebug,
+            camera,
+            chunkDebugRows,
+            meshDraws,
+            runtimeSnapshot,
+            selectedForceDrawSubmittedCount,
+            lastSelectedAssetTraceSignature_);
+    }
     return result;
 }
 

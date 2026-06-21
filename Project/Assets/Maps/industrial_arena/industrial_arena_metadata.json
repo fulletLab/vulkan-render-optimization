@@ -1,0 +1,607 @@
+{
+  "id": "industrial_arena_topdown",
+  "name": "Industrial Arena",
+  "modeSupport": [
+    "1v1",
+    "2v2",
+    "5v5"
+  ],
+  "size": {
+    "width": 60,
+    "height": 34
+  },
+  "teams": {
+    "A": {
+      "spawnArea": "left",
+      "spawns": [
+        {
+          "x": -26,
+          "y": 0,
+          "z": -8
+        },
+        {
+          "x": -26,
+          "y": 0,
+          "z": 0
+        },
+        {
+          "x": -26,
+          "y": 0,
+          "z": 8
+        }
+      ]
+    },
+    "B": {
+      "spawnArea": "right",
+      "spawns": [
+        {
+          "x": 26,
+          "y": 0,
+          "z": -8
+        },
+        {
+          "x": 26,
+          "y": 0,
+          "z": 0
+        },
+        {
+          "x": 26,
+          "y": 0,
+          "z": 8
+        }
+      ]
+    }
+  },
+  "collisionGroups": [
+    "walls",
+    "cover",
+    "buildings",
+    "containers"
+  ],
+  "coverPoints": [
+    {
+      "id": "cover_01",
+      "x": -23,
+      "y": 0,
+      "z": -7,
+      "facing": "east"
+    },
+    {
+      "id": "cover_02",
+      "x": -20,
+      "y": 0,
+      "z": 5,
+      "facing": "east"
+    },
+    {
+      "id": "cover_03",
+      "x": -14,
+      "y": 0,
+      "z": 10,
+      "facing": "north"
+    },
+    {
+      "id": "cover_04",
+      "x": -3,
+      "y": 0,
+      "z": -8,
+      "facing": "east"
+    },
+    {
+      "id": "cover_05",
+      "x": 1.5,
+      "y": 0,
+      "z": 7,
+      "facing": "south"
+    },
+    {
+      "id": "cover_06",
+      "x": 15,
+      "y": 0,
+      "z": -8,
+      "facing": "west"
+    },
+    {
+      "id": "cover_07",
+      "x": 21,
+      "y": 0,
+      "z": -4,
+      "facing": "west"
+    },
+    {
+      "id": "cover_08",
+      "x": 23,
+      "y": 0,
+      "z": 7,
+      "facing": "west"
+    },
+    {
+      "id": "cover_09",
+      "x": 6,
+      "y": 0,
+      "z": -13,
+      "facing": "south"
+    },
+    {
+      "id": "cover_10",
+      "x": 10,
+      "y": 0,
+      "z": 13,
+      "facing": "north"
+    }
+  ],
+  "blockLineOfSight": true,
+  "visualAsset": {
+    "path": "industrial_arena.glb",
+    "assetId": 10890521447512886328
+  },
+  "obstacles": [
+    {
+      "id": "wall_north",
+      "group": "walls",
+      "position": {
+        "x": 0,
+        "y": 1.6,
+        "z": -17.4
+      },
+      "size": {
+        "x": 60,
+        "y": 3.2,
+        "z": 1.0
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "wall_south",
+      "group": "walls",
+      "position": {
+        "x": 0,
+        "y": 1.6,
+        "z": 17.4
+      },
+      "size": {
+        "x": 60,
+        "y": 3.2,
+        "z": 1.0
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "wall_west",
+      "group": "walls",
+      "position": {
+        "x": -30.4,
+        "y": 1.6,
+        "z": 0
+      },
+      "size": {
+        "x": 1.0,
+        "y": 3.2,
+        "z": 34
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "wall_east",
+      "group": "walls",
+      "position": {
+        "x": 30.4,
+        "y": 1.6,
+        "z": 0
+      },
+      "size": {
+        "x": 1.0,
+        "y": 3.2,
+        "z": 34
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "warehouse_left",
+      "group": "buildings",
+      "position": {
+        "x": -9.2,
+        "y": 1.8,
+        "z": -2.7
+      },
+      "size": {
+        "x": 9.5,
+        "y": 3.6,
+        "z": 8.6
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "warehouse_right",
+      "group": "buildings",
+      "position": {
+        "x": 9.4,
+        "y": 1.8,
+        "z": 2.6
+      },
+      "size": {
+        "x": 9.5,
+        "y": 3.6,
+        "z": 8.6
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "container_top_blue",
+      "group": "containers",
+      "position": {
+        "x": 3.5,
+        "y": 1.225,
+        "z": -10.7
+      },
+      "size": {
+        "x": 7.4,
+        "y": 2.45,
+        "z": 2.45
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "container_bottom_red",
+      "group": "containers",
+      "position": {
+        "x": -6.7,
+        "y": 1.175,
+        "z": 12.0
+      },
+      "size": {
+        "x": 8.2,
+        "y": 2.35,
+        "z": 2.35
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "container_bottom_blue",
+      "group": "containers",
+      "position": {
+        "x": 11.4,
+        "y": 1.225,
+        "z": 10.6
+      },
+      "size": {
+        "x": 7.4,
+        "y": 2.45,
+        "z": 2.45
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "container_green_flank",
+      "group": "containers",
+      "position": {
+        "x": 19.0,
+        "y": 1.25,
+        "z": -10.6
+      },
+      "size": {
+        "x": 2.4,
+        "y": 2.5,
+        "z": 7.2
+      },
+      "blocksLineOfSight": true
+    },
+    {
+      "id": "low_barrier_01",
+      "group": "cover",
+      "position": {
+        "x": -22,
+        "y": 0.6,
+        "z": -4
+      },
+      "size": {
+        "x": 0.7,
+        "y": 1.2,
+        "z": 6.0
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_02",
+      "group": "cover",
+      "position": {
+        "x": -20.5,
+        "y": 0.6,
+        "z": 8.2
+      },
+      "size": {
+        "x": 0.7,
+        "y": 1.2,
+        "z": 5.0
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_03",
+      "group": "cover",
+      "position": {
+        "x": -13,
+        "y": 0.575,
+        "z": 8.5
+      },
+      "size": {
+        "x": 5.5,
+        "y": 1.15,
+        "z": 0.7
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_04",
+      "group": "cover",
+      "position": {
+        "x": -2.0,
+        "y": 0.575,
+        "z": -5.7
+      },
+      "size": {
+        "x": 0.7,
+        "y": 1.15,
+        "z": 6.0
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_05",
+      "group": "cover",
+      "position": {
+        "x": 0.0,
+        "y": 0.575,
+        "z": 5.9
+      },
+      "size": {
+        "x": 5.2,
+        "y": 1.15,
+        "z": 0.7
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_06",
+      "group": "cover",
+      "position": {
+        "x": 20.8,
+        "y": 0.6,
+        "z": -7.8
+      },
+      "size": {
+        "x": 0.7,
+        "y": 1.2,
+        "z": 5.0
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_07",
+      "group": "cover",
+      "position": {
+        "x": 22.0,
+        "y": 0.6,
+        "z": 4.0
+      },
+      "size": {
+        "x": 0.7,
+        "y": 1.2,
+        "z": 6.0
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "low_barrier_08",
+      "group": "cover",
+      "position": {
+        "x": 14.1,
+        "y": 0.575,
+        "z": -5.7
+      },
+      "size": {
+        "x": 0.7,
+        "y": 1.15,
+        "z": 5.5
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_01",
+      "group": "cover",
+      "position": {
+        "x": -21,
+        "y": 0.725,
+        "z": -12
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_02",
+      "group": "cover",
+      "position": {
+        "x": -18.8,
+        "y": 0.725,
+        "z": -12.2
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_03",
+      "group": "cover",
+      "position": {
+        "x": -18.7,
+        "y": 0.725,
+        "z": -9.7
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_04",
+      "group": "cover",
+      "position": {
+        "x": -7,
+        "y": 0.725,
+        "z": -11.6
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_05",
+      "group": "cover",
+      "position": {
+        "x": -5.3,
+        "y": 0.725,
+        "z": -10.0
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_06",
+      "group": "cover",
+      "position": {
+        "x": -5.0,
+        "y": 0.725,
+        "z": 3.0
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_07",
+      "group": "cover",
+      "position": {
+        "x": 14,
+        "y": 0.725,
+        "z": 5.9
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_08",
+      "group": "cover",
+      "position": {
+        "x": 22,
+        "y": 0.725,
+        "z": -1.6
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_09",
+      "group": "cover",
+      "position": {
+        "x": 24,
+        "y": 0.725,
+        "z": -4.0
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_10",
+      "group": "cover",
+      "position": {
+        "x": 24,
+        "y": 0.725,
+        "z": 11.2
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_11",
+      "group": "cover",
+      "position": {
+        "x": 27,
+        "y": 0.725,
+        "z": 12.5
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    },
+    {
+      "id": "crate_12",
+      "group": "cover",
+      "position": {
+        "x": 18,
+        "y": 0.725,
+        "z": 13.2
+      },
+      "size": {
+        "x": 1.45,
+        "y": 1.45,
+        "z": 1.45
+      },
+      "blocksLineOfSight": false
+    }
+  ],
+  "navigation": {
+    "playableBounds": {
+      "minX": -29,
+      "maxX": 29,
+      "minZ": -16,
+      "maxZ": 16
+    },
+    "preferredLaneWidth": [
+      3,
+      5
+    ],
+    "lanes": [
+      "north flank",
+      "central contest",
+      "south flank"
+    ]
+  }
+}

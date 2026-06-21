@@ -2,6 +2,7 @@
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldOcclusion.hpp"
 #include "ViewportRenderWorldOcclusionPolicy.hpp"
+#include "ViewportRendererCulling.hpp"
 #include "ViewportShadowFocus.hpp"
 
 #include <projectunity/assets/AssetManager.hpp>
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <unordered_set>
@@ -68,12 +70,31 @@ std::shared_ptr<projectunity::assets::ModelAsset> testSinglePrimitiveLodModel(pr
     return model;
 }
 
+std::shared_ptr<projectunity::assets::ModelAsset> testBroadPrimitiveLodModel(projectunity::assets::AssetId id)
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->id = id;
+    model->materials.resize(1U);
+    projectunity::assets::MeshPrimitive primitive;
+    primitive.materialIndex = 0U;
+    primitive.bounds.minimum = {-500.0F, -1.0F, 100.0F};
+    primitive.bounds.maximum = {500.0F, 1.0F, 200.0F};
+    primitive.bounds.center = {0.0F, 0.0F, 150.0F};
+    primitive.bounds.radius = (primitive.bounds.maximum - primitive.bounds.center).length();
+    primitive.indices.resize(3'000U);
+    primitive.lods.push_back({std::vector<std::uint32_t>(1'500U), 0.10F});
+    primitive.lods.push_back({std::vector<std::uint32_t>(750U), 0.50F});
+    primitive.lods.push_back({std::vector<std::uint32_t>(300U), 1.00F});
+    model->primitives.push_back(std::move(primitive));
+    return model;
+}
+
 std::shared_ptr<projectunity::assets::ModelAsset> testChunkedLodFieldModel()
 {
     auto model = testSinglePrimitiveLodModel(projectunity::assets::AssetId(2774));
     const std::array<projectunity::math::Vec3, 4> offsets {{
         {0.0F, 0.0F, -40.0F},
-        {0.0F, 0.0F, 11.0F},
+        {0.0F, 0.0F, 4.0F},
         {0.0F, 0.0F, 140.0F},
         {0.0F, 0.0F, 620.0F},
     }};
@@ -276,8 +297,117 @@ std::shared_ptr<projectunity::assets::ModelAsset> testNoLodRockFieldModel()
 
 } // namespace
 
-int main()
+int runViewportAssetProbe(const std::filesystem::path& sourcePath)
 {
+    using projectunity::math::Vec3;
+
+    projectunity::assets::AssetManager manager(std::filesystem::current_path() / "Cache" / "Assets");
+    const auto result = manager.importModel(sourcePath, [](const projectunity::assets::AssetImportProgress& progress) {
+        if (progress.percent == 100 || progress.percent % 20 == 0) {
+            std::cout << progress.percent << "% " << progress.stage << '\n';
+        }
+    });
+    if (!result.success) {
+        std::cerr << result.error << '\n';
+        return EXIT_FAILURE;
+    }
+    const auto model = manager.model(result.record.id);
+    if (model == nullptr || model->primitiveInstances.empty()) {
+        return fail("Viewport asset probe could not load model instances");
+    }
+
+    auto minimum = model->primitiveInstances.front().bounds.minimum;
+    auto maximum = model->primitiveInstances.front().bounds.maximum;
+    std::uint64_t doubleSidedMaterials = 0;
+    for (const auto& material : model->materials) {
+        if (material.doubleSided) {
+            ++doubleSidedMaterials;
+        }
+    }
+    for (const auto& instance : model->primitiveInstances) {
+        minimum.x = std::min(minimum.x, instance.bounds.minimum.x);
+        minimum.y = std::min(minimum.y, instance.bounds.minimum.y);
+        minimum.z = std::min(minimum.z, instance.bounds.minimum.z);
+        maximum.x = std::max(maximum.x, instance.bounds.maximum.x);
+        maximum.y = std::max(maximum.y, instance.bounds.maximum.y);
+        maximum.z = std::max(maximum.z, instance.bounds.maximum.z);
+    }
+    const auto center = (minimum + maximum) * 0.5F;
+    const auto extent = maximum - minimum;
+    const auto radius = extent.length() * 0.5F;
+    std::cout << "model=" << model->name
+              << " id=" << result.record.id.value()
+              << " primitives=" << model->primitives.size()
+              << " instances=" << model->primitiveInstances.size()
+              << " clusters=" << model->primitiveClusters.size()
+              << " materials=" << model->materials.size()
+              << " doubleSided=" << doubleSidedMaterials
+              << " boundsMin=(" << minimum.x << "," << minimum.y << "," << minimum.z << ")"
+              << " boundsMax=(" << maximum.x << "," << maximum.y << "," << maximum.z << ")"
+              << '\n';
+
+    projectunity::scene::Scene scene;
+    auto& entity = scene.createEntity("Probe Asset");
+    projectunity::scene::MeshRendererComponent renderer;
+    renderer.modelAssetId = result.record.id;
+    entity.meshRenderer = renderer;
+    projectunity::editor::ViewportRenderWorld world;
+    const auto lodSettings = projectunity::editor::viewportAssetLodSettingsFromEnvironment();
+
+    const auto runCamera = [&](const char* label, Vec3 eye, Vec3 forward, Vec3 upHint) {
+        forward = forward.normalized();
+        auto right = projectunity::math::cross(upHint, forward).normalized();
+        if (right.lengthSquared() <= 0.00001F) {
+            right = {1.0F, 0.0F, 0.0F};
+        }
+        const auto up = projectunity::math::cross(forward, right).normalized();
+        const projectunity::editor::ViewportRenderWorldCamera camera {
+            eye,
+            right,
+            up,
+            forward,
+            1.04719755F,
+            16.0F / 9.0F,
+            0.05F,
+            std::max(radius * 6.0F, 4000.0F),
+        };
+        std::vector<projectunity::renderer::RenderMeshDraw> draws;
+        std::vector<projectunity::renderer::RenderLight> lights;
+        const auto frame = world.buildFrame(&scene, &manager, {}, camera, {}, 1080, lodSettings, false, draws, lights);
+        std::cout << label
+                  << " eye=(" << eye.x << "," << eye.y << "," << eye.z << ")"
+                  << " forward=(" << forward.x << "," << forward.y << "," << forward.z << ")"
+                  << " draws=" << draws.size()
+                  << " chunks=" << frame.stats.visibleRenderChunkCount
+                  << " finalChunks=" << frame.stats.finalVisibleChunkCount
+                  << " instances=" << frame.stats.visibleRenderInstanceCount
+                  << " culledDraws=" << frame.stats.culledMeshDrawCount
+                  << " occlusionTested=" << frame.stats.occlusionTestedChunkCount
+                  << " occlusionRejected=" << frame.stats.occlusionRejectedChunkCount
+                  << " hlod=" << frame.stats.hlodMeshDrawCount
+                  << " triangles=" << frame.stats.finalTriangleCount
+                  << '\n';
+    };
+
+    const auto distance = std::max(radius * 1.35F, 20.0F);
+    runCamera("+Z_to_center", center + Vec3 {0.0F, 0.0F, -distance}, {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F});
+    runCamera("-Z_to_center", center + Vec3 {0.0F, 0.0F, distance}, {0.0F, 0.0F, -1.0F}, {0.0F, 1.0F, 0.0F});
+    runCamera("+X_to_center", center + Vec3 {-distance, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F});
+    runCamera("-X_to_center", center + Vec3 {distance, 0.0F, 0.0F}, {-1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F});
+    runCamera("top_down", center + Vec3 {0.0F, distance, 0.0F}, {0.0F, -1.0F, 0.0F}, {0.0F, 0.0F, 1.0F});
+    runCamera("bottom_up", center + Vec3 {0.0F, -distance, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, -1.0F});
+    runCamera("near_top_down", {center.x, maximum.y + 40.0F, center.z}, {0.0F, -1.0F, 0.0F}, {0.0F, 0.0F, 1.0F});
+    runCamera("near_+X_to_center", {maximum.x + 40.0F, center.y, center.z}, {-1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F});
+    runCamera("inside_forward", center, {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F});
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char** argv)
+{
+    if (argc > 1 && argv[1] != nullptr) {
+        return runViewportAssetProbe(argv[1]);
+    }
+
     using projectunity::editor::indexCountForViewportLod;
     using projectunity::editor::selectViewportMeshLod;
     using projectunity::editor::viewportLodDistanceToBounds;
@@ -356,6 +486,39 @@ int main()
         0.05F,
         100.0F,
     };
+    const auto lodSettings = projectunity::editor::viewportAssetLodSettingsFromEnvironment();
+    const auto visibleFrom = [](
+                                 const projectunity::editor::ViewportWorldBounds& bounds,
+                                 const projectunity::editor::ViewportRenderWorldCamera& view) {
+        return projectunity::editor::viewportBoundsVisible(
+            bounds,
+            view.eye,
+            view.right,
+            view.up,
+            view.forward,
+            view.verticalFovRadians,
+            view.aspectRatio,
+            view.nearPlane,
+            view.farPlane);
+    };
+    const auto broadImportedFacingBounds = testBounds({-120.0F, -4.0F, 12.0F}, {120.0F, 4.0F, 18.0F});
+    if (!visibleFrom(broadImportedFacingBounds, camera)) {
+        return fail("Viewport culling rejected a broad imported bound while facing it");
+    }
+    auto awayCamera = camera;
+    awayCamera.right = {-1.0F, 0.0F, 0.0F};
+    awayCamera.forward = {0.0F, 0.0F, -1.0F};
+    if (visibleFrom(broadImportedFacingBounds, awayCamera)) {
+        return fail("Viewport culling kept a broad imported bound behind the camera");
+    }
+    const auto largeBehindBounds = testBounds({-100.0F, -100.0F, -150.0F}, {100.0F, 100.0F, -90.0F});
+    if (visibleFrom(largeBehindBounds, camera)) {
+        return fail("Viewport culling kept a fully behind large imported bound");
+    }
+    const auto cameraIntersectingFlatBounds = testBounds({-8.0F, -0.02F, -0.02F}, {8.0F, 0.02F, 0.02F});
+    if (!visibleFrom(cameraIntersectingFlatBounds, camera)) {
+        return fail("Viewport culling rejected a flat bound intersecting the camera near plane");
+    }
 
     auto lodCamera = camera;
     lodCamera.farPlane = 2'000.0F;
@@ -382,6 +545,7 @@ int main()
         lodCamera,
         {},
         1080,
+        lodSettings,
         false,
         duplicateLodDraws,
         duplicateLodLights);
@@ -405,11 +569,44 @@ int main()
         std::cerr << '\n';
         return fail("Viewport did not render both duplicate LOD asset instances");
     }
-    if (nearDraw->lodIndex != 0U) {
-        return fail("Viewport did not keep the near duplicate asset at LOD0");
-    }
     if (farDraw->lodIndex == 0U) {
         return fail("Viewport shared the near duplicate asset LOD with the far duplicate");
+    }
+    if (nearDraw->lodIndex >= farDraw->lodIndex) {
+        return fail("Viewport did not choose a finer LOD for the near duplicate asset");
+    }
+
+    TestAssetManager broadLodAssets;
+    broadLodAssets.modelAsset = testBroadPrimitiveLodModel(projectunity::assets::AssetId(1889));
+    projectunity::scene::Scene broadLodScene;
+    auto& broadEntity = broadLodScene.createEntity("Broad Near Edge LOD");
+    projectunity::scene::MeshRendererComponent broadRenderer;
+    broadRenderer.modelAssetId = broadLodAssets.modelAsset->id;
+    broadEntity.meshRenderer = broadRenderer;
+    projectunity::editor::ViewportRenderWorld broadLodWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> broadLodDraws;
+    std::vector<projectunity::renderer::RenderLight> broadLodLights;
+    auto broadCamera = lodCamera;
+    broadCamera.eye = {540.0F, 0.0F, 150.0F};
+    broadCamera.right = {0.0F, 0.0F, -1.0F};
+    broadCamera.up = {0.0F, 1.0F, 0.0F};
+    broadCamera.forward = {-1.0F, 0.0F, 0.0F};
+    (void)broadLodWorld.buildFrame(
+        &broadLodScene,
+        &broadLodAssets,
+        {},
+        broadCamera,
+        {},
+        1080,
+        lodSettings,
+        false,
+        broadLodDraws,
+        broadLodLights);
+    if (broadLodDraws.empty()) {
+        return fail("Viewport culled a broad primitive while the camera was near its visible edge");
+    }
+    if (broadLodDraws.front().lodIndex != 0U) {
+        return fail("Viewport LOD used center distance instead of bounds distance near a broad primitive");
     }
 
     TestAssetManager chunkedLodAssets;
@@ -429,6 +626,7 @@ int main()
         lodCamera,
         {},
         1080,
+        lodSettings,
         false,
         chunkedLodDraws,
         chunkedLodLights);
@@ -439,6 +637,16 @@ int main()
         chunkedHasCoarseLod = chunkedHasCoarseLod || draw.lodIndex > 0U;
     }
     if (!chunkedHasLod0 || !chunkedHasCoarseLod) {
+        std::cerr << "chunkedLodDraws=" << chunkedLodDraws.size();
+        for (const auto& draw : chunkedLodDraws) {
+            std::cerr << " [node=" << draw.sceneNodeId
+                      << " lod=" << draw.lodIndex
+                      << " depth=" << draw.sortDepth
+                      << " centerZ=" << draw.worldBoundsCenter[2]
+                      << " boundsDistance=" << draw.distanceToCameraBounds
+                      << "]";
+        }
+        std::cerr << '\n';
         return fail("Viewport forced one LOD across a chunked asset while the camera was inside its root bounds");
     }
 
@@ -467,6 +675,7 @@ int main()
         camera,
         {},
         1080,
+        lodSettings,
         true,
         runtimeProxyDraws,
         runtimeProxyLights);
@@ -501,6 +710,7 @@ int main()
         overviewCamera,
         {},
         1080,
+        lodSettings,
         false,
         noLodRockFieldDraws,
         noLodRockFieldLights);
@@ -523,6 +733,7 @@ int main()
         overviewCamera,
         {},
         1080,
+        lodSettings,
         false,
         noLodRockFieldDraws,
         noLodRockFieldLights);
@@ -677,6 +888,7 @@ int main()
         camera,
         {},
         1080,
+        lodSettings,
         false,
         colorDraws,
         sceneLights);
@@ -694,6 +906,7 @@ int main()
         &sun,
         camera,
         1080,
+        lodSettings,
         {},
         shadowDraws,
         shadowCasterStats);
@@ -715,9 +928,9 @@ int main()
     std::vector<projectunity::renderer::RenderMeshDraw> rejectedColorDraws;
     std::vector<projectunity::renderer::RenderMeshDraw> rejectedShadowDraws;
     std::vector<projectunity::renderer::RenderLight> rejectedLights;
-    (void)rejectedShadowWorld.buildFrame(&rejectedShadowScene, &shadowAssets, {}, camera, {}, 1080, false, rejectedColorDraws, rejectedLights);
+    (void)rejectedShadowWorld.buildFrame(&rejectedShadowScene, &shadowAssets, {}, camera, {}, 1080, lodSettings, false, rejectedColorDraws, rejectedLights);
     projectunity::editor::ViewportRenderWorldStats rejectedShadowStats;
-    rejectedShadowWorld.collectShadowCasters(shadowSelection, &sun, camera, 1080, {}, rejectedShadowDraws, rejectedShadowStats);
+    rejectedShadowWorld.collectShadowCasters(shadowSelection, &sun, camera, 1080, lodSettings, {}, rejectedShadowDraws, rejectedShadowStats);
     if (!rejectedShadowDraws.empty() || rejectedShadowStats.shadowOnlyRejectedInstances == 0U) {
         return fail("Viewport shadow caster collection kept an offscreen caster whose projected shadow misses the camera");
     }
@@ -747,6 +960,7 @@ int main()
         camera,
         {},
         1080,
+        lodSettings,
         false,
         shadowBudgetColorDraws,
         shadowBudgetLights);
@@ -763,6 +977,7 @@ int main()
         &sun,
         camera,
         1080,
+        lodSettings,
         {},
         forwardShadowDraws,
         forwardShadowStats);
@@ -771,6 +986,7 @@ int main()
         &sun,
         upwardCamera,
         1080,
+        lodSettings,
         {},
         upwardShadowDraws,
         upwardShadowStats);

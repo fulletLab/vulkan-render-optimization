@@ -1,0 +1,9 @@
+Estado: LISTO PARA PRUEBA MANUAL
+
+Se agrego PROJECTUNITY_FORCE_DRAW_SELECTED_MODEL_SOURCE=1 para construir draw commands
+directamente desde ModelAsset, sin depender de RenderWorld drawPackets ya filtrados.
+
+Tambien se agrego PROJECTUNITY_DUMP_SELECTED_MODEL_ASSET=1 para inventario de ModelAsset
+comparado contra RenderWorld.
+
+No se marca el bug visual como arreglado.

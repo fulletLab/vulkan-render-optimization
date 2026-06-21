@@ -28,7 +28,8 @@ struct ViewportWorldBounds {
     float verticalFovRadians,
     float aspectRatio,
     float nearPlane,
-    float farPlane);
+    float farPlane,
+    float boundsPadding = 0.0F);
 
 [[nodiscard]] bool defaultPrimitiveProxyTransform(
     const scene::TransformComponent& transform,

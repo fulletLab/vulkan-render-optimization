@@ -124,7 +124,8 @@ int main()
     projectunity::editor::ViewportRenderWorld world;
     std::vector<projectunity::renderer::RenderMeshDraw> draws;
     std::vector<projectunity::renderer::RenderLight> lights;
-    (void)world.buildFrame(&runtimeScene, &assets, {}, camera, {}, 1080, true, draws, lights);
+    const auto lodSettings = projectunity::editor::viewportAssetLodSettingsFromEnvironment();
+    (void)world.buildFrame(&runtimeScene, &assets, {}, camera, {}, 1080, lodSettings, true, draws, lights);
 
     bool sawStaticCookedRemainder = false;
     bool sawDynamicExtractedRock = false;

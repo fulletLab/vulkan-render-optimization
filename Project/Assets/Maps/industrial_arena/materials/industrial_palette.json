@@ -1,0 +1,152 @@
+{
+  "concrete_floor": {
+    "baseColor": [
+      0.43,
+      0.42,
+      0.39,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.86
+  },
+  "concrete_var_a": {
+    "baseColor": [
+      0.36,
+      0.36,
+      0.34,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.9
+  },
+  "dark_wall": {
+    "baseColor": [
+      0.25,
+      0.26,
+      0.27,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.75
+  },
+  "warehouse_roof": {
+    "baseColor": [
+      0.31,
+      0.32,
+      0.33,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.82
+  },
+  "container_blue": {
+    "baseColor": [
+      0.16,
+      0.28,
+      0.42,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.62
+  },
+  "container_red": {
+    "baseColor": [
+      0.48,
+      0.2,
+      0.16,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.64
+  },
+  "container_green": {
+    "baseColor": [
+      0.28,
+      0.42,
+      0.22,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.68
+  },
+  "wood_crate": {
+    "baseColor": [
+      0.47,
+      0.31,
+      0.16,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.78
+  },
+  "low_barrier": {
+    "baseColor": [
+      0.55,
+      0.55,
+      0.52,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.82
+  },
+  "hazard_yellow": {
+    "baseColor": [
+      0.93,
+      0.68,
+      0.12,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.7
+  },
+  "hazard_black": {
+    "baseColor": [
+      0.05,
+      0.05,
+      0.045,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.75
+  },
+  "spawn_a": {
+    "baseColor": [
+      0.68,
+      0.23,
+      0.15,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.9
+  },
+  "spawn_b": {
+    "baseColor": [
+      0.2,
+      0.36,
+      0.64,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.9
+  },
+  "plant_green": {
+    "baseColor": [
+      0.2,
+      0.38,
+      0.19,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.92
+  },
+  "cable_dark": {
+    "baseColor": [
+      0.035,
+      0.035,
+      0.033,
+      1.0
+    ],
+    "metallic": 0.0,
+    "roughness": 0.88
+  }
+}

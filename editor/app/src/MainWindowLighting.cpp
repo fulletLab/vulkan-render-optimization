@@ -134,8 +134,14 @@ QWidget* MainWindow::createLightingPanel()
     connect(shadowModeCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
         const auto value = shadowModeCombo_->itemData(index).toInt();
         shadowUpdateMode_ = static_cast<renderer::RenderShadowUpdateMode>(value);
+        qualitySettings_.shadow.updateMode = shadowUpdateMode_;
         pushLightingSettingsToViewports();
         saveLightingSettings();
+        std::string error;
+        if (!saveEditorQualitySettings(qualitySettings_, projectGraphicsSettingsPath(), &error)) {
+            core::logWarning(core::LogCategory::Editor, "No se pudieron guardar ajustes de sombras: " + error);
+        }
+        syncViewportTuningPanel();
     });
     connect(useEnvironmentTextureButton_, &QPushButton::clicked, this, [this] {
         useSelectedTextureAsEnvironment();
@@ -295,11 +301,18 @@ void MainWindow::resetLightingDefaults()
     editorSunAzimuthDegrees_ = 38.0F;
     editorSunElevationDegrees_ = 55.0F;
     shadowUpdateMode_ = renderer::RenderShadowUpdateMode::Off;
+    qualitySettings_.shadow.updateMode = shadowUpdateMode_;
+    qualitySettings_.shadow.quality = ShadowQuality::Off;
     environmentTextureId_ = {};
     environmentTexture_.reset();
     updateLightingPanelControls();
     pushLightingSettingsToViewports();
     saveLightingSettings();
+    std::string error;
+    if (!saveEditorQualitySettings(qualitySettings_, projectGraphicsSettingsPath(), &error)) {
+        core::logWarning(core::LogCategory::Editor, "No se pudieron guardar ajustes de sombras: " + error);
+    }
+    syncViewportTuningPanel();
     core::logInfo(core::LogCategory::Renderer, "Lighting environment reset to defaults");
 }
 

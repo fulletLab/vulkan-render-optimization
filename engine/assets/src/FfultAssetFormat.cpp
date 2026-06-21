@@ -44,7 +44,7 @@ public:
         }
         out_.open(path_, std::ios::binary | std::ios::trunc);
         if (!out_) {
-            setError(errorMessage, "Unable to open FFULT output file");
+            setError(errorMessage, "Unable to open FFULT output file: " + path_.string());
             return false;
         }
         return true;

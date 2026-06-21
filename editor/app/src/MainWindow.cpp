@@ -8,6 +8,7 @@
 #include <DockAreaWidget.h>
 #include <DockManager.h>
 #include <DockWidget.h>
+#include <FloatingDockContainer.h>
 
 #include <QAction>
 #include <QActionGroup>
@@ -27,6 +28,7 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QPlainTextEdit>
+#include <QPoint>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -99,6 +101,13 @@ constexpr int kEntityIdRole = Qt::UserRole + 1;
 [[nodiscard]] std::filesystem::path editorAssetCacheRoot()
 {
     std::error_code error;
+    const auto projectCache = std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Cache" / "Assets";
+    std::filesystem::create_directories(projectCache, error);
+    if (!error) {
+        return projectCache;
+    }
+
+    error.clear();
     const auto current = std::filesystem::current_path(error);
     if (!error) {
         const auto candidate = current / "Cache" / "Assets";
@@ -445,6 +454,7 @@ MainWindow::MainWindow(QWidget* parent)
     createMenus();
     createToolbar();
     createDockLayout();
+    syncViewportTuningPanel();
     ensureBuiltInGeneratedModels();
     rebuildAssetBrowser();
     newScene();
@@ -454,6 +464,15 @@ MainWindow::MainWindow(QWidget* parent)
         applyLightingSettings();
     });
     restoreEditorLayout();
+    if (viewportTuningDock_ != nullptr) {
+        viewportTuningDock_->toggleView(true);
+        viewportTuningDock_->setFloating();
+        viewportTuningDock_->raise();
+        if (auto* floating = viewportTuningDock_->floatingDockContainer()) {
+            floating->resize(440, 720);
+            floating->move(QPoint(80, 80));
+        }
+    }
 
     logFlushTimer_ = new QTimer(this);
     connect(logFlushTimer_, &QTimer::timeout, this, [this]() {
@@ -1425,6 +1444,8 @@ void MainWindow::applyEditorQualitySettings(EditorQualitySettings settings, bool
     applyQualitySettingsToViewport(sceneViewport_);
     applyQualitySettingsToViewport(gameViewport_);
     applyQualitySettingsToViewport(playRuntimeViewport_);
+    updateLightingPanelControls();
+    syncViewportTuningPanel();
     refreshViewports();
 }
 
@@ -1438,6 +1459,12 @@ void MainWindow::applyQualitySettingsToViewport(ViewportWidget* viewport) const
     viewport->setAssetLodSettings(viewportAssetLodSettingsFromQuality(qualitySettings_));
     viewport->setTextureDebugSettings(textureDebugSettingsFromQuality(qualitySettings_));
     viewport->setShadowUpdateMode(shadowUpdateMode_);
+    viewport->setMeshWireOverlayEnabled(qualitySettings_.debug.wireframe);
+    viewport->setAssetXrayDebugEnabled(qualitySettings_.debug.boundsXray);
+    viewport->setLodDebugOverlayEnabled(qualitySettings_.debug.lodColors);
+    viewport->setShadowDebugOverlayEnabled(qualitySettings_.debug.shadowCasters);
+    viewport->setSourceObjectDebugOverlayEnabled(qualitySettings_.debug.sourceObjects);
+    viewport->setSunDirectionDebugEnabled(qualitySettings_.debug.sunDirection);
 }
 
 } // namespace projectunity::editor

@@ -1,0 +1,15 @@
+{
+  "id": "industrial_arena_topdown",
+  "name": "Industrial Arena",
+  "scene": "industrial_arena.scene.json",
+  "metadata": "industrial_arena_metadata.json",
+  "visualAsset": "industrial_arena.glb",
+  "visualAssetId": 10890521447512886328,
+  "assetDependencies": [
+    {
+      "path": "industrial_arena.glb",
+      "type": "Model",
+      "id": 10890521447512886328
+    }
+  ]
+}

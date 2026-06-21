@@ -17,6 +17,8 @@
 #include <QPlainTextEdit>
 #include <QPointF>
 #include <QScreen>
+#include <QSlider>
+#include <QSpinBox>
 #include <QTemporaryDir>
 
 #include <algorithm>
@@ -102,8 +104,8 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
     }
 
     const auto dockWidgets = dockManager_->dockWidgetsMap();
-    if (dockWidgets.size() < 12) {
-        return fail(QStringLiteral("Expected at least 12 editor dock widgets"));
+    if (dockWidgets.size() < 13) {
+        return fail(QStringLiteral("Expected at least 13 editor dock widgets"));
     }
 
     const auto dockState = dockManager_->saveState(kLayoutVersion);
@@ -117,11 +119,18 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
 
     bool resetLayoutActionFound = false;
     bool hierarchyActionFound = false;
+    bool viewportTuningActionFound = false;
     for (const auto* action : windowMenu_->actions()) {
-        resetLayoutActionFound = resetLayoutActionFound || action->text() == QStringLiteral("Reset Layout");
-        hierarchyActionFound = hierarchyActionFound || action->text() == QStringLiteral("Hierarchy");
+        resetLayoutActionFound = resetLayoutActionFound
+            || action->text() == QStringLiteral("Reset Layout")
+            || action->text() == QStringLiteral("Restablecer layout");
+        hierarchyActionFound = hierarchyActionFound
+            || action->text() == QStringLiteral("Hierarchy")
+            || action->text() == QStringLiteral("Jerarquia");
+        viewportTuningActionFound = viewportTuningActionFound
+            || action->text() == QStringLiteral("Viewport Tuning");
     }
-    if (!resetLayoutActionFound || !hierarchyActionFound) {
+    if (!resetLayoutActionFound || !hierarchyActionFound || !viewportTuningActionFound) {
         return fail(QStringLiteral("Window menu does not expose layout recovery actions"));
     }
 
@@ -131,6 +140,19 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
 
     if (consoleView_ == nullptr) {
         return fail(QStringLiteral("Console panel was not created"));
+    }
+
+    if (tuningStatsLabel_ == nullptr
+        || tuningHlodCheck_ == nullptr
+        || tuningLodDistanceSlider_ == nullptr
+        || tuningScreenErrorSlider_ == nullptr
+        || tuningHysteresisSlider_ == nullptr
+        || tuningChunkBudgetSpin_ == nullptr
+        || tuningDrawPacketBudgetSpin_ == nullptr
+        || tuningShadowCasterBudgetSpin_ == nullptr
+        || tuningShadowModeCombo_ == nullptr
+        || tuningShadowModeCombo_->count() != 3) {
+        return fail(QStringLiteral("Viewport Tuning panel controls were not created"));
     }
 
     if (sceneViewport_ == nullptr || gameViewport_ == nullptr) {

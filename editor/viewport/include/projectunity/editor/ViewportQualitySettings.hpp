@@ -28,8 +28,11 @@ struct ViewportAssetLodSettings {
     float lodBias {1.0F};
     float lodHysteresisRatio {0.15F};
     float hlodHysteresisRatio {0.15F};
+    float cullingBoundsPadding {0.25F};
     float terrainNearHighQualityRadius {30.0F};
     bool terrainNearHighQualityEnabled {true};
+    bool occlusionCullingEnabled {true};
+    bool spatialCellCullingEnabled {true};
     bool debugDisableTerrainHlod {false};
     bool debugDisableTerrainChunkLod {false};
     ViewportHlodDebugOverride debugOverride {ViewportHlodDebugOverride::Automatic};
@@ -106,6 +109,7 @@ namespace detail {
     settings.lodBias = std::clamp(settings.lodBias, 0.25F, 8.0F);
     settings.lodHysteresisRatio = std::clamp(settings.lodHysteresisRatio, 0.0F, 0.45F);
     settings.hlodHysteresisRatio = std::clamp(settings.hlodHysteresisRatio, 0.0F, 0.45F);
+    settings.cullingBoundsPadding = std::clamp(settings.cullingBoundsPadding, 0.0F, 1000.0F);
     settings.terrainNearHighQualityRadius = std::clamp(settings.terrainNearHighQualityRadius, 0.0F, 1'000'000.0F);
     return settings;
 }
@@ -141,11 +145,20 @@ namespace detail {
     settings.hlodHysteresisRatio = detail::viewportEnvironmentFloat(
         "PROJECTUNITY_HLOD_HYSTERESIS_RATIO",
         settings.hlodHysteresisRatio);
+    settings.cullingBoundsPadding = detail::viewportEnvironmentFloat(
+        "PROJECTUNITY_CULLING_BOUNDS_PADDING",
+        settings.cullingBoundsPadding);
     settings.terrainNearHighQualityRadius = detail::viewportEnvironmentFloat(
         "PROJECTUNITY_TERRAIN_NEAR_HIGH_QUALITY_RADIUS",
         settings.terrainNearHighQualityRadius);
     if (const auto forceNearLod0 = detail::viewportEnvironmentFlag("PROJECTUNITY_DEBUG_FORCE_TERRAIN_LOD0_NEAR")) {
         settings.terrainNearHighQualityEnabled = *forceNearLod0;
+    }
+    if (const auto disableOcclusionCulling = detail::viewportEnvironmentFlag("PROJECTUNITY_DEBUG_DISABLE_OCCLUSION_CULLING")) {
+        settings.occlusionCullingEnabled = !*disableOcclusionCulling;
+    }
+    if (const auto disableSpatialCulling = detail::viewportEnvironmentFlag("PROJECTUNITY_DEBUG_DISABLE_SPATIAL_CELL_CULLING")) {
+        settings.spatialCellCullingEnabled = !*disableSpatialCulling;
     }
     if (const auto disableTerrainHlod = detail::viewportEnvironmentFlag("PROJECTUNITY_DEBUG_DISABLE_TERRAIN_HLOD")) {
         settings.debugDisableTerrainHlod = *disableTerrainHlod;

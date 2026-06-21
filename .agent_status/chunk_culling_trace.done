@@ -1,0 +1,9 @@
+Estado: LISTO PARA PRUEBA MANUAL
+
+Se agrego diagnostico para rastrear la desaparicion de chunks del asset seleccionado.
+No se marca el bug visual como arreglado.
+
+Flags:
+PROJECTUNITY_TRACE_SELECTED_ASSET=1
+PROJECTUNITY_DISABLE_ALL_CULLING_FOR_SELECTED=1
+PROJECTUNITY_RENDER_ALL_DRAW_PACKETS_FOR_SELECTED=1

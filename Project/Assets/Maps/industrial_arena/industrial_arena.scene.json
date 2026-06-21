@@ -1,0 +1,1532 @@
+{
+  "version": 1,
+  "name": "Industrial Arena",
+  "assetDependencies": [
+    {
+      "path": "industrial_arena.glb",
+      "type": "Model",
+      "id": 10890521447512886328
+    }
+  ],
+  "entities": [
+    {
+      "id": 1,
+      "parent": null,
+      "name": "Industrial Arena",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "name": "Industrial Arena Visual",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "meshRenderer": {
+        "modelAssetId": 10890521447512886328,
+        "renderable": true,
+        "runtimeCook": {
+          "staticBatchable": true,
+          "mutable": false,
+          "physics": "none",
+          "grabbable": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "parent": 1,
+      "name": "Arena Directional Light",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "light": {
+        "type": "directional",
+        "direction": [
+          0.35,
+          -0.82,
+          0.45
+        ],
+        "color": [
+          1.0,
+          0.96,
+          0.88
+        ],
+        "intensity": 3.2,
+        "range": 0,
+        "innerConeAngle": 0,
+        "outerConeAngle": 0.785398
+      }
+    },
+    {
+      "id": 4,
+      "parent": 1,
+      "name": "Top Down Test Camera",
+      "transform": {
+        "position": [
+          0,
+          36,
+          24
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "camera": {
+        "projection": "orthographic",
+        "direction": [
+          0,
+          -0.832,
+          -0.555
+        ],
+        "right": [
+          1,
+          0,
+          0
+        ],
+        "up": [
+          0,
+          0.555,
+          -0.832
+        ],
+        "verticalFovRadians": 1.04719755,
+        "aspectRatio": 1.777778,
+        "xMagnitude": 34,
+        "yMagnitude": 21,
+        "nearPlane": 0.05,
+        "farPlane": 120
+      }
+    },
+    {
+      "id": 5,
+      "parent": 1,
+      "name": "Spawn Zone A Trigger",
+      "transform": {
+        "position": [
+          -26,
+          0.05,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          6,
+          0.1,
+          24
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": true
+      }
+    },
+    {
+      "id": 6,
+      "parent": 1,
+      "name": "Spawn A1",
+      "transform": {
+        "position": [
+          -26,
+          0,
+          -8
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "parent": 1,
+      "name": "Spawn A2",
+      "transform": {
+        "position": [
+          -26,
+          0,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "parent": 1,
+      "name": "Spawn A3",
+      "transform": {
+        "position": [
+          -26,
+          0,
+          8
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "parent": 1,
+      "name": "Spawn Zone B Trigger",
+      "transform": {
+        "position": [
+          26,
+          0.05,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          6,
+          0.1,
+          24
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": true
+      }
+    },
+    {
+      "id": 10,
+      "parent": 1,
+      "name": "Spawn B1",
+      "transform": {
+        "position": [
+          26,
+          0,
+          -8
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "parent": 1,
+      "name": "Spawn B2",
+      "transform": {
+        "position": [
+          26,
+          0,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "parent": 1,
+      "name": "Spawn B3",
+      "transform": {
+        "position": [
+          26,
+          0,
+          8
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "parent": 1,
+      "name": "Collider wall_north",
+      "transform": {
+        "position": [
+          0,
+          1.6,
+          -17.4
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          60,
+          3.2,
+          1.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 14,
+      "parent": 1,
+      "name": "Collider wall_south",
+      "transform": {
+        "position": [
+          0,
+          1.6,
+          17.4
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          60,
+          3.2,
+          1.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 15,
+      "parent": 1,
+      "name": "Collider wall_west",
+      "transform": {
+        "position": [
+          -30.4,
+          1.6,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.0,
+          3.2,
+          34
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 16,
+      "parent": 1,
+      "name": "Collider wall_east",
+      "transform": {
+        "position": [
+          30.4,
+          1.6,
+          0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.0,
+          3.2,
+          34
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 17,
+      "parent": 1,
+      "name": "Collider warehouse_left",
+      "transform": {
+        "position": [
+          -9.2,
+          1.8,
+          -2.7
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          9.5,
+          3.6,
+          8.6
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 18,
+      "parent": 1,
+      "name": "Collider warehouse_right",
+      "transform": {
+        "position": [
+          9.4,
+          1.8,
+          2.6
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          9.5,
+          3.6,
+          8.6
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 19,
+      "parent": 1,
+      "name": "Collider container_top_blue",
+      "transform": {
+        "position": [
+          3.5,
+          1.225,
+          -10.7
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          7.4,
+          2.45,
+          2.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 20,
+      "parent": 1,
+      "name": "Collider container_bottom_red",
+      "transform": {
+        "position": [
+          -6.7,
+          1.175,
+          12.0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          8.2,
+          2.35,
+          2.35
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 21,
+      "parent": 1,
+      "name": "Collider container_bottom_blue",
+      "transform": {
+        "position": [
+          11.4,
+          1.225,
+          10.6
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          7.4,
+          2.45,
+          2.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 22,
+      "parent": 1,
+      "name": "Collider container_green_flank",
+      "transform": {
+        "position": [
+          19.0,
+          1.25,
+          -10.6
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          2.4,
+          2.5,
+          7.2
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 23,
+      "parent": 1,
+      "name": "Collider low_barrier_01",
+      "transform": {
+        "position": [
+          -22,
+          0.6,
+          -4
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          0.7,
+          1.2,
+          6.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 24,
+      "parent": 1,
+      "name": "Collider low_barrier_02",
+      "transform": {
+        "position": [
+          -20.5,
+          0.6,
+          8.2
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          0.7,
+          1.2,
+          5.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 25,
+      "parent": 1,
+      "name": "Collider low_barrier_03",
+      "transform": {
+        "position": [
+          -13,
+          0.575,
+          8.5
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          5.5,
+          1.15,
+          0.7
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 26,
+      "parent": 1,
+      "name": "Collider low_barrier_04",
+      "transform": {
+        "position": [
+          -2.0,
+          0.575,
+          -5.7
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          0.7,
+          1.15,
+          6.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 27,
+      "parent": 1,
+      "name": "Collider low_barrier_05",
+      "transform": {
+        "position": [
+          0.0,
+          0.575,
+          5.9
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          5.2,
+          1.15,
+          0.7
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 28,
+      "parent": 1,
+      "name": "Collider low_barrier_06",
+      "transform": {
+        "position": [
+          20.8,
+          0.6,
+          -7.8
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          0.7,
+          1.2,
+          5.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 29,
+      "parent": 1,
+      "name": "Collider low_barrier_07",
+      "transform": {
+        "position": [
+          22.0,
+          0.6,
+          4.0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          0.7,
+          1.2,
+          6.0
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 30,
+      "parent": 1,
+      "name": "Collider low_barrier_08",
+      "transform": {
+        "position": [
+          14.1,
+          0.575,
+          -5.7
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          0.7,
+          1.15,
+          5.5
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 31,
+      "parent": 1,
+      "name": "Collider crate_01",
+      "transform": {
+        "position": [
+          -21,
+          0.725,
+          -12
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 32,
+      "parent": 1,
+      "name": "Collider crate_02",
+      "transform": {
+        "position": [
+          -18.8,
+          0.725,
+          -12.2
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 33,
+      "parent": 1,
+      "name": "Collider crate_03",
+      "transform": {
+        "position": [
+          -18.7,
+          0.725,
+          -9.7
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 34,
+      "parent": 1,
+      "name": "Collider crate_04",
+      "transform": {
+        "position": [
+          -7,
+          0.725,
+          -11.6
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 35,
+      "parent": 1,
+      "name": "Collider crate_05",
+      "transform": {
+        "position": [
+          -5.3,
+          0.725,
+          -10.0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 36,
+      "parent": 1,
+      "name": "Collider crate_06",
+      "transform": {
+        "position": [
+          -5.0,
+          0.725,
+          3.0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 37,
+      "parent": 1,
+      "name": "Collider crate_07",
+      "transform": {
+        "position": [
+          14,
+          0.725,
+          5.9
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 38,
+      "parent": 1,
+      "name": "Collider crate_08",
+      "transform": {
+        "position": [
+          22,
+          0.725,
+          -1.6
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 39,
+      "parent": 1,
+      "name": "Collider crate_09",
+      "transform": {
+        "position": [
+          24,
+          0.725,
+          -4.0
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 40,
+      "parent": 1,
+      "name": "Collider crate_10",
+      "transform": {
+        "position": [
+          24,
+          0.725,
+          11.2
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 41,
+      "parent": 1,
+      "name": "Collider crate_11",
+      "transform": {
+        "position": [
+          27,
+          0.725,
+          12.5
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    },
+    {
+      "id": 42,
+      "parent": 1,
+      "name": "Collider crate_12",
+      "transform": {
+        "position": [
+          18,
+          0.725,
+          13.2
+        ],
+        "rotationEuler": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "collider": {
+        "enabled": true,
+        "shape": "box",
+        "size": [
+          1.45,
+          1.45,
+          1.45
+        ],
+        "offset": [
+          0,
+          0,
+          0
+        ],
+        "radius": 0.5,
+        "height": 2,
+        "trigger": false
+      }
+    }
+  ]
+}

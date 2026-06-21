@@ -5,6 +5,7 @@
 #include "ViewportRendererCulling.hpp"
 
 #include <cstddef>
+#include <cstdint>
 
 namespace projectunity::editor {
 
@@ -13,8 +14,18 @@ void forEachSpatialChunkCandidate(
     const Record& record,
     const ViewportRenderWorldCamera& camera,
     ViewportRenderWorldStats& stats,
-    Callback&& callback)
+    Callback&& callback,
+    bool forceAllChunks = false,
+    float boundsPadding = 0.0F)
 {
+    if (forceAllChunks) {
+        stats.spatialCellCandidateChunkCount += static_cast<std::uint64_t>(record.chunks.size());
+        for (std::size_t index = 0; index < record.chunks.size(); ++index) {
+            callback(index, record.chunks[index]);
+        }
+        return;
+    }
+
     if (record.chunkCells.empty()) {
         for (std::size_t index = 0; index < record.chunks.size(); ++index) {
             callback(index, record.chunks[index]);
@@ -33,7 +44,8 @@ void forEachSpatialChunkCandidate(
                 camera.verticalFovRadians,
                 camera.aspectRatio,
                 camera.nearPlane,
-                camera.farPlane)) {
+                camera.farPlane,
+                boundsPadding)) {
             ++stats.spatialCellRejectedCount;
             continue;
         }

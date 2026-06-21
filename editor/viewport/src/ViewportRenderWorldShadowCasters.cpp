@@ -207,7 +207,8 @@ void ViewportRenderWorld::collectShadowCasters(
                     camera.verticalFovRadians,
                     camera.aspectRatio,
                     camera.nearPlane,
-                    camera.farPlane);
+                    camera.farPlane,
+                    lodSettings.cullingBoundsPadding);
                 const auto intersectsShadowSelection = instanceIntersectsShadowSelection(shadowSelection, overview);
                 if (visibleToCamera) {
                     ++stats.shadowVisibleInstances;
@@ -275,7 +276,8 @@ void ViewportRenderWorld::collectShadowCasters(
                 camera.verticalFovRadians,
                 camera.aspectRatio,
                 camera.nearPlane,
-                camera.farPlane);
+                camera.farPlane,
+                lodSettings.cullingBoundsPadding);
             const auto intersectsShadowSelection = instanceIntersectsShadowSelection(shadowSelection, instance);
             if (visibleToCamera) {
                 ++stats.shadowVisibleInstances;

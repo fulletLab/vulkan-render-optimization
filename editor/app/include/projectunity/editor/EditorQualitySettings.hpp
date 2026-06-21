@@ -93,8 +93,11 @@ struct LodSettings {
     int chunkBudget {48};
     int drawPacketBudget {192};
     int shadowCasterBudget {192};
+    float cullingBoundsPadding {0.25F};
     bool terrainNearHighQualityEnabled {true};
     float terrainNearHighQualityRadius {30.0F};
+    bool occlusionCullingEnabled {true};
+    bool spatialCellCullingEnabled {true};
     bool debugDisableTerrainHlod {false};
     bool debugDisableTerrainChunkLod {false};
     bool debugColors {false};

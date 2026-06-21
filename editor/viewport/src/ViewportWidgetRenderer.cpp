@@ -3,6 +3,7 @@
 #include "ViewportLabelGeometry.hpp"
 #include "ViewportRenderWorld.hpp"
 #include "ViewportRenderWorldDiagnostics.hpp"
+#include "ViewportRendererCulling.hpp"
 #include "ViewportRendererOverlays.hpp"
 #include "ViewportShadowFocus.hpp"
 #include "ViewportSourceObjectDebugOverlay.hpp"
@@ -48,6 +49,16 @@ namespace {
 
 [[nodiscard]] bool renderWorldChunkBoundsDebugEnabled() noexcept { return environmentFlagEnabled("PROJECTUNITY_RENDERWORLD_CHUNK_BOUNDS"); }
 [[nodiscard]] bool viewportCullingLogEnabled() noexcept { return environmentFlagEnabled("PROJECTUNITY_VIEWPORT_CULLING_LOGS"); }
+[[nodiscard]] bool forceSelectedSourceModelDrawEnabled() noexcept { return environmentFlagEnabled("PROJECTUNITY_FORCE_DRAW_SELECTED_MODEL_SOURCE"); }
+[[nodiscard]] bool dumpSelectedModelAssetEnabled() noexcept { return environmentFlagEnabled("PROJECTUNITY_DUMP_SELECTED_MODEL_ASSET"); }
+[[nodiscard]] bool selectedAssetRenderWorldDebugEnabled() noexcept
+{
+    return environmentFlagEnabled("PROJECTUNITY_TRACE_SELECTED_ASSET")
+        || environmentFlagEnabled("PROJECTUNITY_DISABLE_ALL_CULLING_FOR_SELECTED")
+        || environmentFlagEnabled("PROJECTUNITY_RENDER_ALL_DRAW_PACKETS_FOR_SELECTED")
+        || forceSelectedSourceModelDrawEnabled()
+        || dumpSelectedModelAssetEnabled();
+}
 
 [[nodiscard]] std::uint64_t elapsedUs(std::chrono::steady_clock::time_point start) noexcept
 {
@@ -133,6 +144,75 @@ namespace {
         {point.x * entity.transform.scale.x, point.y * entity.transform.scale.y, point.z * entity.transform.scale.z},
         entity.transform.rotationEuler);
 }
+[[nodiscard]] renderer::RenderMatrix4 renderMatrix(const std::array<float, 16>& values)
+{
+    renderer::RenderMatrix4 matrix;
+    matrix.values = values;
+    return matrix;
+}
+[[nodiscard]] renderer::RenderMatrix4 modelMatrix(const scene::Entity& entity, math::Vec3 worldPosition)
+{
+    renderer::RenderMatrix4 matrix;
+    matrix.values.fill(0.0F);
+    const auto axisX = rotateEuler({entity.transform.scale.x, 0.0F, 0.0F}, entity.transform.rotationEuler);
+    const auto axisY = rotateEuler({0.0F, entity.transform.scale.y, 0.0F}, entity.transform.rotationEuler);
+    const auto axisZ = rotateEuler({0.0F, 0.0F, entity.transform.scale.z}, entity.transform.rotationEuler);
+    at(matrix, 0, 0) = axisX.x;
+    at(matrix, 1, 0) = axisX.y;
+    at(matrix, 2, 0) = axisX.z;
+    at(matrix, 0, 1) = axisY.x;
+    at(matrix, 1, 1) = axisY.y;
+    at(matrix, 2, 1) = axisY.z;
+    at(matrix, 0, 2) = axisZ.x;
+    at(matrix, 1, 2) = axisZ.y;
+    at(matrix, 2, 2) = axisZ.z;
+    at(matrix, 0, 3) = worldPosition.x;
+    at(matrix, 1, 3) = worldPosition.y;
+    at(matrix, 2, 3) = worldPosition.z;
+    at(matrix, 3, 3) = 1.0F;
+    return matrix;
+}
+[[nodiscard]] const assets::TextureAsset* modelTexture(
+    const assets::ModelAsset& model,
+    std::optional<std::size_t> textureIndex) noexcept
+{
+    return textureIndex.has_value() && *textureIndex < model.textures.size()
+        ? &model.textures[*textureIndex]
+        : nullptr;
+}
+[[nodiscard]] std::string vec3Text(math::Vec3 value)
+{
+    std::ostringstream text;
+    text << value.x << "," << value.y << "," << value.z;
+    return text.str();
+}
+[[nodiscard]] std::string meshBoundsText(const assets::MeshBounds& bounds)
+{
+    std::ostringstream text;
+    text << "center=(" << vec3Text(bounds.center) << ")"
+         << " extents=(" << vec3Text(bounds.maximum - bounds.minimum) << ")"
+         << " radius=" << bounds.radius;
+    return text.str();
+}
+[[nodiscard]] std::optional<assets::AssetRecord> assetRecordForId(
+    const assets::IAssetManager& assetManager,
+    assets::AssetId id)
+{
+    for (const auto& record : assetManager.records()) {
+        if (record.id == id) {
+            return record;
+        }
+    }
+    return std::nullopt;
+}
+[[nodiscard]] std::uint64_t modelLodCount(const assets::ModelAsset& model) noexcept
+{
+    std::uint64_t result = 0;
+    for (const auto& primitive : model.primitives) {
+        result += primitive.lods.size();
+    }
+    return result;
+}
 [[nodiscard]] math::Vec3 safeNormalized(math::Vec3 value, math::Vec3 fallback)
 {
     const auto length = value.length();
@@ -173,6 +253,29 @@ struct FrameBounds {
         return (maximum - center()).length();
     }
 };
+void includeMeshBounds(FrameBounds& bounds, const assets::MeshBounds& meshBounds)
+{
+    bounds.includeSphere(meshBounds.center, meshBounds.radius);
+}
+[[nodiscard]] FrameBounds modelPrimitiveBounds(const assets::ModelAsset& model)
+{
+    FrameBounds bounds;
+    for (const auto& primitive : model.primitives) {
+        includeMeshBounds(bounds, primitive.bounds);
+    }
+    return bounds;
+}
+[[nodiscard]] std::string frameBoundsText(const FrameBounds& bounds)
+{
+    if (!bounds.valid) {
+        return "invalid";
+    }
+    std::ostringstream text;
+    text << "center=(" << vec3Text(bounds.center()) << ")"
+         << " extents=(" << vec3Text(bounds.maximum - bounds.minimum) << ")"
+         << " radius=" << bounds.radius();
+    return text.str();
+}
 struct ViewportCameraFrame {
     math::Vec3 eye;
     math::Vec3 right;
@@ -183,7 +286,253 @@ struct ViewportCameraFrame {
     float nearPlane {0.05F};
     float farPlane {4000.0F};
 };
+struct SourceModelDrawStats {
+    std::uint64_t sourceDrawsBuilt {0};
+    std::uint64_t sourceDrawsSubmitted {0};
+    std::uint64_t removedRenderWorldDrawPackets {0};
+    bool selectedEntityFound {false};
+    bool selectedModelFound {false};
+};
+[[nodiscard]] FrameBounds modelInstanceBounds(const assets::ModelAsset& model)
+{
+    FrameBounds bounds;
+    if (!model.primitiveInstances.empty()) {
+        for (const auto& instance : model.primitiveInstances) {
+            includeMeshBounds(bounds, instance.bounds);
+        }
+        return bounds;
+    }
+    return modelPrimitiveBounds(model);
+}
+[[nodiscard]] SourceModelDrawStats appendSelectedSourceModelDraws(
+    const scene::Entity& entity,
+    const assets::IAssetManager& assetManager,
+    const assets::ModelAsset& model,
+    math::Vec3 worldPosition,
+    const ViewportCameraFrame& cameraFrame,
+    const renderer::RenderMatrix4& viewProjection,
+    std::uint64_t renderWorldDrawPackets,
+    std::uint64_t renderWorldChunks,
+    bool dumpInventory,
+    bool forceSourceDraw,
+    std::vector<renderer::RenderMeshDraw>& meshDraws,
+    FrameBounds& visibleBounds,
+    std::uint64_t& lastSignature)
+{
+    SourceModelDrawStats stats;
+    stats.selectedEntityFound = true;
+    stats.selectedModelFound = true;
+    const auto record = assetRecordForId(assetManager, model.id);
+    const auto sourceName = record.has_value() ? record->sourceName : std::string {"<unknown>"};
+    const auto cacheFile = record.has_value() ? record->cacheFile : std::string {};
+    const auto hasFfultCache = !cacheFile.empty() || sourceName.find(".ffult") != std::string::npos;
+    const auto rootLocalBounds = modelInstanceBounds(model);
+    const auto primitiveBounds = modelPrimitiveBounds(model);
 
+    auto signature = mixLogHash(entity.id.value(), model.id.value());
+    signature = mixLogHash(signature, model.primitives.size());
+    signature = mixLogHash(signature, model.primitiveInstances.size());
+    signature = mixLogHash(signature, model.editorInstances.size());
+    signature = mixLogHash(signature, renderWorldDrawPackets);
+    signature = mixLogHash(signature, renderWorldChunks);
+    signature = mixLogHash(signature, forceSourceDraw ? 1U : 0U);
+    signature = mixLogHash(signature, dumpInventory ? 1U : 0U);
+
+    const auto rootMatrix = modelMatrix(entity, worldPosition);
+    const auto selectedModelId = entity.meshRenderer.has_value()
+        ? entity.meshRenderer->modelAssetId
+        : model.id;
+
+    if (forceSourceDraw) {
+        const auto before = meshDraws.size();
+        meshDraws.erase(
+            std::remove_if(
+                meshDraws.begin(),
+                meshDraws.end(),
+                [&](const renderer::RenderMeshDraw& draw) {
+                    return draw.sceneNodeId == entity.id.value()
+                        || (selectedModelId.isValid() && draw.modelAssetId == selectedModelId);
+                }),
+            meshDraws.end());
+        stats.removedRenderWorldDrawPackets = before - meshDraws.size();
+    }
+
+    std::ostringstream details;
+    const auto appendPrimitiveDraw = [&](
+        std::uint32_t primitiveIndex,
+        std::uint32_t sourceIndex,
+        const renderer::RenderMatrix4& matrix,
+        bool flipsWinding,
+        const char* sourceKind,
+        const std::string& nodeName) {
+        ++stats.sourceDrawsBuilt;
+        if (primitiveIndex >= model.primitives.size()) {
+            if (stats.sourceDrawsBuilt <= 50U) {
+                details << " primitiveIndex=" << primitiveIndex
+                        << " " << sourceKind << "Index=" << sourceIndex
+                        << " nodeName=" << nodeName
+                        << " submitted=false reason=primitiveIndexOutOfRange";
+            }
+            return;
+        }
+        const auto& primitive = model.primitives[primitiveIndex];
+        if (primitive.materialIndex >= model.materials.size()) {
+            if (stats.sourceDrawsBuilt <= 50U) {
+                details << " primitiveIndex=" << primitiveIndex
+                        << " " << sourceKind << "Index=" << sourceIndex
+                        << " nodeName=" << nodeName
+                        << " localBounds=" << meshBoundsText(primitive.bounds)
+                        << " materialIndex=" << primitive.materialIndex
+                        << " submitted=false reason=materialIndexOutOfRange";
+            }
+            return;
+        }
+        const auto& material = model.materials[primitive.materialIndex];
+        const auto worldBounds = transformViewportBounds(matrix, primitive.bounds);
+        if (forceSourceDraw) {
+            auto draw = renderer::RenderMeshDraw {
+                selectedModelId,
+                primitiveIndex,
+                0U,
+                &primitive,
+                &material,
+                modelTexture(model, material.baseColorTexture),
+                modelTexture(model, material.normalTexture),
+                modelTexture(model, material.metallicRoughnessTexture),
+                modelTexture(model, material.occlusionTexture),
+                modelTexture(model, material.emissiveTexture),
+                math::dot(worldBounds.center - cameraFrame.eye, cameraFrame.forward),
+                {worldBounds.center.x, worldBounds.center.y, worldBounds.center.z},
+                worldBounds.radius,
+                matrix,
+                multiply(viewProjection, matrix),
+                flipsWinding,
+                true,
+                mixLogHash(entity.id.value(), mixLogHash(primitiveIndex, sourceIndex)),
+                mixLogHash(entity.id.value(), mixLogHash(sourceIndex, 0x50A5CEULL)),
+                entity.id.value(),
+            };
+            draw.worldBoundsHalfExtent = {
+                (worldBounds.corners[7].x - worldBounds.corners[0].x) * 0.5F,
+                (worldBounds.corners[7].y - worldBounds.corners[0].y) * 0.5F,
+                (worldBounds.corners[7].z - worldBounds.corners[0].z) * 0.5F,
+            };
+            draw.distanceToCameraCenter = (worldBounds.center - cameraFrame.eye).length();
+            draw.distanceToCameraBounds = std::max(draw.distanceToCameraCenter - worldBounds.radius, 0.0F);
+            draw.projectedRadiusPixels = 0.0F;
+            draw.previousLodIndex = 0U;
+            draw.projectedLodErrorPixels = 0.0F;
+            draw.lodSelectionReason = renderer::RenderLodSelectionReason::FullResolution;
+            draw.materialIndex = static_cast<std::uint32_t>(primitive.materialIndex);
+            draw.generatedTerrainModel = entity.terrain.has_value()
+                && entity.terrain->generatedModelAssetId.isValid()
+                && selectedModelId == entity.terrain->generatedModelAssetId;
+            meshDraws.push_back(draw);
+            visibleBounds.includeSphere(worldBounds.center, worldBounds.radius);
+            ++stats.sourceDrawsSubmitted;
+        }
+        if (stats.sourceDrawsBuilt <= 50U) {
+            details << " primitiveIndex=" << primitiveIndex
+                    << " " << sourceKind << "Index=" << sourceIndex
+                    << " nodeName=" << nodeName
+                    << " localBounds=" << meshBoundsText(primitive.bounds)
+                    << " worldBounds=center=(" << vec3Text(worldBounds.center) << ")"
+                    << " radius=" << worldBounds.radius
+                    << " materialIndex=" << primitive.materialIndex
+                    << " submitted=" << (forceSourceDraw ? "true" : "false")
+                    << " reason=" << (forceSourceDraw ? "source-direct" : "inventory-only");
+        }
+    };
+
+    if (!model.primitiveInstances.empty()) {
+        for (std::uint32_t index = 0; index < model.primitiveInstances.size(); ++index) {
+            const auto& instance = model.primitiveInstances[index];
+            const auto nodeName = index < model.editorInstances.size()
+                ? model.editorInstances[index].name
+                : std::string {"<primitiveInstance>"};
+            appendPrimitiveDraw(
+                instance.primitiveIndex,
+                index,
+                multiply(rootMatrix, renderMatrix(instance.transform)),
+                instance.flipsWinding,
+                "primitiveInstance",
+                nodeName);
+        }
+    } else {
+        for (std::uint32_t primitiveIndex = 0; primitiveIndex < model.primitives.size(); ++primitiveIndex) {
+            appendPrimitiveDraw(
+                primitiveIndex,
+                primitiveIndex,
+                rootMatrix,
+                false,
+                "primitive",
+                primitiveIndex < model.editorInstances.size()
+                    ? model.editorInstances[primitiveIndex].name
+                    : std::string {"<primitive>"});
+        }
+    }
+
+    signature = mixLogHash(signature, stats.sourceDrawsBuilt);
+    signature = mixLogHash(signature, stats.sourceDrawsSubmitted);
+    signature = mixLogHash(signature, meshDraws.size());
+    if (signature != lastSignature) {
+        std::ostringstream message;
+        if (dumpInventory || forceSourceDraw) {
+            message << "[ModelAssetInventory]"
+                    << " modelAssetId=" << (model.id.isValid() ? model.id.value() : 0U)
+                    << " name=" << model.name
+                    << " sourcePath=" << sourceName
+                    << " meshCount=" << (model.primitiveInstances.empty() ? model.primitives.size() : model.primitiveInstances.size())
+                    << " primitiveCount=" << model.primitives.size()
+                    << " materialCount=" << model.materials.size()
+                    << " textureCount=" << model.textures.size()
+                    << " nodeCount=" << model.editorInstances.size()
+                    << " editorInstanceCount=" << model.editorInstances.size()
+                    << " primitiveInstanceCount=" << model.primitiveInstances.size()
+                    << " lodCount=" << modelLodCount(model)
+                    << " clusterCount=" << model.primitiveClusters.size()
+                    << " batchCount=" << model.primitiveInstances.size()
+                    << " chunkCount=" << model.primitiveClusters.size()
+                    << " rootBounds=" << frameBoundsText(rootLocalBounds)
+                    << " sumPrimitiveBounds=" << frameBoundsText(primitiveBounds)
+                    << " hasFfultCache=" << (hasFfultCache ? "true" : "false")
+                    << " cachePath=" << cacheFile
+                    << " [RenderWorldInventory]"
+                    << " entityId=" << entity.id.value()
+                    << " modelAssetId=" << (selectedModelId.isValid() ? selectedModelId.value() : 0U)
+                    << " renderRecords=1"
+                    << " chunks=" << renderWorldChunks
+                    << " drawPackets=" << renderWorldDrawPackets
+                    << " overviewDraws=see_SelectedAssetTrace"
+                    << " proxyDraws=see_SelectedAssetTrace"
+                    << " finalSubmitted=" << meshDraws.size();
+        }
+        if (forceSourceDraw) {
+            message << " [ForceSourceModelDraw]"
+                    << " entityId=" << entity.id.value()
+                    << " entityName=" << entity.name
+                    << " modelAssetId=" << (selectedModelId.isValid() ? selectedModelId.value() : 0U)
+                    << " modelName=" << model.name
+                    << " primitiveCount=" << model.primitives.size()
+                    << " editorInstanceCount=" << model.editorInstances.size()
+                    << " meshPrimitiveInstanceCount=" << model.primitiveInstances.size()
+                    << " nodeCount=" << model.editorInstances.size()
+                    << " sourceDrawsBuilt=" << stats.sourceDrawsBuilt
+                    << " sourceDrawsSubmitted=" << stats.sourceDrawsSubmitted
+                    << " renderWorldDrawPackets=" << renderWorldDrawPackets
+                    << " renderWorldChunks=" << renderWorldChunks
+                    << " removedRenderWorldDrawPackets=" << stats.removedRenderWorldDrawPackets
+                    << " mode=SOURCE_MODEL_DIRECT";
+        }
+        message << details.str();
+        if (stats.sourceDrawsBuilt > 50U) {
+            message << " sourceDrawDetailTruncated=" << (stats.sourceDrawsBuilt - 50U);
+        }
+        core::logInfo(core::LogCategory::Renderer, message.str());
+        lastSignature = signature;
+    }
+    return stats;
+}
 [[nodiscard]] const char* viewportModeName(ViewportMode mode) noexcept
 {
     return mode == ViewportMode::Game ? "Game" : "Scene";
@@ -468,10 +817,13 @@ bool ViewportWidget::renderRendererFrame()
             cameraFrame.nearPlane,
             cameraFrame.farPlane,
         };
+        const auto renderWorldSelectedEntityId = runtimeSnapshot && !selectedAssetRenderWorldDebugEnabled()
+            ? scene::EntityId {}
+            : selectedEntityId_;
         const auto renderWorldFrame = renderWorld_->buildFrame(
             scene_,
             assetManager_,
-            runtimeSnapshot ? scene::EntityId {} : selectedEntityId_,
+            renderWorldSelectedEntityId,
             renderWorldCamera,
             viewProjection,
             height(),
@@ -558,6 +910,67 @@ bool ViewportWidget::renderRendererFrame()
             }
         }
         renderWorldDebugChunks = renderWorldFrame.debugChunks;
+    }
+    if ((forceSelectedSourceModelDrawEnabled() || dumpSelectedModelAssetEnabled())
+        && scene_ != nullptr && assetManager_ != nullptr && selectedEntityId_.isValid()) {
+        const scene::Entity* selectedEntity = nullptr;
+        for (const auto& entity : scene_->entities()) {
+            if (entity.id == selectedEntityId_) {
+                selectedEntity = &entity;
+                break;
+            }
+        }
+        if (selectedEntity != nullptr && selectedEntity->meshRenderer.has_value()) {
+            const auto model = assetManager_->model(selectedEntity->meshRenderer->modelAssetId);
+            const auto selectedWorldPosition = entityWorldPosition(selectedEntity->id);
+            if (model != nullptr && selectedWorldPosition.has_value()) {
+                const auto renderWorldDrawPackets = static_cast<std::uint64_t>(rendererMeshDraws_.size());
+                const auto renderWorldChunks = frame.renderChunkCount;
+                const auto sourceStats = appendSelectedSourceModelDraws(
+                    *selectedEntity,
+                    *assetManager_,
+                    *model,
+                    *selectedWorldPosition,
+                    cameraFrame,
+                    viewProjection,
+                    renderWorldDrawPackets,
+                    renderWorldChunks,
+                    dumpSelectedModelAssetEnabled(),
+                    forceSelectedSourceModelDrawEnabled(),
+                    rendererMeshDraws_,
+                    visibleBounds,
+                    lastSourceModelDebugSignature_);
+                if (sourceStats.sourceDrawsSubmitted > 0U) {
+                    frame.renderWorldDrawPacketCount = static_cast<std::uint64_t>(rendererMeshDraws_.size());
+                }
+            } else {
+                const auto signature = mixLogHash(selectedEntityId_.value(), model == nullptr ? 0U : 1U);
+                if (signature != lastSourceModelDebugSignature_) {
+                    std::ostringstream message;
+                    message << "[ForceSourceModelDraw]"
+                            << " entityId=" << selectedEntityId_.value()
+                            << " entityName=" << selectedEntity->name
+                            << " selectedEntityFound=true"
+                            << " selectedModelFound=" << (model != nullptr ? "true" : "false")
+                            << " worldPositionFound=" << (selectedWorldPosition.has_value() ? "true" : "false")
+                            << " mode=SOURCE_MODEL_DIRECT";
+                    core::logInfo(core::LogCategory::Renderer, message.str());
+                    lastSourceModelDebugSignature_ = signature;
+                }
+            }
+        } else {
+            const auto signature = mixLogHash(selectedEntityId_.value(), 0x51E1EC7ULL);
+            if (signature != lastSourceModelDebugSignature_) {
+                std::ostringstream message;
+                message << "[ForceSourceModelDraw]"
+                        << " entityId=" << selectedEntityId_.value()
+                        << " selectedEntityFound=" << (selectedEntity != nullptr ? "true" : "false")
+                        << " selectedModelFound=false"
+                        << " mode=SOURCE_MODEL_DIRECT";
+                core::logInfo(core::LogCategory::Renderer, message.str());
+                lastSourceModelDebugSignature_ = signature;
+            }
+        }
     }
     {
         auto sunLight = editorSunLight_;
