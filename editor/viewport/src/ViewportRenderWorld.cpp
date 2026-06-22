@@ -877,7 +877,7 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     orderedRecords_.clear();
     for (const auto& entity : scene->entities()) {
         if (runtimeSnapshot && entity.meshRenderer.has_value() && !entity.meshRenderer->renderable) { continue; }
-        if (entity.light.has_value()) {
+        if (entity.light.has_value() && entity.light->enabled) {
             const auto worldPosition = entityLookup.worldPosition(entity.id);
             if (!worldPosition.has_value()) {
                 continue;
@@ -893,8 +893,11 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             light.color = source.color;
             light.intensity = source.intensity;
             light.range = source.range * maxAbsScale(entity.transform.scale);
+            light.linearAttenuation = source.linearAttenuation;
+            light.quadraticAttenuation = source.quadraticAttenuation;
             light.innerConeAngle = source.innerConeAngle;
             light.outerConeAngle = source.outerConeAngle;
+            light.castsShadow = source.castsShadow;
             if (lights.size() < renderer::kMaxFrameLights) {
                 lights.push_back(light);
             }

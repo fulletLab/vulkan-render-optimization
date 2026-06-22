@@ -37,6 +37,24 @@ enum class RenderFramePath : std::uint8_t {
     GameRuntime,
 };
 
+enum class RenderDebugViewMode : std::uint8_t {
+    Lit,
+    FaceNormals,
+    Depth,
+    ShadowVisibility,
+};
+
+[[nodiscard]] inline const char* renderDebugViewModeName(RenderDebugViewMode mode) noexcept
+{
+    switch (mode) {
+    case RenderDebugViewMode::Lit: return "Lit";
+    case RenderDebugViewMode::FaceNormals: return "Face normals";
+    case RenderDebugViewMode::Depth: return "Depth";
+    case RenderDebugViewMode::ShadowVisibility: return "Shadow visibility";
+    }
+    return "Lit";
+}
+
 [[nodiscard]] inline const char* renderFramePathName(RenderFramePath path) noexcept
 {
     switch (path) {
@@ -373,8 +391,11 @@ struct RenderLight {
     std::array<float, 3> color {1.0F, 0.98F, 0.92F};
     float intensity {3.0F};
     float range {0.0F};
+    float linearAttenuation {0.0F};
+    float quadraticAttenuation {1.0F};
     float innerConeAngle {0.0F};
     float outerConeAngle {0.7853981634F};
+    bool castsShadow {true};
 };
 
 struct RenderMeshDraw {
@@ -426,6 +447,7 @@ struct RenderColorMeshDraw {
 
 struct RenderFrame {
     RenderFramePath renderPath {RenderFramePath::SceneView};
+    RenderDebugViewMode debugViewMode {RenderDebugViewMode::Lit};
     RenderTextureDebugSettings textureDebug;
     RenderClearColor clearColor;
     RenderMatrix4 viewProjection;

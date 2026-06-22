@@ -490,11 +490,15 @@ std::string Scene::serialize(std::string* errorMessage) const
             }
             if (entity.light.has_value()) {
                 item["light"] = {
+                    {"enabled", entity.light->enabled},
+                    {"castsShadow", entity.light->castsShadow},
                     {"type", lightTypeToString(entity.light->type)},
                     {"direction", vecToJson(entity.light->direction)},
                     {"color", colorToJson(entity.light->color)},
                     {"intensity", entity.light->intensity},
                     {"range", entity.light->range},
+                    {"linearAttenuation", entity.light->linearAttenuation},
+                    {"quadraticAttenuation", entity.light->quadraticAttenuation},
                     {"innerConeAngle", entity.light->innerConeAngle},
                     {"outerConeAngle", entity.light->outerConeAngle},
                 };
@@ -695,7 +699,11 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     return false;
                 }
                 light.intensity = lightJson.value("intensity", light.intensity);
+                light.enabled = lightJson.value("enabled", light.enabled);
+                light.castsShadow = lightJson.value("castsShadow", light.castsShadow);
                 light.range = lightJson.value("range", light.range);
+                light.linearAttenuation = lightJson.value("linearAttenuation", light.linearAttenuation);
+                light.quadraticAttenuation = lightJson.value("quadraticAttenuation", light.quadraticAttenuation);
                 light.innerConeAngle = lightJson.value("innerConeAngle", light.innerConeAngle);
                 light.outerConeAngle = lightJson.value("outerConeAngle", light.outerConeAngle);
                 entity.light = light;

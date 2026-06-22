@@ -318,21 +318,21 @@ RenderShadowMapSelection chooseShadowMap(
     const auto center = vec3(visibleBoundsCenter);
     const auto radius = std::isfinite(visibleBoundsRadius) ? std::max(visibleBoundsRadius, 1.0F) : 1.0F;
     const auto directional = std::find_if(lights.begin(), lights.end(), [](const RenderLight& light) {
-        return light.type == RenderLightType::Directional;
+        return light.type == RenderLightType::Directional && light.castsShadow;
     });
     if (directional != lights.end()) {
         const auto index = static_cast<std::uint32_t>(std::distance(lights.begin(), directional));
         return directionalShadowSelection(*directional, index, center, radius);
     }
     const auto spot = std::find_if(lights.begin(), lights.end(), [](const RenderLight& light) {
-        return light.type == RenderLightType::Spot;
+        return light.type == RenderLightType::Spot && light.castsShadow;
     });
     if (spot != lights.end()) {
         const auto index = static_cast<std::uint32_t>(std::distance(lights.begin(), spot));
         return singleViewShadowSelection(index, RenderLightType::Spot, RenderShadowMode::Spot2D, spotShadowMatrix(*spot, center, radius));
     }
     const auto point = std::find_if(lights.begin(), lights.end(), [](const RenderLight& light) {
-        return light.type == RenderLightType::Point;
+        return light.type == RenderLightType::Point && light.castsShadow;
     });
     if (point != lights.end()) {
         const auto index = static_cast<std::uint32_t>(std::distance(lights.begin(), point));

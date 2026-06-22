@@ -149,15 +149,21 @@ private:
     [[nodiscard]] QWidget* createProfilerPanel();
     [[nodiscard]] QWidget* createLightingPanel();
     [[nodiscard]] QWidget* createViewportTuningPanel();
+    [[nodiscard]] QWidget* createOptimizationEditorPanel();
     [[nodiscard]] QWidget* createTerrainPanel();
     [[nodiscard]] QWidget* createTextPanel(const QString& title, const QStringList& lines) const;
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
     void updateProfilerPanel();
-    void createViewportTuningWindow();
+    void createViewportTuningWindow(QWidget* embeddedParent = nullptr);
     void showViewportTuningWindow();
+    void focusOptimizationStudio();
     void updateViewportTuningStats();
     void syncViewportTuningPanel();
     void applyViewportTuningFromControls();
+    void updateOptimizationEditorPanel();
+    void rebuildOptimizationWarnings();
+    void rebuildOptimizationLightTree();
+    void applyOptimizationBalancedMode();
     void applyLightingSettings();
     void scheduleLightingSettingsApply();
     void pushLightingSettingsToViewports();
@@ -186,6 +192,7 @@ private:
 
     ads::CDockManager* dockManager_ {nullptr};
     ads::CDockWidget* gameDock_ {nullptr};
+    ads::CDockWidget* optimizationDock_ {nullptr};
     QMenu* windowMenu_ {nullptr};
     QTreeWidget* hierarchyTree_ {nullptr};
     QLineEdit* sceneNameEdit_ {nullptr};
@@ -243,9 +250,12 @@ private:
     QPushButton* addComponentButton_ {nullptr};
     QPlainTextEdit* consoleView_ {nullptr};
     ProjectBrowserWidget* projectBrowser_ {nullptr};
+    ProjectBrowserWidget* optimizationProjectBrowser_ {nullptr};
     QLabel* assetImportStatus_ {nullptr};
+    QLabel* optimizationAssetImportStatus_ {nullptr};
     QLabel* performanceStatus_ {nullptr};
     QProgressBar* assetImportProgress_ {nullptr};
+    QProgressBar* optimizationAssetImportProgress_ {nullptr};
     QTableWidget* profilerTable_ {nullptr};
     QComboBox* shadowModeCombo_ {nullptr};
     QLabel* tuningStatsLabel_ {nullptr};
@@ -277,6 +287,19 @@ private:
     QCheckBox* tuningBoundsXrayCheck_ {nullptr};
     QCheckBox* tuningSourceObjectsCheck_ {nullptr};
     QCheckBox* tuningSunDirectionCheck_ {nullptr};
+    QLabel* optimizationStatsLabel_ {nullptr};
+    QLabel* optimizationShadowStatsLabel_ {nullptr};
+    QLabel* optimizationRecoveryLabel_ {nullptr};
+    QTableWidget* optimizationLodTable_ {nullptr};
+    QTableWidget* optimizationWarningsTable_ {nullptr};
+    QTreeWidget* optimizationLightTree_ {nullptr};
+    QComboBox* optimizationDebugModeCombo_ {nullptr};
+    QSpinBox* optimizationTriangleWarningSpin_ {nullptr};
+    QSpinBox* optimizationShadowResolutionSpin_ {nullptr};
+    QDoubleSpinBox* optimizationShadowFrustumSpin_ {nullptr};
+    QDoubleSpinBox* optimizationShadowNearSpin_ {nullptr};
+    QDoubleSpinBox* optimizationShadowFarSpin_ {nullptr};
+    QPlainTextEdit* optimizationShaderCode_ {nullptr};
     QDoubleSpinBox* skyColorR_ {nullptr};
     QDoubleSpinBox* skyColorG_ {nullptr};
     QDoubleSpinBox* skyColorB_ {nullptr};
@@ -323,6 +346,8 @@ private:
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
     ViewportWidget* playRuntimeViewport_ {nullptr};
+    ViewportWidget* optimizationPrimaryViewport_ {nullptr};
+    ViewportWidget* optimizationDebugViewport_ {nullptr};
     ViewportTuningImGuiWindow* viewportTuningImGuiWindow_ {nullptr};
     std::shared_ptr<core::MemoryLogSink> logSink_;
     QTimer* logFlushTimer_ {nullptr};
@@ -350,6 +375,9 @@ private:
     int activeAssetImports_ {0};
     bool inspectorUpdating_ {false};
     bool viewportTuningUpdating_ {false};
+    bool optimizationPanelUpdating_ {false};
+    bool optimizationBalancedPending_ {false};
+    bool optimizationAutoRecovered_ {false};
     bool playModeActive_ {false};
 };
 

@@ -26,6 +26,7 @@ struct VulkanFrameUniforms {
     std::array<float, 4> shadowSettings {};
     std::array<float, 4> shadowCascadeSplits {};
     std::array<float, 4> shadowAtlasSettings {};
+    std::array<float, 4> debugSettings {};
     std::array<VulkanFrameLight, kMaxFrameLights> lights {};
 };
 

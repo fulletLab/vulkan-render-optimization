@@ -694,6 +694,7 @@ bool ViewportWidget::renderRendererFrame()
     frame.renderPath = mode_ == ViewportMode::Scene
         ? renderer::RenderFramePath::SceneView
         : (runtimeSnapshot ? renderer::RenderFramePath::GameRuntime : renderer::RenderFramePath::GameView);
+    frame.debugViewMode = debugViewMode_;
     frame.textureDebug = textureDebugSettings_;
     frame.staticUploadBudgetBytes = assetLodSettings_.staticUploadBudgetBytes;
     frame.staticUploadBatchBudget = assetLodSettings_.staticUploadBatchBudget;
@@ -703,6 +704,13 @@ bool ViewportWidget::renderRendererFrame()
     frame.clearColor.green = mode_ == ViewportMode::Scene ? 0.13F : 0.02F;
     frame.clearColor.blue = mode_ == ViewportMode::Scene ? 0.15F : 0.025F;
     frame.clearColor.alpha = 1.0F;
+    if (debugViewMode_ == renderer::RenderDebugViewMode::FaceNormals) {
+        frame.clearColor = {0.02F, 0.24F, 0.31F, 1.0F};
+    } else if (debugViewMode_ == renderer::RenderDebugViewMode::Depth) {
+        frame.clearColor = {0.01F, 0.01F, 0.012F, 1.0F};
+    } else if (debugViewMode_ == renderer::RenderDebugViewMode::ShadowVisibility) {
+        frame.clearColor = {0.16F, 0.16F, 0.16F, 1.0F};
+    }
     frame.environment = environmentSettings_;
     rendererMeshDraws_.clear();
     if (shadowUpdateMode_ != renderer::RenderShadowUpdateMode::Frozen) {
@@ -718,6 +726,8 @@ bool ViewportWidget::renderRendererFrame()
         cameraForward(),
         camera_.verticalFovRadians,
         aspectRatio(),
+        camera_.nearPlane,
+        camera_.farPlane,
     };
     const char* cameraSource = mode_ == ViewportMode::Game ? "game-editor-fallback" : "scene-editor-camera";
     if (mode_ == ViewportMode::Game && scene_ != nullptr) {

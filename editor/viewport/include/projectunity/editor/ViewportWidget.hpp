@@ -110,6 +110,9 @@ public:
     void setAssetLodSettings(ViewportAssetLodSettings settings);
     [[nodiscard]] ViewportAssetLodSettings assetLodSettings() const noexcept;
     void setTextureDebugSettings(renderer::RenderTextureDebugSettings settings);
+    void setDebugViewMode(renderer::RenderDebugViewMode mode);
+    [[nodiscard]] renderer::RenderDebugViewMode debugViewMode() const noexcept;
+    void setProfilingHudEnabled(bool enabled);
     void setScene(scene::Scene* scene);
     void setSelectedEntity(scene::EntityId id);
     void setSelectionCallback(std::function<void(scene::EntityId)> callback);
@@ -146,6 +149,7 @@ public:
     [[nodiscard]] bool runSelfTest(QString* errorMessage);
     [[nodiscard]] const renderer::RendererStats* lastRendererStats() const noexcept;
     void setCameraForTesting(math::Vec3 target, float distance, float yawRadians, float pitchRadians);
+    void setSceneCameraProjection(float verticalFovRadians, float nearPlane, float farPlane);
     void setGameInputEnabled(bool enabled);
     void setGameCameraEntity(scene::EntityId id);
     void setGameScriptRuntime(scripting::ScriptRuntime* runtime);
@@ -176,6 +180,8 @@ private:
         float yawRadians {0.65F};
         float pitchRadians {-0.38F};
         float verticalFovRadians {1.04719755F};
+        float nearPlane {0.05F};
+        float farPlane {4000.0F};
     };
 
     struct ProjectedPoint {
@@ -271,6 +277,8 @@ private:
     int frameRateLimitFps_ {0};
     ViewportAssetLodSettings assetLodSettings_ {viewportAssetLodSettingsFromEnvironment()};
     renderer::RenderTextureDebugSettings textureDebugSettings_;
+    renderer::RenderDebugViewMode debugViewMode_ {renderer::RenderDebugViewMode::Lit};
+    bool profilingHudEnabled_ {false};
     bool gpuMeshFrameRendered_ {false};
     bool meshWireOverlayEnabled_ {false};
     bool assetXrayDebugEnabled_ {false};

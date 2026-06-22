@@ -39,6 +39,7 @@ layout(set = 0, binding = 0) uniform FrameData {
     vec4 shadowSettings;
     vec4 shadowCascadeSplits;
     vec4 shadowAtlasSettings;
+    vec4 debugSettings;
     FrameLight lights[8];
 } frameData;
 
@@ -77,9 +78,11 @@ vec3 fresnelSchlick(float cosine, vec3 f0)
     return f0 + (1.0 - f0) * pow(clamp(1.0 - cosine, 0.0, 1.0), 5.0);
 }
 
-float rangeAttenuation(float distanceToLight, float range)
+float rangeAttenuation(float distanceToLight, float range, float linearFactor, float quadraticFactor)
 {
-    float inverseSquare = 1.0 / max(distanceToLight * distanceToLight, 0.01);
+    float customDenominator = 1.0 + max(linearFactor, 0.0) * distanceToLight
+        + max(quadraticFactor, 0.0001) * distanceToLight * distanceToLight;
+    float inverseSquare = 1.0 / max(customDenominator, 0.01);
     if (range <= 0.0) {
         return inverseSquare;
     }
@@ -199,6 +202,38 @@ void main()
     textureNormal.xy *= pushData.pbrFactors.z * inMaterialFactors.z;
     vec3 normal = normalize(mat3(tangent, bitangent, geometricNormal) * textureNormal);
     vec3 viewDirection = normalize(frameData.cameraPositionLightCount.xyz - inWorldPosition);
+
+    int debugMode = int(frameData.debugSettings.x + 0.5);
+    if (debugMode == 1) {
+        // Stable face/surface-normal visualization: +/-X red/pink, +Y green, +Z blue/teal.
+        // Diagonal normals naturally blend the three axes without touching source materials.
+        vec3 normalColor = vec3(abs(normal.x), max(normal.y, 0.0), max(normal.z, 0.0));
+        normalColor = mix(vec3(0.055), normalColor, 0.92);
+        outColor = vec4(normalColor, 1.0);
+        return;
+    }
+    if (debugMode == 2) {
+        float depth = pow(clamp(gl_FragCoord.z, 0.0, 1.0), 24.0);
+        outColor = vec4(vec3(1.0 - depth), 1.0);
+        return;
+    }
+    if (debugMode == 3) {
+        float visibility = 1.0;
+        int shadowLight = int(frameData.shadowSettings.y + 0.5);
+        if (frameData.shadowSettings.x > 0.5 && shadowLight >= 0
+            && shadowLight < min(int(frameData.cameraPositionLightCount.w + 0.5), 8)) {
+            FrameLight light = frameData.lights[shadowLight];
+            vec3 lightDirection;
+            if (light.positionType.w < 0.5) {
+                lightDirection = normalize(-light.directionRange.xyz);
+            } else {
+                lightDirection = normalize(light.positionType.xyz - inWorldPosition);
+            }
+            visibility = shadowVisibility(shadowLight, light, normal, lightDirection);
+        }
+        outColor = vec4(vec3(visibility), 1.0);
+        return;
+    }
     vec4 pbrTexel = texture(metallicRoughnessTexture, inTexCoord);
     float metallic = clamp(pushData.pbrFactors.x * inMaterialFactors.x * pbrTexel.b, 0.0, 1.0);
     float roughness = clamp(pushData.pbrFactors.y * inMaterialFactors.y * pbrTexel.g, 0.045, 1.0);
@@ -221,7 +256,11 @@ void main()
             vec3 offset = light.positionType.xyz - inWorldPosition;
             float distanceToLight = length(offset);
             lightDirection = offset / max(distanceToLight, 0.0001);
-            attenuation = rangeAttenuation(distanceToLight, light.directionRange.w);
+            attenuation = rangeAttenuation(
+                distanceToLight,
+                light.directionRange.w,
+                light.spotAngles.z,
+                light.spotAngles.w);
             if (type > 1.5) {
                 attenuation *= spotAttenuation(light, lightDirection);
             }

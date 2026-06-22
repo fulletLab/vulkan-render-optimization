@@ -102,11 +102,15 @@ enum class LightComponentType : std::uint8_t {
 };
 
 struct LightComponent {
+    bool enabled {true};
+    bool castsShadow {true};
     LightComponentType type {LightComponentType::Directional};
     math::Vec3 direction {0.35F, -0.82F, 0.45F};
     std::array<float, 3> color {1.0F, 0.98F, 0.92F};
     float intensity {3.0F};
     float range {0.0F};
+    float linearAttenuation {0.0F};
+    float quadraticAttenuation {1.0F};
     float innerConeAngle {0.0F};
     float outerConeAngle {0.7853981634F};
 };

@@ -608,17 +608,36 @@ void ViewportWidget::drawOverlay(QPainter& painter) const
         ? QStringLiteral("Selected: %1").arg(static_cast<qulonglong>(selectedEntityId_.value()))
         : QStringLiteral("Selected: none");
     const auto spaceText = transformSpace_ == TransformSpace::Local ? QStringLiteral("Local") : QStringLiteral("Global");
-    const auto line1 = mode_ == ViewportMode::Scene ? QStringLiteral("%1 | %2 | %3").arg(title, toolModeName(), spaceText) : title;
+    const auto debugName = QString::fromLatin1(renderer::renderDebugViewModeName(debugViewMode_));
+    const auto line1 = mode_ == ViewportMode::Scene
+        ? QStringLiteral("%1 | %2 | %3 | %4").arg(title, toolModeName(), spaceText, debugName)
+        : title;
     const auto line2 = QStringLiteral("Entities: %1 | %2").arg(entityCount).arg(selectedText);
+    const auto fps = lastRendererStats_.has_value() ? lastRendererStats_->FPS : 0.0;
+    const auto frameMs = fps > 0.001 ? 1000.0 / fps : 0.0;
+    const auto draws = lastRendererStats_.has_value() ? lastRendererStats_->vkDrawIndexed : 0U;
+    const auto line3 = QStringLiteral("FPS %1 | %2 ms | Draws %3 | Mouse %4,%5")
+        .arg(fps, 0, 'f', 1).arg(frameMs, 0, 'f', 2)
+        .arg(static_cast<qulonglong>(draws)).arg(lastMousePosition_.x()).arg(lastMousePosition_.y());
+    const auto line4 = QStringLiteral("W/A/S/D move  D debug  E edit  X wire  C vsync  F focus");
     const QFontMetrics metrics(painter.font());
-    const auto widthValue = std::max(metrics.horizontalAdvance(line1), metrics.horizontalAdvance(line2)) + 20;
-    const QRectF box(10.0, 10.0, static_cast<qreal>(widthValue), 52.0);
+    auto widthValue = std::max(metrics.horizontalAdvance(line1), metrics.horizontalAdvance(line2));
+    if (profilingHudEnabled_) {
+        widthValue = std::max({widthValue, metrics.horizontalAdvance(line3), metrics.horizontalAdvance(line4)});
+    }
+    const QRectF box(10.0, 10.0, static_cast<qreal>(widthValue + 20), profilingHudEnabled_ ? 94.0 : 52.0);
     painter.setPen(Qt::NoPen);
     painter.drawRoundedRect(box, 4.0, 4.0);
     painter.setPen(QColor(220, 225, 235));
     painter.drawText(QPointF(20.0, 31.0), line1);
     painter.setPen(QColor(170, 180, 195));
     painter.drawText(QPointF(20.0, 53.0), line2);
+    if (profilingHudEnabled_) {
+        painter.setPen(QColor(155, 215, 180));
+        painter.drawText(QPointF(20.0, 74.0), line3);
+        painter.setPen(QColor(155, 165, 180));
+        painter.drawText(QPointF(20.0, 95.0), line4);
+    }
     if (mode_ == ViewportMode::Game) {
         painter.setPen(QColor(120, 130, 145));
         painter.drawRect(rect().adjusted(18, 18, -18, -18));

@@ -21,16 +21,20 @@ class ViewportTuningImGuiWindow final : public QOpenGLWidget {
 public:
     using ApplySettingsCallback = std::function<void(EditorQualitySettings, bool)>;
     using StatsProvider = std::function<const renderer::RendererStats*()>;
+    using CameraSettingsCallback = std::function<void(float, float, float)>;
 
     ViewportTuningImGuiWindow(
         EditorQualitySettings settings,
         ApplySettingsCallback applySettings,
         StatsProvider statsProvider,
-        QWidget* parent = nullptr);
+        CameraSettingsCallback cameraSettings,
+        QWidget* parent = nullptr,
+        bool embedded = false);
     ~ViewportTuningImGuiWindow() override;
 
     void syncSettings(const EditorQualitySettings& settings);
     void showToolWindow();
+    [[nodiscard]] bool isEmbedded() const noexcept { return embedded_; }
 
 protected:
     void initializeGL() override;
@@ -52,12 +56,18 @@ private:
     EditorQualitySettings settings_;
     ApplySettingsCallback applySettings_;
     StatsProvider statsProvider_;
+    CameraSettingsCallback cameraSettings_;
     ImGuiContext* imguiContext_ {nullptr};
     QTimer* repaintTimer_ {nullptr};
     QTimer* persistTimer_ {nullptr};
     QElapsedTimer frameTimer_;
     bool imguiReady_ {false};
     bool applyingSettings_ {false};
+    bool embedded_ {false};
+    bool balancedPresetRequested_ {false};
+    float cameraNearPlane_ {0.05F};
+    float cameraFarPlane_ {4000.0F};
+    float cameraFovDegrees_ {60.0F};
 };
 
 } // namespace projectunity::editor

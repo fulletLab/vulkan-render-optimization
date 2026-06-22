@@ -267,6 +267,24 @@ void ViewportWidget::setMeshWireOverlayEnabled(bool enabled)
 
 bool ViewportWidget::meshWireOverlayEnabled() const noexcept { return meshWireOverlayEnabled_; }
 
+void ViewportWidget::setDebugViewMode(renderer::RenderDebugViewMode mode)
+{
+    if (debugViewMode_ != mode) {
+        debugViewMode_ = mode;
+        update();
+    }
+}
+
+renderer::RenderDebugViewMode ViewportWidget::debugViewMode() const noexcept { return debugViewMode_; }
+
+void ViewportWidget::setProfilingHudEnabled(bool enabled)
+{
+    if (profilingHudEnabled_ != enabled) {
+        profilingHudEnabled_ = enabled;
+        update();
+    }
+}
+
 void ViewportWidget::focusSelected()
 {
     if (!selectedEntityId_.isValid()) {
@@ -291,6 +309,14 @@ void ViewportWidget::setCameraForTesting(math::Vec3 target, float distance, floa
     camera_.distance = std::clamp(distance, 0.1F, kMaxCameraDistance);
     camera_.yawRadians = yawRadians;
     camera_.pitchRadians = std::clamp(pitchRadians, -1.45F, 1.45F);
+    update();
+}
+
+void ViewportWidget::setSceneCameraProjection(float verticalFovRadians, float nearPlane, float farPlane)
+{
+    camera_.verticalFovRadians = std::clamp(verticalFovRadians, 0.0872665F, 2.96706F);
+    camera_.nearPlane = std::clamp(nearPlane, 0.001F, 1000.0F);
+    camera_.farPlane = std::max(farPlane, camera_.nearPlane + 0.01F);
     update();
 }
 
@@ -580,6 +606,20 @@ void ViewportWidget::keyPressEvent(QKeyEvent* event)
     }
 
     switch (event->key()) {
+    case Qt::Key_X:
+        setMeshWireOverlayEnabled(!meshWireOverlayEnabled_);
+        event->accept();
+        return;
+    case Qt::Key_D:
+        setDebugViewMode(debugViewMode_ == renderer::RenderDebugViewMode::Lit
+                ? renderer::RenderDebugViewMode::FaceNormals
+                : renderer::RenderDebugViewMode::Lit);
+        event->accept();
+        return;
+    case Qt::Key_C:
+        setVSyncEnabled(!vSyncEnabled_);
+        event->accept();
+        return;
     case Qt::Key_Q:
         setTool(ViewportTool::Hand);
         event->accept();

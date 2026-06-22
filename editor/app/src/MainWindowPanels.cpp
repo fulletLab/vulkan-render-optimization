@@ -541,6 +541,8 @@ void MainWindow::createDockLayout()
     auto* inspectorDock = createDockWidget(QStringLiteral("Inspector"), createInspectorPanel());
     auto* sceneDock = createDockWidget(QStringLiteral("Escena"), createSceneViewPanel());
     auto* gameDock = createDockWidget(QStringLiteral("Juego"), createGameViewPanel());
+    auto* optimizationDock = createDockWidget(QStringLiteral("Optimization Studio"), createOptimizationEditorPanel());
+    optimizationDock_ = optimizationDock;
     gameDock_ = gameDock;
     auto* projectDock = createDockWidget(QStringLiteral("Proyecto"), createProjectPanel());
     auto* bottomDock = createDockWidget(QStringLiteral("Consola"), createBottomPanel());
@@ -559,6 +561,7 @@ void MainWindow::createDockLayout()
 
     auto* centerArea = dockManager_->setCentralWidget(sceneDock);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, gameDock, centerArea);
+    dockManager_->addDockWidget(ads::CenterDockWidgetArea, optimizationDock, centerArea);
     dockManager_->addDockWidget(ads::LeftDockWidgetArea, hierarchyDock, centerArea);
     auto* rightArea = dockManager_->addDockWidget(ads::RightDockWidgetArea, inspectorDock, centerArea);
     auto* bottomArea = dockManager_->addDockWidget(ads::BottomDockWidgetArea, projectDock, centerArea);
@@ -571,6 +574,16 @@ void MainWindow::createDockLayout()
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, navigationDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, serverDock, rightArea);
     defaultDockState_ = dockManager_->saveState();
+}
+
+void MainWindow::focusOptimizationStudio()
+{
+    if (optimizationDock_ == nullptr) {
+        return;
+    }
+    optimizationDock_->toggleView(true);
+    optimizationDock_->setAsCurrentTab();
+    optimizationDock_->raise();
 }
 
 ads::CDockWidget* MainWindow::createDockWidget(const QString& title, QWidget* content)
@@ -1340,10 +1353,7 @@ QWidget* MainWindow::createViewportTuningPanel()
         applyEditorQualitySettings(std::move(next), true);
     });
     connect(balancedButton, &QPushButton::clicked, this, [this] {
-        auto next = qualitySettings_;
-        applyQualityPreset(QualityPreset::Medium, next);
-        next.graphics.preset = QualityPreset::Custom;
-        applyEditorQualitySettings(std::move(next), true);
+        applyOptimizationBalancedMode();
     });
     connect(tuningHlodCheck_, &QCheckBox::toggled, this, [apply](bool) { apply(); });
     connect(tuningLodQualityCombo_, &QComboBox::currentIndexChanged, this, [apply](int) { apply(); });

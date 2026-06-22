@@ -140,8 +140,8 @@ bool MainWindow::runSmokeChecks(QString* errorMessage)
         return fail(QStringLiteral("Console panel was not created"));
     }
 
-    if (viewportTuningImGuiWindow_ == nullptr || !viewportTuningImGuiWindow_->isWindow()) {
-        return fail(QStringLiteral("Dear ImGui Viewport Tuning tool window was not created"));
+    if (viewportTuningImGuiWindow_ == nullptr || !viewportTuningImGuiWindow_->isEmbedded()) {
+        return fail(QStringLiteral("Dear ImGui Viewport Tuning embedded widget was not created"));
     }
 
     if (sceneViewport_ == nullptr || gameViewport_ == nullptr) {

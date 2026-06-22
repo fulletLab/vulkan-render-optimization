@@ -149,18 +149,21 @@ void MainWindow::updateAssetImportPanel(const QString& message, bool busy, int p
     if (assetImportStatus_ != nullptr) {
         assetImportStatus_->setText(message);
     }
-    if (assetImportProgress_ == nullptr) {
-        return;
+    if (optimizationAssetImportStatus_ != nullptr) {
+        optimizationAssetImportStatus_->setText(message);
     }
-    if (busy) {
-        const auto value = std::clamp(percent < 0 ? 1 : percent, 1, 99);
-        assetImportProgress_->setRange(0, 100);
-        assetImportProgress_->setValue(value);
-        assetImportProgress_->setFormat(QStringLiteral("%p%"));
-    } else {
-        assetImportProgress_->setRange(0, 100);
-        assetImportProgress_->setValue(percent > 0 ? std::clamp(percent, 0, 100) : 0);
-        assetImportProgress_->setFormat(message);
+    for (auto* progress : {assetImportProgress_, optimizationAssetImportProgress_}) {
+        if (progress == nullptr) {
+            continue;
+        }
+        progress->setRange(0, 100);
+        if (busy) {
+            progress->setValue(std::clamp(percent < 0 ? 1 : percent, 1, 99));
+            progress->setFormat(QStringLiteral("%p%"));
+        } else {
+            progress->setValue(percent > 0 ? std::clamp(percent, 0, 100) : 0);
+            progress->setFormat(message);
+        }
     }
 }
 
@@ -175,6 +178,9 @@ bool MainWindow::handleAssetImportResult(const assets::AssetImportResult& result
     rebuildAssetBrowser();
     if (projectBrowser_ != nullptr) {
         (void)projectBrowser_->selectAsset(result.record.id);
+    }
+    if (optimizationProjectBrowser_ != nullptr) {
+        (void)optimizationProjectBrowser_->selectAsset(result.record.id);
     }
     if (result.record.type == assets::AssetType::Texture2D && result.record.id == environmentTextureId_) {
         environmentTexture_ = assetManager_.texture(result.record.id);
@@ -210,6 +216,11 @@ void MainWindow::rebuildAssetBrowser()
         projectBrowser_->setAssetManager(&assetManager_);
         projectBrowser_->setProjectRoot(std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets");
         projectBrowser_->rebuild();
+    }
+    if (optimizationProjectBrowser_ != nullptr) {
+        optimizationProjectBrowser_->setAssetManager(&assetManager_);
+        optimizationProjectBrowser_->setProjectRoot(std::filesystem::path(PROJECTUNITY_SOURCE_DIR) / "Project" / "Assets");
+        optimizationProjectBrowser_->rebuild();
     }
 }
 

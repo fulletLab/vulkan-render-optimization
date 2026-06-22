@@ -38,6 +38,17 @@ static_assert(sizeof(VulkanFrameLight) == sizeof(float) * 16U);
     return 0.0F;
 }
 
+[[nodiscard]] float debugViewModeValue(RenderDebugViewMode mode)
+{
+    switch (mode) {
+    case RenderDebugViewMode::Lit: return 0.0F;
+    case RenderDebugViewMode::FaceNormals: return 1.0F;
+    case RenderDebugViewMode::Depth: return 2.0F;
+    case RenderDebugViewMode::ShadowVisibility: return 3.0F;
+    }
+    return 0.0F;
+}
+
 [[nodiscard]] VulkanFrameUniforms makeUniforms(const RenderFrame& frame)
 {
     VulkanFrameUniforms uniforms;
@@ -88,13 +99,19 @@ static_assert(sizeof(VulkanFrameLight) == sizeof(float) * 16U);
         shadowCascadeCount > 1U ? 0.5F : 1.0F,
         frame.shadowDepthFarPlane,
     };
+    uniforms.debugSettings = {debugViewModeValue(frame.debugViewMode), 0.0F, 0.0F, 0.0F};
     for (std::size_t index = 0; index < std::min(frame.lights.size(), kMaxFrameLights); ++index) {
         const auto& source = frame.lights[index];
         auto& light = uniforms.lights[index];
         light.positionType = {source.position[0], source.position[1], source.position[2], lightTypeValue(source.type)};
         light.directionRange = {source.direction[0], source.direction[1], source.direction[2], source.range};
         light.colorIntensity = {source.color[0], source.color[1], source.color[2], source.intensity};
-        light.spotAngles = {source.innerConeAngle, source.outerConeAngle, 0.0F, 0.0F};
+        light.spotAngles = {
+            source.innerConeAngle,
+            source.outerConeAngle,
+            source.linearAttenuation,
+            source.quadraticAttenuation,
+        };
     }
     return uniforms;
 }

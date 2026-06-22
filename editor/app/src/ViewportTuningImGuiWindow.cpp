@@ -77,11 +77,15 @@ ViewportTuningImGuiWindow::ViewportTuningImGuiWindow(
     EditorQualitySettings settings,
     ApplySettingsCallback applySettings,
     StatsProvider statsProvider,
-    QWidget* parent)
+    CameraSettingsCallback cameraSettings,
+    QWidget* parent,
+    bool embedded)
     : QOpenGLWidget(parent)
     , settings_(std::move(settings))
     , applySettings_(std::move(applySettings))
     , statsProvider_(std::move(statsProvider))
+    , cameraSettings_(std::move(cameraSettings))
+    , embedded_(embedded)
 {
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGL);
@@ -92,13 +96,17 @@ ViewportTuningImGuiWindow::ViewportTuningImGuiWindow(
     format.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
     setFormat(format);
 
-    setWindowFlags(Qt::Tool | Qt::Window | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
-    setWindowTitle(QStringLiteral("Viewport Tuning - Dear ImGui"));
-    setAttribute(Qt::WA_DeleteOnClose, false);
+    if (!embedded_) {
+        setWindowFlags(Qt::Tool | Qt::Window | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
+        setWindowTitle(QStringLiteral("Viewport Tuning - Dear ImGui"));
+        setAttribute(Qt::WA_DeleteOnClose, false);
+    }
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
-    setMinimumSize(420, 560);
-    resize(500, 760);
+    setMinimumSize(embedded_ ? QSize(220, 480) : QSize(420, 560));
+    if (!embedded_) {
+        resize(500, 760);
+    }
 
     repaintTimer_ = new QTimer(this);
     repaintTimer_->setInterval(16);
@@ -143,6 +151,10 @@ void ViewportTuningImGuiWindow::syncSettings(const EditorQualitySettings& settin
 void ViewportTuningImGuiWindow::showToolWindow()
 {
     show();
+    if (embedded_) {
+        setFocus(Qt::OtherFocusReason);
+        return;
+    }
     raise();
     activateWindow();
 }
@@ -210,7 +222,23 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
         | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("Viewport Tuning", nullptr, flags);
 
-    ImGui::TextUnformatted("VIEWPORT TUNING");
+    ImGui::TextUnformatted("Profiling");
+    ImGui::SameLine();
+    ImGui::TextDisabled("Dear ImGui Demo");
+    ImGui::Separator();
+
+    if (const auto* stats = statsProvider_ == nullptr ? nullptr : statsProvider_()) {
+        const auto frameMs = stats->FPS > 0.001 ? 1000.0 / stats->FPS : 0.0;
+        ImGui::Text("Frame rate: %.2f", stats->FPS);
+        ImGui::Text("Frame time: %.3f ms", frameMs);
+        ImGui::Text("Draw calls: %llu", static_cast<unsigned long long>(stats->vkDrawIndexed));
+        ImGui::Text("Visible triangles: %llu", static_cast<unsigned long long>(stats->lastFrameVisibleTriangleCount));
+    } else {
+        ImGui::TextDisabled("Profiling: waiting for Vulkan frame");
+    }
+    ImGui::Separator();
+
+    ImGui::TextUnformatted("Viewport Tuning");
     ImGui::SameLine();
     ImGui::TextDisabled("Dear ImGui");
     ImGui::Separator();
@@ -232,7 +260,7 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
     ImGui::SameLine();
     if (ImGui::Button("Balanceado")) {
         applyQualityPreset(QualityPreset::Medium, settings_);
-        settings_.graphics.preset = QualityPreset::Custom;
+        balancedPresetRequested_ = true;
         changed = true;
     }
 
@@ -277,6 +305,69 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
         changed |= ImGui::Checkbox("Occlusion culling", &settings_.lod.occlusionCullingEnabled);
         changed |= ImGui::Checkbox("Spatial cell culling", &settings_.lod.spatialCellCullingEnabled);
         changed |= ImGui::DragFloat("Bounds padding", &settings_.lod.cullingBoundsPadding, 0.01F, 0.0F, 25.0F, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+    }
+
+    if (ImGui::CollapsingHeader("Camera settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        auto cameraChanged = false;
+        cameraChanged |= ImGui::DragFloat("Near plane", &cameraNearPlane_, 0.005F, 0.001F, 100.0F, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        cameraChanged |= ImGui::DragFloat("Far plane", &cameraFarPlane_, 1.0F, 1.0F, 100000.0F, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        cameraChanged |= ImGui::DragFloat("Field of view", &cameraFovDegrees_, 0.25F, 5.0F, 170.0F, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
+        if (cameraChanged && cameraSettings_ != nullptr) {
+            cameraSettings_(cameraNearPlane_, cameraFarPlane_, cameraFovDegrees_ * 0.01745329251994329577F);
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Hardware info / Key Binds", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (const auto* stats = statsProvider_ == nullptr ? nullptr : statsProvider_()) {
+            ImGui::Text("GPU: %s", stats->gpuName.c_str());
+            ImGui::Text("Vulkan %u.%u.%u", stats->apiVersionMajor, stats->apiVersionMinor, stats->apiVersionPatch);
+            ImGui::Text("Resident: %llu meshes / %llu textures",
+                static_cast<unsigned long long>(stats->residentMeshCount),
+                static_cast<unsigned long long>(stats->residentTextureCount));
+        }
+        ImGui::Separator();
+        ImGui::TextUnformatted("W/A/S/D move");
+        ImGui::TextUnformatted("D debug mode   E edit mode   X wireframe");
+        ImGui::TextUnformatted("C vsync        F focus selected");
+        ImGui::TextUnformatted("Q/W/E/R hand, move, rotate, scale");
+    }
+
+    if (ImGui::CollapsingHeader("LOD Manager")) {
+        const auto* stats = statsProvider_ == nullptr ? nullptr : statsProvider_();
+        if (stats == nullptr) {
+            ImGui::TextDisabled("No frame data");
+        } else {
+            ImGui::Text("LOD draws: %llu", static_cast<unsigned long long>(stats->lastFrameLodMeshDrawCount));
+            ImGui::Text("HLOD draws: %llu", static_cast<unsigned long long>(stats->lastFrameHlodMeshDrawCount));
+            ImGui::Text("Triangles saved: %llu",
+                static_cast<unsigned long long>(stats->lastFrameLodTriangleReductionCount + stats->lastFrameHlodTriangleReductionCount));
+            ImGui::Text("Visible objects: %llu / %llu",
+                static_cast<unsigned long long>(stats->lastFrameVisibleRenderInstanceCount),
+                static_cast<unsigned long long>(stats->lastFrameRenderInstanceCount));
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Optimization Warnings")) {
+        const auto* stats = statsProvider_ == nullptr ? nullptr : statsProvider_();
+        if (stats == nullptr) {
+            ImGui::TextDisabled("No diagnostics yet");
+        } else {
+            if (stats->lastFrameCandidateMeshDrawCount > 0U && stats->lastFrameMeshDrawCount == 0U) {
+                ImGui::TextColored({1.0F, 0.25F, 0.25F, 1.0F}, "ERROR: candidates exist but no mesh is visible");
+            }
+            if (stats->lastFrameHlodRejectedNoOverviewCount > 0U) {
+                ImGui::TextColored({1.0F, 0.72F, 0.25F, 1.0F}, "Missing HLOD overview: %llu",
+                    static_cast<unsigned long long>(stats->lastFrameHlodRejectedNoOverviewCount));
+            }
+            if (stats->resourceFallback > 0U) {
+                ImGui::TextColored({1.0F, 0.72F, 0.25F, 1.0F}, "GPU resource fallbacks: %llu",
+                    static_cast<unsigned long long>(stats->resourceFallback));
+            }
+            if (stats->objectsConsidered > stats->passedFrustum) {
+                ImGui::Text("CPU outside frustum: %llu",
+                    static_cast<unsigned long long>(stats->objectsConsidered - stats->passedFrustum));
+            }
+        }
     }
 
     if (ImGui::CollapsingHeader("Streaming GPU", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -352,11 +443,17 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
 
 void ViewportTuningImGuiWindow::applyLiveSettings()
 {
-    settings_.graphics.preset = QualityPreset::Custom;
+    const auto balancedRequest = balancedPresetRequested_;
+    settings_.graphics.preset = balancedRequest ? QualityPreset::Medium : QualityPreset::Custom;
     if (applySettings_ != nullptr) {
         applyingSettings_ = true;
         applySettings_(settings_, false);
         applyingSettings_ = false;
+    }
+    balancedPresetRequested_ = false;
+    settings_.graphics.preset = QualityPreset::Custom;
+    if (balancedRequest) {
+        return;
     }
     if (persistTimer_ != nullptr) {
         persistTimer_->start();
@@ -457,7 +554,7 @@ void ViewportTuningImGuiWindow::leaveEvent(QEvent* event)
     QOpenGLWidget::leaveEvent(event);
 }
 
-void MainWindow::createViewportTuningWindow()
+void MainWindow::createViewportTuningWindow(QWidget* embeddedParent)
 {
     if (viewportTuningImGuiWindow_ != nullptr) {
         return;
@@ -465,6 +562,11 @@ void MainWindow::createViewportTuningWindow()
     viewportTuningImGuiWindow_ = new ViewportTuningImGuiWindow(
         qualitySettings_,
         [this](EditorQualitySettings settings, bool persist) {
+            if (settings.graphics.preset == QualityPreset::Medium) {
+                applyOptimizationBalancedMode();
+                QTimer::singleShot(0, this, [this] { syncViewportTuningPanel(); });
+                return;
+            }
             applyEditorQualitySettings(std::move(settings), persist);
         },
         [this]() -> const renderer::RendererStats* {
@@ -475,13 +577,26 @@ void MainWindow::createViewportTuningWindow()
             }
             return renderer_ != nullptr && renderer_->isReady() ? &renderer_->stats() : nullptr;
         },
-        this);
+        [this](float nearPlane, float farPlane, float verticalFovRadians) {
+            for (auto* viewport : {optimizationPrimaryViewport_, optimizationDebugViewport_}) {
+                if (viewport != nullptr) {
+                    viewport->setSceneCameraProjection(verticalFovRadians, nearPlane, farPlane);
+                }
+            }
+        },
+        embeddedParent == nullptr ? static_cast<QWidget*>(this) : embeddedParent,
+        embeddedParent != nullptr);
     viewportTuningImGuiWindow_->setObjectName(QStringLiteral("ViewportTuningImGuiWindow"));
 }
 
 void MainWindow::showViewportTuningWindow()
 {
     createViewportTuningWindow();
+    if (viewportTuningImGuiWindow_ != nullptr && viewportTuningImGuiWindow_->isEmbedded()) {
+        focusOptimizationStudio();
+        viewportTuningImGuiWindow_->showToolWindow();
+        return;
+    }
     if (viewportTuningImGuiWindow_ == nullptr
         || QGuiApplication::platformName() == QStringLiteral("offscreen")) {
         return;

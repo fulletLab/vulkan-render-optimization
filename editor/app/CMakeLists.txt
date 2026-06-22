@@ -34,6 +34,7 @@ qt_add_executable(projectunity_editor
     src/MainWindowCullingProfile.cpp
     src/MainWindowGameObjects.cpp
     src/MainWindowLighting.cpp
+    src/MainWindowOptimization.cpp
     src/MainWindowPanels.cpp
     src/MainWindowPlay.cpp
     src/MainWindowProfiler.cpp
@@ -85,6 +86,7 @@ target_compile_definitions(projectunity_editor
         PROJECTUNITY_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
         PROJECTUNITY_BUILD_DIR="${CMAKE_BINARY_DIR}"
         PROJECTUNITY_BUILD_CONFIG="$<CONFIG>"
+        PROJECTUNITY_CMAKE_COMMAND="${CMAKE_COMMAND}"
 )
 
 add_dependencies(projectunity_editor ProjectUnityGameScripts)

@@ -471,6 +471,9 @@ MainWindow::MainWindow(QWidget* parent)
         if (profilerTable_ != nullptr) {
             updateProfilerPanel();
         }
+        if (optimizationStatsLabel_ != nullptr) {
+            updateOptimizationEditorPanel();
+        }
     });
     logFlushTimer_->start(250);
 
@@ -494,6 +497,12 @@ MainWindow::~MainWindow()
     }
     if (gameViewport_ != nullptr) {
         gameViewport_->setRenderer(nullptr);
+    }
+    if (optimizationPrimaryViewport_ != nullptr) {
+        optimizationPrimaryViewport_->setRenderer(nullptr);
+    }
+    if (optimizationDebugViewport_ != nullptr) {
+        optimizationDebugViewport_->setRenderer(nullptr);
     }
     renderer_.reset();
     core::Logger::instance().removeSink(logSink_.get());
@@ -1338,6 +1347,13 @@ void MainWindow::pushLightingSettingsToViewports()
         playRuntimeViewport_->setEditorSunLight(editorSunLight_);
         playRuntimeViewport_->setShadowUpdateMode(shadowUpdateMode_);
     }
+    for (auto* viewport : {optimizationPrimaryViewport_, optimizationDebugViewport_}) {
+        if (viewport != nullptr) {
+            viewport->setEnvironmentSettings(environmentSettings_);
+            viewport->setEditorSunLight(editorSunLight_);
+            viewport->setShadowUpdateMode(shadowUpdateMode_);
+        }
+    }
 }
 
 void MainWindow::updateEditorSunFromControls()
@@ -1382,6 +1398,12 @@ void MainWindow::refreshViewports()
         playRuntimeViewport_->setGameInputEnabled(playModeActive_);
         playRuntimeViewport_->setGameRuntimeSnapshotEnabled(playModeActive_);
     }
+    for (auto* viewport : {optimizationPrimaryViewport_, optimizationDebugViewport_}) {
+        if (viewport != nullptr) {
+            viewport->setScene(&scene_);
+            viewport->setSelectedEntity(selectedEntityId_);
+        }
+    }
 }
 
 void MainWindow::applyEditorQualitySettings(EditorQualitySettings settings, bool persist)
@@ -1411,6 +1433,12 @@ void MainWindow::applyEditorQualitySettings(EditorQualitySettings settings, bool
         if (playRuntimeViewport_ != nullptr) {
             playRuntimeViewport_->setRenderer(nullptr);
         }
+        if (optimizationPrimaryViewport_ != nullptr) {
+            optimizationPrimaryViewport_->setRenderer(nullptr);
+        }
+        if (optimizationDebugViewport_ != nullptr) {
+            optimizationDebugViewport_->setRenderer(nullptr);
+        }
         renderer_.reset();
         std::string rendererError;
         renderer_ = renderer::createVulkanRenderer(rendererConfigFromQuality(qualitySettings_), &rendererError);
@@ -1430,11 +1458,19 @@ void MainWindow::applyEditorQualitySettings(EditorQualitySettings settings, bool
         if (playRuntimeViewport_ != nullptr) {
             playRuntimeViewport_->setRenderer(renderer_.get());
         }
+        if (optimizationPrimaryViewport_ != nullptr) {
+            optimizationPrimaryViewport_->setRenderer(renderer_.get());
+        }
+        if (optimizationDebugViewport_ != nullptr) {
+            optimizationDebugViewport_->setRenderer(renderer_.get());
+        }
     }
 
     applyQualitySettingsToViewport(sceneViewport_);
     applyQualitySettingsToViewport(gameViewport_);
     applyQualitySettingsToViewport(playRuntimeViewport_);
+    applyQualitySettingsToViewport(optimizationPrimaryViewport_);
+    applyQualitySettingsToViewport(optimizationDebugViewport_);
     updateLightingPanelControls();
     syncViewportTuningPanel();
     refreshViewports();
