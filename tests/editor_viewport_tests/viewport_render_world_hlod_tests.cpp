@@ -102,6 +102,29 @@ std::shared_ptr<projectunity::assets::ModelAsset> heavyChunkedModel(projectunity
     return model;
 }
 
+std::shared_ptr<projectunity::assets::ModelAsset> incompleteOverviewModel(projectunity::assets::AssetId id)
+{
+    auto model = std::make_shared<projectunity::assets::ModelAsset>();
+    model->id = id;
+    model->materials.resize(1U);
+    model->primitives.push_back(heavySourcePrimitive());
+    auto invalidOverviewPrimitive = heavySourcePrimitive();
+    invalidOverviewPrimitive.lods.front().indices = {0U, 1U, 99U};
+    model->primitives.push_back(std::move(invalidOverviewPrimitive));
+
+    constexpr std::uint32_t kInstanceCount = 320U;
+    for (std::uint32_t index = 0; index < kInstanceCount; ++index) {
+        projectunity::assets::MeshPrimitiveInstance instance;
+        instance.primitiveIndex = index < 200U ? 0U : 1U;
+        instance.transform[12] = -39.0F + static_cast<float>(index % 40U) * 2.0F;
+        instance.transform[13] = 0.0F;
+        instance.transform[14] = 80.0F + static_cast<float>(index / 40U) * 2.0F;
+        instance.bounds = model->primitives[instance.primitiveIndex].bounds;
+        model->primitiveInstances.push_back(instance);
+    }
+    return model;
+}
+
 std::shared_ptr<projectunity::assets::ModelAsset> singleRockModel(projectunity::assets::AssetId id)
 {
     auto model = std::make_shared<projectunity::assets::ModelAsset>();
@@ -274,6 +297,24 @@ int main()
                   << " finalChunks=" << frame.stats.finalVisibleChunkCount
                   << " visibleChunks=" << frame.stats.visibleRenderChunkCount << '\n';
         return fail("HLOD did not reduce final draw packets or visible chunks");
+    }
+
+    TestAssetManager incompleteAssets;
+    incompleteAssets.modelAsset = incompleteOverviewModel(projectunity::assets::AssetId(88002));
+    projectunity::scene::Scene incompleteScene;
+    auto& incompleteRoot = incompleteScene.createEntity("Incomplete HLOD Source");
+    projectunity::scene::MeshRendererComponent incompleteRenderer;
+    incompleteRenderer.modelAssetId = incompleteAssets.modelAsset->id;
+    incompleteRoot.meshRenderer = incompleteRenderer;
+    projectunity::editor::ViewportRenderWorld incompleteWorld;
+    draws.clear();
+    const auto incompleteFrame = buildFrame(incompleteWorld, incompleteScene, incompleteAssets, draws);
+    if (incompleteFrame.stats.hlodMeshDrawCount != 0U
+        || draws.size() != incompleteAssets.modelAsset->primitiveInstances.size()) {
+        std::cerr << "draws=" << draws.size()
+                  << " sourceInstances=" << incompleteAssets.modelAsset->primitiveInstances.size()
+                  << " hlod=" << incompleteFrame.stats.hlodMeshDrawCount << '\n';
+        return fail("Incomplete HLOD overview replaced source instances and hid asset parts");
     }
 
     projectunity::scene::Scene duplicateScene;

@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -437,19 +438,19 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
     std::uint64_t overviewCandidateTriangles = 0;
     for (const auto instanceIndex : instanceIndices) {
         if (instanceIndex >= model.primitiveInstances.size()) {
-            continue;
+            return cached;
         }
         const auto& instance = model.primitiveInstances[instanceIndex];
         if (instance.primitiveIndex >= model.primitives.size()) {
-            continue;
+            return cached;
         }
         const auto& source = model.primitives[instance.primitiveIndex];
         if (source.materialIndex >= model.materials.size()) {
-            continue;
+            return cached;
         }
         const auto* indices = overviewSourceIndices(source);
         if (indices == nullptr || indices->size() < 3U) {
-            continue;
+            return cached;
         }
         overviewCandidateTriangles += indices->size() / 3U;
     }
@@ -462,19 +463,24 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
     std::uint64_t overviewSourceTriangles = 0;
     for (const auto instanceIndex : instanceIndices) {
         if (instanceIndex >= model.primitiveInstances.size()) {
-            continue;
+            return {};
         }
         const auto& instance = model.primitiveInstances[instanceIndex];
         if (instance.primitiveIndex >= model.primitives.size()) {
-            continue;
+            return {};
         }
         const auto& source = model.primitives[instance.primitiveIndex];
         if (source.materialIndex >= model.materials.size()) {
-            continue;
+            return {};
         }
         const auto* indices = overviewSourceIndices(source);
         if (indices == nullptr || indices->size() < 3U) {
-            continue;
+            return {};
+        }
+        if (std::any_of(indices->begin(), indices->end(), [&source](std::uint32_t index) {
+                return index >= source.vertices.size();
+            })) {
+            return {};
         }
         auto overview = std::find_if(overviews.begin(), overviews.end(), [&source](const MaterialOverview& value) {
             return value.materialIndex == source.materialIndex;
@@ -488,10 +494,8 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
         }
 
         const auto sourceTriangles = source.indices.size() / 3U;
-        overview->sourceTriangleCount += sourceTriangles;
-        overviewSourceTriangles += sourceTriangles;
         if (overview->primitive.vertices.size() + source.vertices.size() > std::numeric_limits<std::uint32_t>::max()) {
-            continue;
+            return {};
         }
         const auto localMatrix = renderMatrix(instance.transform);
         const auto vertexBase = static_cast<std::uint32_t>(overview->primitive.vertices.size());
@@ -508,19 +512,16 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
                 instance.flipsWinding ? (*indices)[index] : (*indices)[index - 1U],
                 instance.flipsWinding ? (*indices)[index - 1U] : (*indices)[index],
             }};
-            if (triangle[0] >= source.vertices.size()
-                || triangle[1] >= source.vertices.size()
-                || triangle[2] >= source.vertices.size()) {
-                continue;
-            }
             overview->primitive.indices.push_back(vertexBase + triangle[0]);
             overview->primitive.indices.push_back(vertexBase + triangle[1]);
             overview->primitive.indices.push_back(vertexBase + triangle[2]);
         }
+        overview->sourceTriangleCount += sourceTriangles;
+        overviewSourceTriangles += sourceTriangles;
     }
 
     const auto sourceTriangleCount = sourceTriangleCountForInstances(model, instanceIndices);
-    if (sourceTriangleCount == 0U || overviewSourceTriangles < sourceTriangleCount / 2U) {
+    if (sourceTriangleCount == 0U || overviewSourceTriangles != sourceTriangleCount) {
         return cached;
     }
 
@@ -545,6 +546,16 @@ void updatePrimitiveBounds(assets::MeshPrimitive& primitive) noexcept
         draw.sourceTriangleCount = overview.sourceTriangleCount;
         draw.primitive = std::make_shared<const assets::MeshPrimitive>(std::move(overview.primitive));
         cached.push_back(std::move(draw));
+    }
+    const auto cachedSourceTriangles = std::accumulate(
+        cached.begin(),
+        cached.end(),
+        std::uint64_t {0},
+        [](std::uint64_t total, const CachedOverviewDraw& draw) {
+            return total + draw.sourceTriangleCount;
+        });
+    if (cachedSourceTriangles != sourceTriangleCount) {
+        cached.clear();
     }
     return cached;
 }
@@ -708,7 +719,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
     std::vector<const EntityRecord::Chunk*> visibleChunks;
     visibleChunks.reserve(record.chunks.size());
     forEachSpatialChunkCandidate(record, camera, stats, [&](std::size_t, const auto& chunk) {
-        if (!viewportBoundsVisible(
+        if (lodSettings.frustumCullingEnabled && !viewportBoundsVisible(
                 chunk.worldBounds,
                 camera.eye,
                 camera.right,
@@ -737,7 +748,7 @@ bool ViewportRenderWorld::tryEmitOverviewRecord(
         visibleChunkInstanceReferences += static_cast<std::uint64_t>(chunk.instanceIndices.size());
         visibleChunkTriangles += chunk.triangleCount;
         visibleChunks.push_back(&chunk);
-    }, !lodSettings.spatialCellCullingEnabled, lodSettings.cullingBoundsPadding);
+    }, !lodSettings.spatialCellCullingEnabled || !lodSettings.frustumCullingEnabled, lodSettings.cullingBoundsPadding);
     if (visibleChunkCount == 0U) {
         return false;
     }

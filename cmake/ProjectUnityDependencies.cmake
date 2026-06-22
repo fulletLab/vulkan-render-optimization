@@ -156,6 +156,64 @@ function(projectunity_resolve_im3d out_target)
     set(${out_target} ProjectUnity::Im3d PARENT_SCOPE)
 endfunction()
 
+function(projectunity_resolve_imgui out_target)
+    if(TARGET ProjectUnity::DearImGui)
+        set(${out_target} ProjectUnity::DearImGui PARENT_SCOPE)
+        return()
+    endif()
+
+    if(NOT PROJECTUNITY_FETCH_IMGUI)
+        message(FATAL_ERROR
+            "Dear ImGui was not resolved. Configure with -DPROJECTUNITY_FETCH_IMGUI=ON "
+            "or provide a ProjectUnity::DearImGui target before editor app configuration."
+        )
+    endif()
+
+    message(STATUS "Fetching Dear ImGui v1.92.8 at 8936b58fe26e8c3da834b8f60b06511d537b4c63 (MIT).")
+    FetchContent_Declare(imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG 8936b58fe26e8c3da834b8f60b06511d537b4c63
+    )
+    FetchContent_GetProperties(imgui)
+    if(NOT imgui_POPULATED)
+        if(POLICY CMP0169)
+            cmake_policy(PUSH)
+            cmake_policy(SET CMP0169 OLD)
+        endif()
+        FetchContent_Populate(imgui)
+        if(POLICY CMP0169)
+            cmake_policy(POP)
+        endif()
+    endif()
+
+    add_library(projectunity_imgui STATIC
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp"
+    )
+    add_library(ProjectUnity::DearImGui ALIAS projectunity_imgui)
+    target_include_directories(projectunity_imgui
+        SYSTEM PUBLIC
+            "${imgui_SOURCE_DIR}"
+            "${imgui_SOURCE_DIR}/backends"
+    )
+    if(WIN32)
+        target_link_libraries(projectunity_imgui PUBLIC opengl32)
+    else()
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(projectunity_imgui PUBLIC OpenGL::GL)
+    endif()
+    projectunity_configure_target(projectunity_imgui)
+    if(MSVC)
+        target_compile_options(projectunity_imgui PRIVATE /W0)
+    else()
+        target_compile_options(projectunity_imgui PRIVATE -w)
+    endif()
+    set(${out_target} ProjectUnity::DearImGui PARENT_SCOPE)
+endfunction()
+
 function(projectunity_resolve_tinygltf out_target)
     if(TARGET ProjectUnity::TinyGLTF)
         set(${out_target} ProjectUnity::TinyGLTF PARENT_SCOPE)

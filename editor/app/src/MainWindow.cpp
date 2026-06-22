@@ -8,7 +8,6 @@
 #include <DockAreaWidget.h>
 #include <DockManager.h>
 #include <DockWidget.h>
-#include <FloatingDockContainer.h>
 
 #include <QAction>
 #include <QActionGroup>
@@ -28,7 +27,6 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QPlainTextEdit>
-#include <QPoint>
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -454,6 +452,7 @@ MainWindow::MainWindow(QWidget* parent)
     createMenus();
     createToolbar();
     createDockLayout();
+    createViewportTuningWindow();
     syncViewportTuningPanel();
     ensureBuiltInGeneratedModels();
     rebuildAssetBrowser();
@@ -464,15 +463,7 @@ MainWindow::MainWindow(QWidget* parent)
         applyLightingSettings();
     });
     restoreEditorLayout();
-    if (viewportTuningDock_ != nullptr) {
-        viewportTuningDock_->toggleView(true);
-        viewportTuningDock_->setFloating();
-        viewportTuningDock_->raise();
-        if (auto* floating = viewportTuningDock_->floatingDockContainer()) {
-            floating->resize(440, 720);
-            floating->move(QPoint(80, 80));
-        }
-    }
+    QTimer::singleShot(0, this, [this] { showViewportTuningWindow(); });
 
     logFlushTimer_ = new QTimer(this);
     connect(logFlushTimer_, &QTimer::timeout, this, [this]() {

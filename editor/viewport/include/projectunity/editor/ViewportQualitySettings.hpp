@@ -25,14 +25,21 @@ struct ViewportAssetLodSettings {
     std::size_t maxDrawPackets {192U};
     std::size_t maxShadowCasters {192U};
     std::uint64_t maxDetailedTriangles {4'000'000ULL};
+    std::uint64_t staticUploadBudgetBytes {24ULL * 1024ULL * 1024ULL};
+    std::uint32_t staticUploadBatchBudget {12U};
     float lodBias {1.0F};
     float lodHysteresisRatio {0.15F};
     float hlodHysteresisRatio {0.15F};
     float cullingBoundsPadding {0.25F};
     float terrainNearHighQualityRadius {30.0F};
     bool terrainNearHighQualityEnabled {true};
+    bool forceLod0 {false};
+    bool frustumCullingEnabled {true};
+    bool instanceCullingEnabled {true};
     bool occlusionCullingEnabled {true};
     bool spatialCellCullingEnabled {true};
+    bool triangleBudgetEnabled {true};
+    bool unlimitedStaticUploads {false};
     bool debugDisableTerrainHlod {false};
     bool debugDisableTerrainChunkLod {false};
     ViewportHlodDebugOverride debugOverride {ViewportHlodDebugOverride::Automatic};
@@ -106,6 +113,11 @@ namespace detail {
     settings.maxDrawPackets = std::clamp<std::size_t>(settings.maxDrawPackets, 1U, 1'000'000U);
     settings.maxShadowCasters = std::clamp<std::size_t>(settings.maxShadowCasters, 1U, 1'000'000U);
     settings.maxDetailedTriangles = std::clamp<std::uint64_t>(settings.maxDetailedTriangles, 1'000ULL, 1'000'000'000ULL);
+    settings.staticUploadBudgetBytes = std::clamp<std::uint64_t>(
+        settings.staticUploadBudgetBytes,
+        1ULL * 1024ULL * 1024ULL,
+        16ULL * 1024ULL * 1024ULL * 1024ULL);
+    settings.staticUploadBatchBudget = std::clamp<std::uint32_t>(settings.staticUploadBatchBudget, 1U, 100'000U);
     settings.lodBias = std::clamp(settings.lodBias, 0.25F, 8.0F);
     settings.lodHysteresisRatio = std::clamp(settings.lodHysteresisRatio, 0.0F, 0.45F);
     settings.hlodHysteresisRatio = std::clamp(settings.hlodHysteresisRatio, 0.0F, 0.45F);

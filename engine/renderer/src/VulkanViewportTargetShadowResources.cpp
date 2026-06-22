@@ -14,9 +14,6 @@
 namespace projectunity::renderer {
 namespace {
 
-constexpr std::uint64_t kShadowUploadBudgetBytes = 12ULL * 1024ULL * 1024ULL;
-constexpr std::uint32_t kShadowUploadBudgetBatches = 8U;
-
 [[nodiscard]] std::span<const std::byte> instanceBytes(const std::vector<VulkanGpuInstance>& instances)
 {
     return {
@@ -166,11 +163,13 @@ bool VulkanViewportTarget::prepareShadowMeshBatchResources(
         const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex, draw.lodIndex};
         const auto pendingBytes = meshCache.estimatedUploadBytes(meshKey, *draw.primitive)
             + estimatedShadowMaterialUploadBytes(textureCache, draw);
-        if (pendingBytes > 0U) {
+        if (pendingBytes > 0U && !frame.unlimitedStaticUploads) {
             const auto nextBytes = budgetBytes + pendingBytes;
-            const auto budgetIsFull = budgetBatches >= kShadowUploadBudgetBatches
-                || (budgetBytes > 0U && nextBytes > kShadowUploadBudgetBytes);
+            const auto budgetIsFull = budgetBatches >= std::max(frame.staticUploadBatchBudget, 1U)
+                || (budgetBytes > 0U && nextBytes > std::max(frame.staticUploadBudgetBytes, 1ULL));
             if (budgetIsFull) {
+                ++lastFrameProfile_.resourceDeferred;
+                lastFrameProfile_.resourceDeferredBytes += pendingBytes;
                 continue;
             }
             budgetBytes = std::max<std::uint64_t>(nextBytes, 1U);

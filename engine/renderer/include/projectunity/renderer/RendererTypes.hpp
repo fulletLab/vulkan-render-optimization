@@ -208,6 +208,9 @@ struct RendererStats {
     std::uint64_t passedFrustum {0};
     std::uint64_t visibleBatches {0};
     std::uint64_t resourcePrepared {0};
+    std::uint64_t resourceDeferred {0};
+    std::uint64_t resourceFallback {0};
+    std::uint64_t resourceDeferredBytes {0};
     std::uint64_t shadowCastersSubmitted {0};
     std::uint64_t shadowCandidateInstances {0};
     std::uint64_t shadowPolicyRejectedInstances {0};
@@ -435,6 +438,9 @@ struct RenderFrame {
     std::array<float, 3> ambientSkyColor {0.22F, 0.28F, 0.40F};
     std::array<float, 3> ambientGroundColor {0.07F, 0.06F, 0.05F};
     RenderEnvironmentSettings environment;
+    std::uint64_t staticUploadBudgetBytes {24ULL * 1024ULL * 1024ULL};
+    std::uint32_t staticUploadBatchBudget {12U};
+    bool unlimitedStaticUploads {false};
     std::span<const RenderLight> lights;
     bool shadowsEnabled {false};
     RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Off};

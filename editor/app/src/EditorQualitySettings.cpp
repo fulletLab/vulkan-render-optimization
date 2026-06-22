@@ -192,11 +192,19 @@ template <typename Enum>
         {"chunkBudget", settings.chunkBudget},
         {"drawPacketBudget", settings.drawPacketBudget},
         {"shadowCasterBudget", settings.shadowCasterBudget},
+        {"detailedTriangleBudget", settings.detailedTriangleBudget},
+        {"uploadBudgetMb", settings.uploadBudgetMb},
+        {"uploadBatchBudget", settings.uploadBatchBudget},
         {"cullingBoundsPadding", settings.cullingBoundsPadding},
         {"terrainNearHighQualityEnabled", settings.terrainNearHighQualityEnabled},
         {"terrainNearHighQualityRadius", settings.terrainNearHighQualityRadius},
+        {"forceLod0", settings.forceLod0},
+        {"frustumCullingEnabled", settings.frustumCullingEnabled},
+        {"instanceCullingEnabled", settings.instanceCullingEnabled},
         {"occlusionCullingEnabled", settings.occlusionCullingEnabled},
         {"spatialCellCullingEnabled", settings.spatialCellCullingEnabled},
+        {"triangleBudgetEnabled", settings.triangleBudgetEnabled},
+        {"unlimitedStaticUploads", settings.unlimitedStaticUploads},
         {"debugDisableTerrainHlod", settings.debugDisableTerrainHlod},
         {"debugDisableTerrainChunkLod", settings.debugDisableTerrainChunkLod},
         {"debugColors", settings.debugColors},
@@ -317,6 +325,14 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
     settings.lod.chunkBudget = intFromJson(lod, "chunkBudget", settings.lod.chunkBudget, 1, 1000000);
     settings.lod.drawPacketBudget = intFromJson(lod, "drawPacketBudget", settings.lod.drawPacketBudget, 1, 1000000);
     settings.lod.shadowCasterBudget = intFromJson(lod, "shadowCasterBudget", settings.lod.shadowCasterBudget, 1, 1000000);
+    settings.lod.detailedTriangleBudget = intFromJson(
+        lod,
+        "detailedTriangleBudget",
+        settings.lod.detailedTriangleBudget,
+        1000,
+        1000000000);
+    settings.lod.uploadBudgetMb = intFromJson(lod, "uploadBudgetMb", settings.lod.uploadBudgetMb, 1, 16384);
+    settings.lod.uploadBatchBudget = intFromJson(lod, "uploadBatchBudget", settings.lod.uploadBatchBudget, 1, 100000);
     settings.lod.cullingBoundsPadding = floatFromJson(
         lod,
         "cullingBoundsPadding",
@@ -333,6 +349,15 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
         settings.lod.terrainNearHighQualityRadius,
         0.0F,
         1000000.0F);
+    settings.lod.forceLod0 = boolFromJson(lod, "forceLod0", settings.lod.forceLod0);
+    settings.lod.frustumCullingEnabled = boolFromJson(
+        lod,
+        "frustumCullingEnabled",
+        settings.lod.frustumCullingEnabled);
+    settings.lod.instanceCullingEnabled = boolFromJson(
+        lod,
+        "instanceCullingEnabled",
+        settings.lod.instanceCullingEnabled);
     settings.lod.occlusionCullingEnabled = boolFromJson(
         lod,
         "occlusionCullingEnabled",
@@ -341,6 +366,14 @@ void loadProjectJson(EditorQualitySettings& settings, const QJsonObject& root)
         lod,
         "spatialCellCullingEnabled",
         settings.lod.spatialCellCullingEnabled);
+    settings.lod.triangleBudgetEnabled = boolFromJson(
+        lod,
+        "triangleBudgetEnabled",
+        settings.lod.triangleBudgetEnabled);
+    settings.lod.unlimitedStaticUploads = boolFromJson(
+        lod,
+        "unlimitedStaticUploads",
+        settings.lod.unlimitedStaticUploads);
     settings.lod.debugDisableTerrainHlod = boolFromJson(lod, "debugDisableTerrainHlod", settings.lod.debugDisableTerrainHlod);
     settings.lod.debugDisableTerrainChunkLod = boolFromJson(lod, "debugDisableTerrainChunkLod", settings.lod.debugDisableTerrainChunkLod);
     settings.lod.debugColors = boolFromJson(lod, "debugColors", settings.lod.debugColors);
@@ -448,11 +481,21 @@ EditorQualitySettings loadEditorQualitySettings(const std::filesystem::path& pat
     settings.lod.chunkBudget = static_cast<int>(std::min<std::size_t>(envLod.maxVisibleChunksFromFar, 1000000U));
     settings.lod.drawPacketBudget = static_cast<int>(std::min<std::size_t>(envLod.maxDrawPackets, 1000000U));
     settings.lod.shadowCasterBudget = static_cast<int>(std::min<std::size_t>(envLod.maxShadowCasters, 1000000U));
+    settings.lod.detailedTriangleBudget = static_cast<int>(std::min<std::uint64_t>(envLod.maxDetailedTriangles, 1000000000ULL));
+    settings.lod.uploadBudgetMb = static_cast<int>(std::min<std::uint64_t>(
+        envLod.staticUploadBudgetBytes / (1024ULL * 1024ULL),
+        16384ULL));
+    settings.lod.uploadBatchBudget = static_cast<int>(std::min<std::uint32_t>(envLod.staticUploadBatchBudget, 100000U));
     settings.lod.cullingBoundsPadding = envLod.cullingBoundsPadding;
     settings.lod.terrainNearHighQualityEnabled = envLod.terrainNearHighQualityEnabled;
     settings.lod.terrainNearHighQualityRadius = envLod.terrainNearHighQualityRadius;
+    settings.lod.forceLod0 = envLod.forceLod0;
+    settings.lod.frustumCullingEnabled = envLod.frustumCullingEnabled;
+    settings.lod.instanceCullingEnabled = envLod.instanceCullingEnabled;
     settings.lod.occlusionCullingEnabled = envLod.occlusionCullingEnabled;
     settings.lod.spatialCellCullingEnabled = envLod.spatialCellCullingEnabled;
+    settings.lod.triangleBudgetEnabled = envLod.triangleBudgetEnabled;
+    settings.lod.unlimitedStaticUploads = envLod.unlimitedStaticUploads;
     settings.lod.debugDisableTerrainHlod = envLod.debugDisableTerrainHlod;
     settings.lod.debugDisableTerrainChunkLod = envLod.debugDisableTerrainChunkLod;
     settings.lod.debugOverride = envLod.debugOverride;
@@ -513,9 +556,17 @@ void applyQualityPreset(QualityPreset preset, EditorQualitySettings& settings)
     settings.lod.automaticLod = true;
     settings.lod.hlodEnabled = true;
     settings.lod.debugOverride = ViewportHlodDebugOverride::Automatic;
+    settings.lod.detailedTriangleBudget = 4'000'000;
+    settings.lod.uploadBudgetMb = 24;
+    settings.lod.uploadBatchBudget = 12;
+    settings.lod.forceLod0 = false;
+    settings.lod.frustumCullingEnabled = true;
+    settings.lod.instanceCullingEnabled = true;
     settings.lod.cullingBoundsPadding = 0.25F;
     settings.lod.occlusionCullingEnabled = true;
     settings.lod.spatialCellCullingEnabled = true;
+    settings.lod.triangleBudgetEnabled = true;
+    settings.lod.unlimitedStaticUploads = false;
     settings.lod.terrainNearHighQualityEnabled = true;
     settings.lod.debugDisableTerrainHlod = false;
     settings.lod.debugDisableTerrainChunkLod = false;
@@ -595,13 +646,21 @@ ViewportAssetLodSettings viewportAssetLodSettingsFromQuality(const EditorQuality
     result.maxVisibleChunksFromFar = static_cast<std::size_t>(std::max(settings.lod.chunkBudget, 1));
     result.maxDrawPackets = static_cast<std::size_t>(std::max(settings.lod.drawPacketBudget, 1));
     result.maxShadowCasters = static_cast<std::size_t>(std::max(settings.lod.shadowCasterBudget, 1));
+    result.maxDetailedTriangles = static_cast<std::uint64_t>(std::max(settings.lod.detailedTriangleBudget, 1'000));
+    result.staticUploadBudgetBytes = static_cast<std::uint64_t>(std::max(settings.lod.uploadBudgetMb, 1)) * 1024ULL * 1024ULL;
+    result.staticUploadBatchBudget = static_cast<std::uint32_t>(std::max(settings.lod.uploadBatchBudget, 1));
     result.lodHysteresisRatio = settings.lod.hysteresis;
     result.hlodHysteresisRatio = settings.lod.hysteresis;
     result.cullingBoundsPadding = settings.lod.cullingBoundsPadding;
     result.terrainNearHighQualityEnabled = settings.lod.terrainNearHighQualityEnabled;
     result.terrainNearHighQualityRadius = settings.lod.terrainNearHighQualityRadius;
+    result.forceLod0 = settings.lod.forceLod0;
+    result.frustumCullingEnabled = settings.lod.frustumCullingEnabled;
+    result.instanceCullingEnabled = settings.lod.instanceCullingEnabled;
     result.occlusionCullingEnabled = settings.lod.occlusionCullingEnabled;
     result.spatialCellCullingEnabled = settings.lod.spatialCellCullingEnabled;
+    result.triangleBudgetEnabled = settings.lod.triangleBudgetEnabled;
+    result.unlimitedStaticUploads = settings.lod.unlimitedStaticUploads;
     result.debugDisableTerrainHlod = settings.lod.debugDisableTerrainHlod;
     result.debugDisableTerrainChunkLod = settings.lod.debugDisableTerrainChunkLod;
 

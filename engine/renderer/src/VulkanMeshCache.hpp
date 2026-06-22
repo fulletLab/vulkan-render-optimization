@@ -66,6 +66,7 @@ public:
         const assets::MeshPrimitive& primitive,
         std::string* errorMessage);
     [[nodiscard]] bool isUploaded(VulkanMeshKey key) const noexcept;
+    [[nodiscard]] const VulkanMeshBuffers* uploaded(VulkanMeshKey key) const noexcept;
     [[nodiscard]] std::uint64_t estimatedUploadBytes(
         VulkanMeshKey key,
         const assets::MeshPrimitive& primitive) const noexcept;

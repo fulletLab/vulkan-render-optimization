@@ -695,6 +695,9 @@ bool ViewportWidget::renderRendererFrame()
         ? renderer::RenderFramePath::SceneView
         : (runtimeSnapshot ? renderer::RenderFramePath::GameRuntime : renderer::RenderFramePath::GameView);
     frame.textureDebug = textureDebugSettings_;
+    frame.staticUploadBudgetBytes = assetLodSettings_.staticUploadBudgetBytes;
+    frame.staticUploadBatchBudget = assetLodSettings_.staticUploadBatchBudget;
+    frame.unlimitedStaticUploads = assetLodSettings_.unlimitedStaticUploads;
     const auto editorBuildStart = std::chrono::steady_clock::now();
     frame.clearColor.red = mode_ == ViewportMode::Scene ? 0.12F : 0.02F;
     frame.clearColor.green = mode_ == ViewportMode::Scene ? 0.13F : 0.02F;

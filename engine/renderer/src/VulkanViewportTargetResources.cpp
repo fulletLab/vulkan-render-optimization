@@ -10,9 +10,6 @@
 namespace projectunity::renderer {
 namespace {
 
-constexpr std::uint64_t kStaticUploadBudgetBytes = 24ULL * 1024ULL * 1024ULL;
-constexpr std::uint32_t kStaticUploadBudgetBatches = 12U;
-
 [[nodiscard]] std::uint64_t estimatedMaterialUploadBytes(
     VulkanTextureCache& textureCache,
     const RenderMeshDraw& draw) noexcept
@@ -23,6 +20,38 @@ constexpr std::uint32_t kStaticUploadBudgetBatches = 12U;
         + textureCache.estimatedUploadBytes(draw.occlusionTexture, VulkanTextureColorSpace::Linear)
         + textureCache.estimatedUploadBytes(draw.emissiveTexture, VulkanTextureColorSpace::Srgb)
         + textureCache.estimatedBrdfLutUploadBytes();
+}
+
+struct UploadedMeshFallback {
+    const VulkanMeshBuffers* mesh {nullptr};
+    std::uint32_t lodIndex {0};
+};
+
+[[nodiscard]] UploadedMeshFallback uploadedMeshFallback(
+    const VulkanMeshCache& meshCache,
+    const RenderMeshDraw& draw) noexcept
+{
+    if (draw.primitive == nullptr) {
+        return {};
+    }
+    const auto maxLod = static_cast<std::uint32_t>(draw.primitive->lods.size());
+    for (std::uint32_t offset = 1U; offset <= maxLod; ++offset) {
+        if (draw.lodIndex >= offset) {
+            const auto candidate = draw.lodIndex - offset;
+            if (const auto* mesh = meshCache.uploaded({draw.modelAssetId.value(), draw.primitiveIndex, candidate})) {
+                return {mesh, candidate};
+            }
+        }
+        if (draw.lodIndex <= maxLod && offset <= maxLod - draw.lodIndex) {
+            const auto candidate = draw.lodIndex + offset;
+            if (candidate <= maxLod) {
+                if (const auto* mesh = meshCache.uploaded({draw.modelAssetId.value(), draw.primitiveIndex, candidate})) {
+                    return {mesh, candidate};
+                }
+            }
+        }
+    }
+    return {};
 }
 
 } // namespace
@@ -57,20 +86,35 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
     for (auto& batch : meshBatches_) {
         const auto& draw = *batch.draw;
         const VulkanMeshKey meshKey {draw.modelAssetId.value(), draw.primitiveIndex, draw.lodIndex};
-        const auto pendingBytes = meshCache.estimatedUploadBytes(meshKey, *draw.primitive)
-            + estimatedMaterialUploadBytes(textureCache, draw);
+        const auto pendingMeshBytes = meshCache.estimatedUploadBytes(meshKey, *draw.primitive);
+        const auto pendingMaterialBytes = estimatedMaterialUploadBytes(textureCache, draw);
+        const auto pendingBytes = pendingMeshBytes + pendingMaterialBytes;
         const auto hasStaticUploadWork = pendingBytes > 0U;
-        if (hasStaticUploadWork) {
+        auto preparedLodIndex = draw.lodIndex;
+        if (hasStaticUploadWork && !frame.unlimitedStaticUploads) {
             const auto nextBytes = budgetBytes + pendingBytes;
-            const auto budgetIsFull = budgetBatches >= kStaticUploadBudgetBatches
-                || (budgetBytes > 0U && nextBytes > kStaticUploadBudgetBytes);
+            const auto budgetIsFull = budgetBatches >= std::max(frame.staticUploadBatchBudget, 1U)
+                || (budgetBytes > 0U && nextBytes > std::max(frame.staticUploadBudgetBytes, 1ULL));
             if (budgetIsFull) {
-                continue;
+                ++lastFrameProfile_.resourceDeferred;
+                lastFrameProfile_.resourceDeferredBytes += pendingBytes;
+                if (pendingMaterialBytes == 0U) {
+                    const auto fallback = uploadedMeshFallback(meshCache, draw);
+                    batch.mesh = fallback.mesh;
+                    preparedLodIndex = fallback.lodIndex;
+                }
+                if (batch.mesh == nullptr) {
+                    continue;
+                }
+                ++lastFrameProfile_.resourceFallback;
+            } else {
+                budgetBytes = std::max<std::uint64_t>(nextBytes, 1U);
+                ++budgetBatches;
             }
-            budgetBytes = std::max<std::uint64_t>(nextBytes, 1U);
-            ++budgetBatches;
         }
-        batch.mesh = meshCache.ensureUploaded(resourceContext, uploads, meshKey, *draw.primitive, errorMessage);
+        if (batch.mesh == nullptr) {
+            batch.mesh = meshCache.ensureUploaded(resourceContext, uploads, meshKey, *draw.primitive, errorMessage);
+        }
         if (batch.mesh == nullptr) {
             return false;
         }
@@ -99,9 +143,11 @@ bool VulkanViewportTarget::prepareMeshBatchResources(
         if (batch.materialDescriptor == VK_NULL_HANDLE) {
             return false;
         }
+        auto preparedDraw = draw;
+        preparedDraw.lodIndex = preparedLodIndex;
         accumulateRenderLodBreakdown(
             lastFrameProfile_.resourcePreparedLod,
-            draw,
+            preparedDraw,
             batch.instanceCount,
             batch.mesh == nullptr ? renderMeshDrawIndexCount(draw) : batch.mesh->indexCount);
         preparedBatches.push_back(batch);

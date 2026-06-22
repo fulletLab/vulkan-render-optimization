@@ -576,6 +576,37 @@ int main(int argc, char** argv)
         return fail("Viewport did not choose a finer LOD for the near duplicate asset");
     }
 
+    auto completeAssetSettings = lodSettings;
+    completeAssetSettings.debugOverride = projectunity::editor::ViewportHlodDebugOverride::ForceDetailed;
+    completeAssetSettings.forceLod0 = true;
+    completeAssetSettings.frustumCullingEnabled = false;
+    completeAssetSettings.instanceCullingEnabled = false;
+    completeAssetSettings.occlusionCullingEnabled = false;
+    completeAssetSettings.spatialCellCullingEnabled = false;
+    completeAssetSettings.triangleBudgetEnabled = false;
+    projectunity::editor::ViewportRenderWorld completeAssetWorld;
+    std::vector<projectunity::renderer::RenderMeshDraw> completeAssetDraws;
+    auto reverseLodCamera = lodCamera;
+    reverseLodCamera.right = {-1.0F, 0.0F, 0.0F};
+    reverseLodCamera.forward = {0.0F, 0.0F, -1.0F};
+    (void)completeAssetWorld.buildFrame(
+        &duplicateLodScene,
+        &duplicateLodAssets,
+        {},
+        reverseLodCamera,
+        {},
+        1080,
+        completeAssetSettings,
+        false,
+        completeAssetDraws,
+        duplicateLodLights);
+    if (completeAssetDraws.size() != 2U
+        || std::any_of(completeAssetDraws.begin(), completeAssetDraws.end(), [](const auto& draw) {
+            return draw.lodIndex != 0U;
+        })) {
+        return fail("Complete asset mode did not preserve every source draw at LOD0 with culling disabled");
+    }
+
     TestAssetManager broadLodAssets;
     broadLodAssets.modelAsset = testBroadPrimitiveLodModel(projectunity::assets::AssetId(1889));
     projectunity::scene::Scene broadLodScene;

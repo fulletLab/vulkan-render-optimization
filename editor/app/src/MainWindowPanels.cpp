@@ -4,13 +4,13 @@
 #include <projectunity/editor/ProjectBrowserWidget.hpp>
 #include <projectunity/editor/SceneHierarchyWidget.hpp>
 #include <projectunity/editor/SettingsDialog.hpp>
+#include <projectunity/editor/ViewportTuningImGuiWindow.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
 
 #include <DockAreaWidget.h>
 #include <DockManager.h>
 #include <DockWidget.h>
-#include <FloatingDockContainer.h>
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -379,6 +379,9 @@ void MainWindow::createMenus()
     toolsMenu->addAction(QStringLiteral("Construir modulo de scripts"), this, [this] { (void)buildProjectScriptsModule(); });
     toolsMenu->addAction(QStringLiteral("Recargar scripts"), this, [this] { (void)reloadProjectScriptsModule(); });
     toolsMenu->addSeparator();
+    toolsMenu->addAction(QStringLiteral("Viewport Tuning (Dear ImGui)"), this, [this] {
+        showViewportTuningWindow();
+    });
     toolsMenu->addAction(QStringLiteral("Generador de terreno"), this, [this] {
         createTerrainEntity();
     });
@@ -544,8 +547,6 @@ void MainWindow::createDockLayout()
     auto* importDock = createDockWidget(QStringLiteral("Importar"), createAssetImportPanel());
     auto* terrainDock = createDockWidget(QStringLiteral("Terreno"), createTerrainPanel());
     auto* lightingDock = createDockWidget(QStringLiteral("Iluminacion"), createLightingPanel());
-    auto* viewportTuningDock = createDockWidget(QStringLiteral("Viewport Tuning"), createViewportTuningPanel());
-    viewportTuningDock_ = viewportTuningDock;
     auto* physicsDock = createDockWidget(QStringLiteral("Fisica"), createTextPanel(
         QStringLiteral("Fisica"),
         {QStringLiteral("Cuerpos"), QStringLiteral("Colisionadores"), QStringLiteral("Consultas")}));
@@ -566,9 +567,6 @@ void MainWindow::createDockLayout()
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, importDock, bottomArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, terrainDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, lightingDock, rightArea);
-    auto* viewportTuningWindow = dockManager_->addDockWidgetFloating(viewportTuningDock);
-    viewportTuningWindow->resize(440, 720);
-    viewportTuningWindow->move(QPoint(80, 80));
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, physicsDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, navigationDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, serverDock, rightArea);
@@ -1492,6 +1490,9 @@ void MainWindow::applyViewportTuningFromControls()
 
 void MainWindow::syncViewportTuningPanel()
 {
+    if (viewportTuningImGuiWindow_ != nullptr) {
+        viewportTuningImGuiWindow_->syncSettings(qualitySettings_);
+    }
     if (tuningHlodCheck_ == nullptr) {
         return;
     }

@@ -154,6 +154,12 @@ bool VulkanMeshCache::isUploaded(VulkanMeshKey key) const noexcept
     return meshes_.find(key) != meshes_.end();
 }
 
+const VulkanMeshBuffers* VulkanMeshCache::uploaded(VulkanMeshKey key) const noexcept
+{
+    const auto existing = meshes_.find(key);
+    return existing == meshes_.end() ? nullptr : &existing->second;
+}
+
 std::uint64_t VulkanMeshCache::estimatedUploadBytes(
     VulkanMeshKey key,
     const assets::MeshPrimitive& primitive) const noexcept

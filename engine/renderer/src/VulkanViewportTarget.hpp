@@ -105,6 +105,9 @@ struct VulkanViewportFrameProfile {
     RenderShadowUpdateMode shadowUpdateMode {RenderShadowUpdateMode::Off};
     bool shadowMapUpdated {false};
     std::uint64_t resourcePrepared {0};
+    std::uint64_t resourceDeferred {0};
+    std::uint64_t resourceFallback {0};
+    std::uint64_t resourceDeferredBytes {0};
     std::uint64_t shadowCastersSubmitted {0};
     std::uint64_t shadowCandidateInstances {0};
     std::uint64_t shadowPolicyRejectedInstances {0};

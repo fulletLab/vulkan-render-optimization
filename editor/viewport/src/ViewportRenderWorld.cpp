@@ -1018,7 +1018,8 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
     ViewportOcclusionBuffer occlusionBuffer(camera, viewportHeight);
     std::unordered_set<std::uint64_t> occluderChunkIds;
     occluderChunkIds.reserve(result.stats.renderChunkCount);
-    const auto forceAllSpatialCells = !lodSettings.spatialCellCullingEnabled;
+    const auto forceAllSpatialCells = !lodSettings.spatialCellCullingEnabled
+        || !lodSettings.frustumCullingEnabled;
     const auto cullingBoundsPadding = lodSettings.cullingBoundsPadding;
     const auto occlusionEnabled = lodSettings.occlusionCullingEnabled;
     if (occlusionEnabled) {
@@ -1084,7 +1085,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             if (largeChunk) {
                 ++result.stats.largeRenderChunkCount;
             }
-            const auto chunkVisible = selectedVisibilityBypass || viewportBoundsVisible(
+            const auto chunkVisible = selectedVisibilityBypass
+                || !lodSettings.frustumCullingEnabled
+                || viewportBoundsVisible(
                     chunk.worldBounds,
                     camera.eye,
                     camera.right,
@@ -1220,7 +1223,10 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                 if (primitive.materialIndex >= instance.model->materials.size()) {
                     continue;
                 }
-                if (!selectedVisibilityBypass && !viewportBoundsVisible(
+                if (!selectedVisibilityBypass
+                    && lodSettings.frustumCullingEnabled
+                    && lodSettings.instanceCullingEnabled
+                    && !viewportBoundsVisible(
                         instance.worldBounds,
                         camera.eye,
                         camera.right,
@@ -1254,10 +1260,10 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
                     && lodSettings.terrainNearHighQualityEnabled
                     && (distanceToBounds <= lodSettings.terrainNearHighQualityRadius
                         || pointInsideViewportBounds(camera.eye, instance.worldBounds.corners));
-                const auto forceFullResolution = selectedPrimitiveModel.isValid()
+                const auto forceFullResolution = lodSettings.forceLod0 || (selectedPrimitiveModel.isValid()
                     ? (selectedPrimitiveModel == instance.modelAssetId
                         && selectedPrimitiveIndex == instance.primitiveInstanceIndex)
-                    : (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U);
+                    : (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U));
                 const auto forceTerrainFullResolution = terrainNearHighQuality
                     || (instance.generatedTerrainModel && lodSettings.debugDisableTerrainChunkLod);
                 const auto historyIt = lodSelectionHistory_.find(instance.renderInstanceId);
@@ -1361,7 +1367,9 @@ ViewportRenderWorldFrame ViewportRenderWorld::buildFrame(
             visibleSourceTriangleCount);
     }
 
-    applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, lodSettings, result.stats);
+    if (lodSettings.triangleBudgetEnabled && !lodSettings.forceLod0) {
+        applyViewportTriangleBudget(meshDraws, selectedEntityId, camera, viewportHeight, lodSettings, result.stats);
+    }
 
     if (selectedDebug.renderAllDrawPackets && selectedTraceRecord != nullptr) {
         selectedForceDrawSubmittedCount = forceAppendSelectedRecordDraws(

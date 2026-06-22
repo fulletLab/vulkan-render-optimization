@@ -198,7 +198,7 @@ void ViewportRenderWorld::collectShadowCasters(
                 if (material.alphaMode == assets::MaterialAlphaMode::Blend) {
                     continue;
                 }
-                const auto visibleToCamera = viewportBoundsVisible(
+                const auto visibleToCamera = !lodSettings.frustumCullingEnabled || viewportBoundsVisible(
                     overview.worldBounds,
                     camera.eye,
                     camera.right,
@@ -267,7 +267,7 @@ void ViewportRenderWorld::collectShadowCasters(
             if (material.alphaMode == assets::MaterialAlphaMode::Blend) {
                 continue;
             }
-            const auto visibleToCamera = viewportBoundsVisible(
+            const auto visibleToCamera = !lodSettings.frustumCullingEnabled || viewportBoundsVisible(
                 instance.worldBounds,
                 camera.eye,
                 camera.right,
@@ -297,7 +297,8 @@ void ViewportRenderWorld::collectShadowCasters(
             const auto cameraDistance = (instance.worldBounds.center - camera.eye).length();
             const auto sortDepth = std::max(cameraDistance, camera.nearPlane);
             const auto terrainEvaluation = evaluateViewportHlod(instance.worldBounds, camera, viewportHeight);
-            const auto forceFullResolution = (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U)
+            const auto forceFullResolution = lodSettings.forceLod0
+                || (instance.sceneNodeId == selectedEntityId && record->instances.size() <= 4U)
                 || (instance.generatedTerrainModel
                     && (lodSettings.debugDisableTerrainChunkLod
                         || (lodSettings.terrainNearHighQualityEnabled

@@ -394,6 +394,9 @@ struct VulkanRenderer::Impl {
             stats.lastFrameMeshRecordCpuTimeUs = profile.meshRecordCpuTimeUs;
             stats.lastFrameColorRecordCpuTimeUs = profile.colorRecordCpuTimeUs;
             stats.resourcePrepared = profile.resourcePrepared;
+            stats.resourceDeferred = profile.resourceDeferred;
+            stats.resourceFallback = profile.resourceFallback;
+            stats.resourceDeferredBytes = profile.resourceDeferredBytes;
             stats.shadowCastersSubmitted = profile.shadowCastersSubmitted;
             stats.shadowCandidateInstances = profile.shadowCandidateInstances;
             stats.shadowPolicyRejectedInstances = profile.shadowPolicyRejectedInstances;

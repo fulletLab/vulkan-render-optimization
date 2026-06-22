@@ -50,6 +50,7 @@ class IRenderer;
 namespace projectunity::editor {
 
 class ViewportWidget;
+class ViewportTuningImGuiWindow;
 class ProjectBrowserWidget;
 struct ViewportTerrainBrushEvent;
 
@@ -152,6 +153,8 @@ private:
     [[nodiscard]] QWidget* createTextPanel(const QString& title, const QStringList& lines) const;
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
     void updateProfilerPanel();
+    void createViewportTuningWindow();
+    void showViewportTuningWindow();
     void updateViewportTuningStats();
     void syncViewportTuningPanel();
     void applyViewportTuningFromControls();
@@ -183,7 +186,6 @@ private:
 
     ads::CDockManager* dockManager_ {nullptr};
     ads::CDockWidget* gameDock_ {nullptr};
-    ads::CDockWidget* viewportTuningDock_ {nullptr};
     QMenu* windowMenu_ {nullptr};
     QTreeWidget* hierarchyTree_ {nullptr};
     QLineEdit* sceneNameEdit_ {nullptr};
@@ -321,6 +323,7 @@ private:
     ViewportWidget* sceneViewport_ {nullptr};
     ViewportWidget* gameViewport_ {nullptr};
     ViewportWidget* playRuntimeViewport_ {nullptr};
+    ViewportTuningImGuiWindow* viewportTuningImGuiWindow_ {nullptr};
     std::shared_ptr<core::MemoryLogSink> logSink_;
     QTimer* logFlushTimer_ {nullptr};
     QTimer* lightingApplyTimer_ {nullptr};

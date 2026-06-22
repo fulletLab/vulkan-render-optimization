@@ -8,11 +8,11 @@ if(DEFINED ENV{QT_ROOT} AND NOT "$ENV{QT_ROOT}" STREQUAL "")
     list(PREPEND CMAKE_PREFIX_PATH "$ENV{QT_ROOT}")
 endif()
 
-find_package(Qt6 6.5 QUIET COMPONENTS Widgets Concurrent)
+find_package(Qt6 6.5 QUIET COMPONENTS Widgets Concurrent OpenGLWidgets)
 
 if(NOT Qt6_FOUND)
     message(FATAL_ERROR
-        "ProjectUnity editor requires Qt 6.5 or newer with the Widgets and Concurrent modules. "
+        "ProjectUnity editor requires Qt 6.5 or newer with the Widgets, Concurrent, and OpenGLWidgets modules. "
         "Set QT_PREFIX or QT_ROOT to the Qt install prefix, pass -DCMAKE_PREFIX_PATH=<qt-prefix>, "
         "or use the dev-core preset for engine core/tests without Qt."
     )
@@ -23,6 +23,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 projectunity_resolve_qtads(PROJECTUNITY_QTADS_TARGET)
+projectunity_resolve_imgui(PROJECTUNITY_IMGUI_TARGET)
 
 qt_add_executable(projectunity_editor
     src/main.cpp
@@ -38,6 +39,7 @@ qt_add_executable(projectunity_editor
     src/MainWindowProfiler.cpp
     src/MainWindowSmoke.cpp
     src/MainWindowTerrain.cpp
+    src/ViewportTuningImGuiWindow.cpp
     src/ProjectAssetTreeWidget.cpp
     src/ProjectBrowserWidget.cpp
     src/SceneHierarchyWidget.cpp
@@ -48,6 +50,7 @@ qt_add_executable(projectunity_editor
     include/projectunity/editor/ProjectBrowserWidget.hpp
     include/projectunity/editor/SceneHierarchyWidget.hpp
     include/projectunity/editor/SettingsDialog.hpp
+    include/projectunity/editor/ViewportTuningImGuiWindow.hpp
     src/SettingsDialog.cpp
     resources/editor_resources.qrc
 )
@@ -69,7 +72,9 @@ target_link_libraries(projectunity_editor
         ProjectUnity::Scripting
         ProjectUnity::EditorViewport
         Qt6::Concurrent
+        Qt6::OpenGLWidgets
         Qt6::Widgets
+        ${PROJECTUNITY_IMGUI_TARGET}
         ${PROJECTUNITY_QTADS_TARGET}
 )
 
