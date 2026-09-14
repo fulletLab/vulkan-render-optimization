@@ -440,7 +440,7 @@ bool ScriptModuleLoader::load(
     }
 
     const auto generation = nextGeneration_++;
-    const auto copiedPath = runtimeModulePath(modulePath, generation);
+    auto copiedPath = runtimeModulePath(modulePath, generation);
     std::filesystem::create_directories(copiedPath.parent_path(), errorCode);
     if (errorCode) {
         setError(errorMessage, "Failed to create script runtime directory " + narrowPath(copiedPath.parent_path())
@@ -449,7 +449,27 @@ bool ScriptModuleLoader::load(
     }
 
     if (!copyRuntimeModule(modulePath, copiedPath, errorMessage)) {
-        return false;
+        const auto primaryCopyError = errorMessage == nullptr ? std::string {} : *errorMessage;
+        errorCode.clear();
+        const auto temporaryRoot = std::filesystem::temp_directory_path(errorCode) / "projectunity_script_runtime";
+        if (errorCode) {
+            setError(errorMessage, primaryCopyError + " Fallback temp directory unavailable: " + errorCode.message());
+            return false;
+        }
+        copiedPath = runtimeModulePath(temporaryRoot / modulePath.filename(), generation);
+        std::filesystem::create_directories(copiedPath.parent_path(), errorCode);
+        if (errorCode) {
+            setError(errorMessage, primaryCopyError + " Fallback temp directory failed: " + errorCode.message());
+            return false;
+        }
+        core::logWarning(
+            core::LogCategory::Core,
+            "Script module runtime copy fell back to temp directory: " + primaryCopyError);
+        if (!copyRuntimeModule(modulePath, copiedPath, errorMessage)) {
+            setError(errorMessage, primaryCopyError + " Fallback copy also failed: "
+                + (errorMessage == nullptr ? std::string {} : *errorMessage));
+            return false;
+        }
     }
 
     auto* nextHandle = openDynamicLibrary(copiedPath, errorMessage);

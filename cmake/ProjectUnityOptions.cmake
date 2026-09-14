@@ -1,4 +1,5 @@
 option(PROJECTUNITY_BUILD_EDITOR "Build the Qt/ADS editor application." ON)
+option(PROJECTUNITY_BUILD_PLAYER "Build the standalone Qt game player." "${PROJECTUNITY_BUILD_EDITOR}")
 option(PROJECTUNITY_BUILD_TESTS "Build CTest based unit tests." ON)
 option(PROJECTUNITY_FETCH_QTADS "Fetch Qt Advanced Docking System when an installed package is not found." ON)
 option(PROJECTUNITY_FETCH_TINYGIZMO "Fetch tinygizmo for editor transform gizmos." ON)

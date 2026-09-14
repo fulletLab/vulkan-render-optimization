@@ -4,6 +4,7 @@
 #include <projectunity/editor/ProjectBrowserWidget.hpp>
 #include <projectunity/editor/SceneHierarchyWidget.hpp>
 #include <projectunity/editor/SettingsDialog.hpp>
+#include <projectunity/editor/TilemapEditorWidget.hpp>
 #include <projectunity/editor/ViewportTuningImGuiWindow.hpp>
 #include <projectunity/editor/ViewportWidget.hpp>
 #include <projectunity/renderer/IRenderer.hpp>
@@ -333,6 +334,15 @@ void MainWindow::createMenus()
     assetsMenu->addAction(QStringLiteral("Refrescar"), this, [this] { rebuildAssetBrowser(); });
     assetsMenu->addAction(QStringLiteral("Reimportar seleccionado"));
 
+    auto* mode2dMenu = menuBar()->addMenu(QStringLiteral("&2D"));
+    mode2dMenu->addAction(QStringLiteral("Modo 2D / Tilemap"), this, [this] {
+        activate2DMode();
+    });
+    mode2dMenu->addAction(QStringLiteral("Crear Tilemap 2D"), this, [this] {
+        createTilemapEntity();
+        focusTilemapEditor();
+    });
+
     auto* gameObjectMenu = menuBar()->addMenu(QStringLiteral("&GameObject"));
     gameObjectMenu->addAction(QStringLiteral("Crear vacio"), this, [this] {
         createEmptyEntity(QStringLiteral("GameObject"));
@@ -342,6 +352,8 @@ void MainWindow::createMenus()
     object3dMenu->addAction(QStringLiteral("Sphere"), this, [this] { createSphereEntity(); });
     object3dMenu->addAction(QStringLiteral("Plane"), this, [this] { createPlaneEntity(); });
     object3dMenu->addAction(QStringLiteral("Terrain"), this, [this] { createTerrainEntity(); });
+    auto* object2dMenu = gameObjectMenu->addMenu(QStringLiteral("Objeto 2D"));
+    object2dMenu->addAction(QStringLiteral("Tilemap 2D"), this, [this] { createTilemapEntity(); });
     auto* lightMenu = gameObjectMenu->addMenu(QStringLiteral("Luz"));
     lightMenu->addAction(QStringLiteral("Luz direccional"), this, [this] {
         createLightEntity(scene::LightComponentType::Directional);
@@ -520,6 +532,10 @@ void MainWindow::createToolbar()
     debugButton->setMenu(debugMenu);
     toolbar->addWidget(debugButton);
     toolbar->addSeparator();
+    toolbar->addAction(makeToolbarIcon(QStringLiteral("2d"), QColor(85, 166, 255)), QStringLiteral("2D"), this, [this] {
+        activate2DMode();
+    })->setToolTip(QStringLiteral("Abrir Modo 2D / Tilemap"));
+    toolbar->addSeparator();
     toolbar->addAction(style()->standardIcon(QStyle::SP_MediaPlay), QStringLiteral("Reproducir"), this, [this] {
         startPlayMode();
     });
@@ -548,6 +564,8 @@ void MainWindow::createDockLayout()
     auto* bottomDock = createDockWidget(QStringLiteral("Consola"), createBottomPanel());
     auto* importDock = createDockWidget(QStringLiteral("Importar"), createAssetImportPanel());
     auto* terrainDock = createDockWidget(QStringLiteral("Terreno"), createTerrainPanel());
+    auto* tilemapDock = createDockWidget(QStringLiteral("Tilemap 2D"), createTilemapPanel());
+    tilemapDock_ = tilemapDock;
     auto* lightingDock = createDockWidget(QStringLiteral("Iluminacion"), createLightingPanel());
     auto* physicsDock = createDockWidget(QStringLiteral("Fisica"), createTextPanel(
         QStringLiteral("Fisica"),
@@ -569,6 +587,7 @@ void MainWindow::createDockLayout()
 
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, importDock, bottomArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, terrainDock, rightArea);
+    dockManager_->addDockWidget(ads::CenterDockWidgetArea, tilemapDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, lightingDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, physicsDock, rightArea);
     dockManager_->addDockWidget(ads::CenterDockWidgetArea, navigationDock, rightArea);
@@ -584,6 +603,17 @@ void MainWindow::focusOptimizationStudio()
     optimizationDock_->toggleView(true);
     optimizationDock_->setAsCurrentTab();
     optimizationDock_->raise();
+}
+
+void MainWindow::focusTilemapEditor()
+{
+    if (tilemapDock_ == nullptr) {
+        return;
+    }
+    tilemapDock_->toggleView(true);
+    tilemapDock_->setAsCurrentTab();
+    tilemapDock_->raise();
+    syncTilemapPanelFromSelection();
 }
 
 ads::CDockWidget* MainWindow::createDockWidget(const QString& title, QWidget* content)
@@ -662,6 +692,35 @@ QWidget* MainWindow::createGameViewPanel()
     return frame;
 }
 
+QWidget* MainWindow::createTilemapPanel()
+{
+    tilemapEditor_ = new TilemapEditorWidget;
+    tilemapEditor_->setScene(&scene_);
+    tilemapEditor_->setSelectedEntity(selectedEntityId_);
+    tilemapEditor_->setSelectionCallback([this](scene::EntityId id) {
+        rebuildHierarchy();
+        selectEntity(id);
+    });
+    tilemapEditor_->setSceneEditedCallback([this] {
+        rebuildHierarchy();
+        updateInspector();
+        refreshViewports();
+        if (statusBar() != nullptr) {
+            statusBar()->showMessage(QStringLiteral("Tilemap actualizado"), 1500);
+        }
+    });
+    return tilemapEditor_;
+}
+
+void MainWindow::syncTilemapPanelFromSelection()
+{
+    if (tilemapEditor_ == nullptr) {
+        return;
+    }
+    tilemapEditor_->setScene(&scene_);
+    tilemapEditor_->setSelectedEntity(selectedEntityId_);
+}
+
 QWidget* MainWindow::createHierarchyPanel()
 {
     auto* panel = new QWidget;
@@ -720,6 +779,7 @@ QWidget* MainWindow::createHierarchyPanel()
         auto* hierarchy = dynamic_cast<SceneHierarchyWidget*>(hierarchyTree_);
         selectedEntityId_ = hierarchy == nullptr ? scene::EntityId {} : hierarchy->selectedSceneEntity();
         updateInspector();
+        syncTilemapPanelFromSelection();
         refreshViewports();
     });
 

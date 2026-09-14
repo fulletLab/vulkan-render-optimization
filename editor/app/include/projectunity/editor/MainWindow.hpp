@@ -52,6 +52,7 @@ namespace projectunity::editor {
 class ViewportWidget;
 class ViewportTuningImGuiWindow;
 class ProjectBrowserWidget;
+class TilemapEditorWidget;
 struct ViewportTerrainBrushEvent;
 
 class MainWindow final : public QMainWindow {
@@ -91,6 +92,7 @@ private:
     projectunity::scene::EntityId createCameraEntity();
     projectunity::scene::EntityId createLightEntity(projectunity::scene::LightComponentType type);
     projectunity::scene::EntityId createTerrainEntity();
+    projectunity::scene::EntityId createTilemapEntity();
     projectunity::scene::EntityId createPlayerEntity();
     void deleteSelectedEntity();
     void duplicateSelectedEntity();
@@ -115,12 +117,14 @@ private:
     void addCameraToSelection();
     void addLightToSelection(projectunity::scene::LightComponentType type);
     void addTerrainToSelection();
+    void addTilemapToSelection();
     void addRigidbodyToSelection();
     void addColliderToSelection(projectunity::scene::ColliderShape shape);
     void removeMeshRendererFromSelection();
     void removeCameraFromSelection();
     void removeLightFromSelection();
     void removeTerrainFromSelection();
+    void removeTilemapFromSelection();
     void removeRigidbodyFromSelection();
     void removeColliderFromSelection();
     void rebuildHierarchy();
@@ -151,12 +155,15 @@ private:
     [[nodiscard]] QWidget* createViewportTuningPanel();
     [[nodiscard]] QWidget* createOptimizationEditorPanel();
     [[nodiscard]] QWidget* createTerrainPanel();
+    [[nodiscard]] QWidget* createTilemapPanel();
     [[nodiscard]] QWidget* createTextPanel(const QString& title, const QStringList& lines) const;
     [[nodiscard]] QDoubleSpinBox* createTransformSpinBox();
     void updateProfilerPanel();
     void createViewportTuningWindow(QWidget* embeddedParent = nullptr);
     void showViewportTuningWindow();
     void focusOptimizationStudio();
+    void focusTilemapEditor();
+    void activate2DMode();
     void updateViewportTuningStats();
     void syncViewportTuningPanel();
     void applyViewportTuningFromControls();
@@ -177,6 +184,7 @@ private:
     void refreshEnvironmentTextureLabel();
     void updateEditorSunFromControls();
     void syncTerrainPanelFromSelection();
+    void syncTilemapPanelFromSelection();
     void regenerateSelectedTerrain();
     void clearSelectedTerrain();
     void saveSelectedTerrainAsset();
@@ -193,6 +201,7 @@ private:
     ads::CDockManager* dockManager_ {nullptr};
     ads::CDockWidget* gameDock_ {nullptr};
     ads::CDockWidget* optimizationDock_ {nullptr};
+    ads::CDockWidget* tilemapDock_ {nullptr};
     QMenu* windowMenu_ {nullptr};
     QTreeWidget* hierarchyTree_ {nullptr};
     QLineEdit* sceneNameEdit_ {nullptr};
@@ -333,6 +342,7 @@ private:
     QCheckBox* terrainGenerateTangents_ {nullptr};
     QCheckBox* terrainGenerateCollider_ {nullptr};
     QListWidget* terrainLayerList_ {nullptr};
+    TilemapEditorWidget* tilemapEditor_ {nullptr};
     QCheckBox* terrainBrushEnabled_ {nullptr};
     QComboBox* terrainBrushMode_ {nullptr};
     QDoubleSpinBox* terrainBrushSize_ {nullptr};

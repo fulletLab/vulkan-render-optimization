@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.26)
 
-project(ProjectUnity
+project(VulkanRenderOptimization
     VERSION 0.1.0
-    DESCRIPTION "Modular C++ engine and Unity-like editor foundation"
+    DESCRIPTION "Modular C++ Vulkan rendering and scene optimization engine"
     LANGUAGES C CXX
 )
 
@@ -25,9 +25,16 @@ add_subdirectory(engine/assets)
 add_subdirectory(engine/renderer)
 add_subdirectory(Project)
 
-if(PROJECTUNITY_BUILD_EDITOR)
+if(PROJECTUNITY_BUILD_EDITOR OR PROJECTUNITY_BUILD_PLAYER)
     add_subdirectory(editor/viewport)
+endif()
+
+if(PROJECTUNITY_BUILD_EDITOR)
     add_subdirectory(editor/app)
+endif()
+
+if(PROJECTUNITY_BUILD_PLAYER)
+    add_subdirectory(player/app)
 endif()
 
 if(PROJECTUNITY_BUILD_TESTS)

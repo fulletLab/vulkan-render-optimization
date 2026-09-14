@@ -102,6 +102,15 @@ int main()
     if (!scene.setTerrain(childId, terrain)) {
         return fail("failed to set terrain");
     }
+    TilemapComponent tilemap;
+    tilemap.width = 4U;
+    tilemap.height = 3U;
+    tilemap.tileSize = 0.5F;
+    tilemap.tileIds.assign(tilemap.cellCount(), -1);
+    tilemap.tileIds[static_cast<std::size_t>(1U) * tilemap.width + 2U] = 7;
+    if (!scene.setTilemap(childId, tilemap)) {
+        return fail("failed to set tilemap");
+    }
     RigidbodyComponent rigidbody;
     rigidbody.mass = 3.0F;
     rigidbody.linearDrag = 0.1F;
@@ -216,6 +225,14 @@ int main()
     if (loadedChild->terrain->materialLayers.back().name != "Rock"
         || !closeEnough(loadedChild->terrain->materialLayers.back().heightRange[0], 0.45F)) {
         return fail("loaded terrain material layer data mismatch");
+    }
+    if (!loadedChild->tilemap.has_value()
+        || loadedChild->tilemap->width != 4U
+        || loadedChild->tilemap->height != 3U
+        || !closeEnough(loadedChild->tilemap->tileSize, 0.5F)
+        || loadedChild->tilemap->tileIds.size() != tilemap.tileIds.size()
+        || loadedChild->tilemap->tileIds[static_cast<std::size_t>(1U) * loadedChild->tilemap->width + 2U] != 7) {
+        return fail("loaded tilemap component mismatch");
     }
     if (!loadedChild->rigidbody.has_value()
         || loadedChild->rigidbody->mass != 3.0F

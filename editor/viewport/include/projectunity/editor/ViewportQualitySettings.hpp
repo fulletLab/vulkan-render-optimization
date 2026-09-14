@@ -24,6 +24,7 @@ struct ViewportAssetLodSettings {
     std::size_t maxVisibleChunksFromFar {48U};
     std::size_t maxDrawPackets {192U};
     std::size_t maxShadowCasters {192U};
+    float shadowFocusRadius {220.0F};
     std::uint64_t maxDetailedTriangles {4'000'000ULL};
     std::uint64_t staticUploadBudgetBytes {24ULL * 1024ULL * 1024ULL};
     std::uint32_t staticUploadBatchBudget {12U};
@@ -112,6 +113,7 @@ namespace detail {
     settings.maxVisibleChunksFromFar = std::clamp<std::size_t>(settings.maxVisibleChunksFromFar, 1U, 1'000'000U);
     settings.maxDrawPackets = std::clamp<std::size_t>(settings.maxDrawPackets, 1U, 1'000'000U);
     settings.maxShadowCasters = std::clamp<std::size_t>(settings.maxShadowCasters, 1U, 1'000'000U);
+    settings.shadowFocusRadius = std::clamp(settings.shadowFocusRadius, 48.0F, 5000.0F);
     settings.maxDetailedTriangles = std::clamp<std::uint64_t>(settings.maxDetailedTriangles, 1'000ULL, 1'000'000'000ULL);
     settings.staticUploadBudgetBytes = std::clamp<std::uint64_t>(
         settings.staticUploadBudgetBytes,
@@ -147,6 +149,9 @@ namespace detail {
     settings.maxShadowCasters = static_cast<std::size_t>(detail::viewportEnvironmentUnsigned(
         "PROJECTUNITY_HLOD_MAX_SHADOW_CASTERS",
         settings.maxShadowCasters));
+    settings.shadowFocusRadius = detail::viewportEnvironmentFloat(
+        "PROJECTUNITY_SHADOW_FOCUS_RADIUS",
+        settings.shadowFocusRadius);
     settings.maxDetailedTriangles = detail::viewportEnvironmentUnsigned(
         "PROJECTUNITY_HLOD_MAX_DETAILED_TRIANGLES",
         settings.maxDetailedTriangles);

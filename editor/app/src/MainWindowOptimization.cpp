@@ -424,19 +424,26 @@ QWidget* MainWindow::createOptimizationEditorPanel()
     rootSplit->setHandleWidth(2);
     workspaceLayout->addWidget(rootSplit);
 
-    createViewportTuningWindow(rootSplit);
+    auto* tuningColumn = new QFrame;
+    tuningColumn->setObjectName(QStringLiteral("OptimizationStudioImGuiColumn"));
+    tuningColumn->setStyleSheet(QStringLiteral("#OptimizationStudioImGuiColumn { background: #0e1014; }"));
+    tuningColumn->setMinimumWidth(280);
+    auto* tuningLayout = new QVBoxLayout(tuningColumn);
+    tuningLayout->setContentsMargins(0, 0, 0, 0);
+    tuningLayout->setSpacing(0);
+    createViewportTuningWindow(tuningColumn);
     viewportTuningImGuiWindow_->setObjectName(QStringLiteral("EmbeddedViewportTuningImGui"));
-    rootSplit->addWidget(viewportTuningImGuiWindow_);
+    auto* tuningContainer = QWidget::createWindowContainer(viewportTuningImGuiWindow_, tuningColumn);
+    tuningContainer->setObjectName(QStringLiteral("EmbeddedViewportTuningImGuiContainer"));
+    tuningContainer->setMinimumSize(280, 480);
+    tuningContainer->setFocusPolicy(Qt::StrongFocus);
+    tuningLayout->addWidget(tuningContainer, 1);
+    rootSplit->addWidget(tuningColumn);
 
     auto* centerSplit = new QSplitter(Qt::Vertical);
     centerSplit->setChildrenCollapsible(false);
     centerSplit->setHandleWidth(2);
     rootSplit->addWidget(centerSplit);
-
-    auto* viewportRow = new QSplitter(Qt::Horizontal);
-    viewportRow->setChildrenCollapsible(false);
-    viewportRow->setHandleWidth(2);
-    centerSplit->addWidget(viewportRow);
 
     optimizationPrimaryViewport_ = new ViewportWidget(ViewportMode::Scene);
     optimizationPrimaryViewport_->setObjectName(QStringLiteral("OptimizationPrimaryViewport"));
@@ -457,7 +464,7 @@ QWidget* MainWindow::createOptimizationEditorPanel()
     primaryModeCombo->addItem(QStringLiteral("Depth"), static_cast<int>(renderer::RenderDebugViewMode::Depth));
     primaryModeCombo->addItem(QStringLiteral("Normals"), static_cast<int>(renderer::RenderDebugViewMode::FaceNormals));
     primaryModeCombo->addItem(QStringLiteral("Wireframe"), 100);
-    viewportRow->addWidget(makePanel(QStringLiteral("Viewport"), optimizationPrimaryViewport_, primaryModeCombo));
+    centerSplit->addWidget(makePanel(QStringLiteral("Viewport"), optimizationPrimaryViewport_, primaryModeCombo));
 
     auto* shadowColumn = new QSplitter(Qt::Vertical);
     shadowColumn->setChildrenCollapsible(false);
@@ -495,6 +502,7 @@ QWidget* MainWindow::createOptimizationEditorPanel()
     auto* shadowForm = new QFormLayout(shadowParameters);
     shadowForm->setContentsMargins(8, 5, 8, 5);
     shadowForm->setSpacing(3);
+    shadowForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     optimizationShadowResolutionSpin_ = new QSpinBox;
     optimizationShadowResolutionSpin_->setRange(512, 8192);
     optimizationShadowResolutionSpin_->setSingleStep(512);
@@ -507,11 +515,11 @@ QWidget* MainWindow::createOptimizationEditorPanel()
     shadowForm->addRow(QStringLiteral("Near plane:"), optimizationShadowNearSpin_);
     shadowForm->addRow(QStringLiteral("Far plane:"), optimizationShadowFarSpin_);
     optimizationShadowStatsLabel_ = mutedLabel(QStringLiteral("Waiting for shadow frame..."));
+    optimizationShadowStatsLabel_->setWordWrap(true);
     shadowForm->addRow(optimizationShadowStatsLabel_);
     shadowColumn->addWidget(makePanel(QStringLiteral("Shadow parameters"), shadowParameters));
     shadowColumn->setSizes({590, 125});
-    viewportRow->addWidget(shadowColumn);
-    viewportRow->setSizes({760, 580});
+    rootSplit->addWidget(shadowColumn);
 
     auto* shaderRow = new QSplitter(Qt::Horizontal);
     shaderRow->setChildrenCollapsible(false);
@@ -606,9 +614,10 @@ QWidget* MainWindow::createOptimizationEditorPanel()
     rightSplit->setSizes({520, 280});
 
     rootSplit->setStretchFactor(0, 0);
-    rootSplit->setStretchFactor(1, 1);
-    rootSplit->setStretchFactor(2, 0);
-    rootSplit->setSizes({230, 1330, 360});
+    rootSplit->setStretchFactor(1, 39);
+    rootSplit->setStretchFactor(2, 30);
+    rootSplit->setStretchFactor(3, 19);
+    rootSplit->setSizes({300, 730, 560, 360});
 
     optimizationStatsLabel_ = new QLabel(workspace);
     optimizationStatsLabel_->hide();
@@ -746,11 +755,11 @@ void MainWindow::updateOptimizationEditorPanel()
             .arg(static_cast<qulonglong>(stats->lastFrameStaticUploadBytes / 1024U)));
         if (optimizationShadowStatsLabel_ != nullptr) {
             optimizationShadowStatsLabel_->setText(QStringLiteral(
-                "Shadow candidates %1 | rejected %2 | submitted %3 | batches %4 | triangles %5 | CPU %6 ms | GPU %7 ms")
+                "Candidates %1 | rejected %2 | submitted %3 | culled %4 | triangles %5\nCPU %6 ms | GPU %7 ms")
                 .arg(static_cast<qulonglong>(stats->shadowCandidates))
                 .arg(static_cast<qulonglong>(stats->shadowRejectedByPolicy + stats->shadowRejectedByCasterCull))
                 .arg(static_cast<qulonglong>(stats->shadowSubmitted))
-                .arg(static_cast<qulonglong>(stats->shadowBatchesSubmitted))
+                .arg(static_cast<qulonglong>(stats->shadowRejectedByCasterCull))
                 .arg(static_cast<qulonglong>(stats->shadowTrianglesSubmitted))
                 .arg(stats->shadowCpuMs, 0, 'f', 3)
                 .arg(stats->shadowGpuMs, 0, 'f', 3));

@@ -4,9 +4,10 @@
 #include <projectunity/renderer/RendererTypes.hpp>
 
 #include <functional>
+#include <string>
 
 #include <QElapsedTimer>
-#include <QOpenGLWidget>
+#include <QOpenGLWindow>
 
 class QKeyEvent;
 class QMouseEvent;
@@ -17,7 +18,7 @@ struct ImGuiContext;
 
 namespace projectunity::editor {
 
-class ViewportTuningImGuiWindow final : public QOpenGLWidget {
+class ViewportTuningImGuiWindow final : public QOpenGLWindow {
 public:
     using ApplySettingsCallback = std::function<void(EditorQualitySettings, bool)>;
     using StatsProvider = std::function<const renderer::RendererStats*()>;
@@ -28,7 +29,7 @@ public:
         ApplySettingsCallback applySettings,
         StatsProvider statsProvider,
         CameraSettingsCallback cameraSettings,
-        QWidget* parent = nullptr,
+        QWindow* parent = nullptr,
         bool embedded = false);
     ~ViewportTuningImGuiWindow() override;
 
@@ -45,11 +46,12 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
-    void leaveEvent(QEvent* event) override;
+    bool event(QEvent* event) override;
 
 private:
     [[nodiscard]] bool drawTuningUi();
     void applyLiveSettings();
+    void importSettingsFromJson();
     void setCurrentImGuiContext() const;
     void submitKeyboardModifiers(Qt::KeyboardModifiers modifiers);
 
@@ -65,9 +67,11 @@ private:
     bool applyingSettings_ {false};
     bool embedded_ {false};
     bool balancedPresetRequested_ {false};
+    bool importJsonRequested_ {false};
     float cameraNearPlane_ {0.05F};
     float cameraFarPlane_ {4000.0F};
     float cameraFovDegrees_ {60.0F};
+    std::string importJsonStatus_;
 };
 
 } // namespace projectunity::editor

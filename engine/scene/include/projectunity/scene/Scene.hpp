@@ -159,6 +159,7 @@ enum class ComponentType : std::uint8_t {
     Camera,
     Script,
     Terrain,
+    Tilemap,
     Rigidbody,
     Collider,
 };
@@ -175,6 +176,18 @@ struct TerrainComponent {
     core::StableId generatedModelAssetId;
     std::uint64_t colliderRevision {0};
     bool colliderDirty {true};
+};
+
+struct TilemapComponent {
+    std::uint32_t width {16};
+    std::uint32_t height {16};
+    float tileSize {1.0F};
+    std::vector<std::int32_t> tileIds;
+
+    [[nodiscard]] std::size_t cellCount() const noexcept
+    {
+        return static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    }
 };
 
 struct RigidbodyComponent {
@@ -216,6 +229,7 @@ struct Entity {
     std::optional<CameraComponent> camera;
     std::vector<ScriptComponent> scripts;
     std::optional<TerrainComponent> terrain;
+    std::optional<TilemapComponent> tilemap;
     std::optional<RigidbodyComponent> rigidbody;
     std::optional<ColliderComponent> collider;
     std::vector<ComponentOrderEntry> componentOrder {{ComponentType::Transform, {}}};
@@ -251,6 +265,7 @@ public:
     [[nodiscard]] bool removeScript(EntityId id, ScriptInstanceId instanceId);
     [[nodiscard]] bool setScript(EntityId id, std::optional<ScriptComponent> component);
     [[nodiscard]] bool setTerrain(EntityId id, std::optional<TerrainComponent> component);
+    [[nodiscard]] bool setTilemap(EntityId id, std::optional<TilemapComponent> component);
     [[nodiscard]] bool setRigidbody(EntityId id, std::optional<RigidbodyComponent> component);
     [[nodiscard]] bool setCollider(EntityId id, std::optional<ColliderComponent> component);
 

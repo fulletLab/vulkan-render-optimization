@@ -1,6 +1,10 @@
 build/
+Builds/
 out/
+bin/
 .deps/
+.agent_status/
+codex-output/
 .vs/
 .vscode/
 .idea/
@@ -17,6 +21,13 @@ CMakeUserPresets.json
 *.lib
 *.exp
 *.log
+*.zip
+imgui.ini
+aqtinstall.log
+
+# Caches and cooked assets
+Cache/
+*.ffult
 Project/Library/
 Project/Cache/
 Project/Build/
@@ -25,5 +36,8 @@ Project/Build/
 # content out of normal source commits; document sources in docs/manifests.
 Project/Assets/VisualVerification/
 
-# Local smoke/import cache files can be regenerated.
-Cache/Assets/*.asset.json
+# Environment / secrets protection (defense in depth)
+.env
+.env.*
+*.key
+*.pem

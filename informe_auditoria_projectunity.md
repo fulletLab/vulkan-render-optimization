@@ -1,7 +1,7 @@
 # AUDITORIA PROJECTUNITY - ESTADO REAL
 
 Fecha de auditoria: 2026-06-16  
-Alcance: auditoria tecnica estatica del workspace `C:\Users\fullet\Documents\projectunity`.  
+Alcance: auditoria tecnica estatica del workspace `projectunity`.  
 Importante: no ejecute build, `ctest`, smoke visible ni RenderDoc en esta pasada. Por eso ningun modulo queda marcado como "cerrado al 100%" aunque haya evidencia fuerte en codigo y tests.
 
 ## 1. Resumen ejecutivo brutal

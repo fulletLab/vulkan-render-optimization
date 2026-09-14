@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <sstream>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace projectunity::editor {
@@ -171,6 +172,50 @@ scene::EntityId MainWindow::createTerrainEntity()
     return id;
 }
 
+scene::EntityId MainWindow::createTilemapEntity()
+{
+    scene::TilemapComponent tilemap;
+    tilemap.tileIds.assign(tilemap.cellCount(), -1);
+
+    auto& entity = scene_.createEntity("Tilemap 2D");
+    if (!scene_.setTilemap(entity.id, tilemap)) {
+        return {};
+    }
+
+    const auto id = entity.id;
+    rebuildHierarchy();
+    selectEntity(id);
+    syncTilemapPanelFromSelection();
+    refreshViewports();
+    statusBar()->showMessage(QStringLiteral("Tilemap 2D created"));
+    return id;
+}
+
+void MainWindow::activate2DMode()
+{
+    auto* current = selected(scene_, selectedEntityId_);
+    if (current != nullptr && current->tilemap.has_value()) {
+        focusTilemapEditor();
+        statusBar()->showMessage(QStringLiteral("Modo 2D activo"));
+        return;
+    }
+
+    for (const auto& entity : scene_.entities()) {
+        if (entity.tilemap.has_value()) {
+            selectEntity(entity.id);
+            focusTilemapEditor();
+            statusBar()->showMessage(QStringLiteral("Modo 2D activo"));
+            return;
+        }
+    }
+
+    const auto id = createTilemapEntity();
+    if (id.isValid()) {
+        focusTilemapEditor();
+        statusBar()->showMessage(QStringLiteral("Modo 2D activo: Tilemap creado"));
+    }
+}
+
 void MainWindow::ensureBuiltInGeneratedModels()
 {
     (void)assetManager_.registerGeneratedModel(assets::makeCubeModel("Cube"));
@@ -236,6 +281,7 @@ void MainWindow::showAddComponentMenu(QWidget* anchor)
         addLightToSelection(scene::LightComponentType::Spot);
     });
     addMenu->addAction(QStringLiteral("Terrain"), this, [this] { addTerrainToSelection(); });
+    addMenu->addAction(QStringLiteral("Tilemap 2D"), this, [this] { addTilemapToSelection(); });
     addMenu->addAction(QStringLiteral("Rigidbody (basic/PARCIAL)"), this, [this] { addRigidbodyToSelection(); });
     auto* colliderMenu = addMenu->addMenu(QStringLiteral("Collider (basic/PARCIAL)"));
     colliderMenu->addAction(QStringLiteral("Box Collider"), this, [this] { addColliderToSelection(scene::ColliderShape::Box); });
@@ -311,6 +357,7 @@ void MainWindow::showAddComponentMenu(QWidget* anchor)
     removeMenu->addAction(QStringLiteral("Camera"), this, [this] { removeCameraFromSelection(); });
     removeMenu->addAction(QStringLiteral("Light"), this, [this] { removeLightFromSelection(); });
     removeMenu->addAction(QStringLiteral("Terrain"), this, [this] { removeTerrainFromSelection(); });
+    removeMenu->addAction(QStringLiteral("Tilemap 2D"), this, [this] { removeTilemapFromSelection(); });
     removeMenu->addAction(QStringLiteral("Rigidbody"), this, [this] { removeRigidbodyFromSelection(); });
     removeMenu->addAction(QStringLiteral("Collider"), this, [this] { removeColliderFromSelection(); });
     removeMenu->addAction(QStringLiteral("Script"), this, [this] { removeScriptFromSelection(); });
@@ -366,6 +413,24 @@ void MainWindow::addTerrainToSelection()
     terrain.settings.generateCollider = true;
     (void)scene_.setTerrain(selectedEntityId_, terrain);
     regenerateSelectedTerrain();
+}
+
+void MainWindow::addTilemapToSelection()
+{
+    auto* entity = selected(scene_, selectedEntityId_);
+    if (entity == nullptr) {
+        return;
+    }
+    scene::TilemapComponent tilemap;
+    if (entity->tilemap.has_value()) {
+        tilemap = *entity->tilemap;
+    } else {
+        tilemap.tileIds.assign(tilemap.cellCount(), -1);
+    }
+    (void)scene_.setTilemap(selectedEntityId_, std::move(tilemap));
+    updateInspector();
+    syncTilemapPanelFromSelection();
+    refreshViewports();
 }
 
 void MainWindow::addRigidbodyToSelection()
@@ -426,6 +491,14 @@ void MainWindow::removeTerrainFromSelection()
     (void)scene_.setTerrain(selectedEntityId_, std::nullopt);
     updateInspector();
     syncTerrainPanelFromSelection();
+}
+
+void MainWindow::removeTilemapFromSelection()
+{
+    (void)scene_.setTilemap(selectedEntityId_, std::nullopt);
+    updateInspector();
+    syncTilemapPanelFromSelection();
+    refreshViewports();
 }
 
 void MainWindow::removeRigidbodyFromSelection()

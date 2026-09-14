@@ -881,6 +881,7 @@ int main(int argc, char** argv)
         {0.0F, 0.0F, 0.0F},
         24.0F,
         4000.0F,
+        220.0F,
         true,
         600.0F);
     const auto sceneShadowFocusUp = projectunity::editor::stableViewportShadowFocus(
@@ -890,6 +891,7 @@ int main(int argc, char** argv)
         {0.0F, 0.0F, 0.0F},
         24.0F,
         4000.0F,
+        220.0F,
         true,
         600.0F);
     if ((sceneShadowFocusForward.center - sceneShadowFocusUp.center).length() > 0.001F
@@ -898,6 +900,19 @@ int main(int argc, char** argv)
     }
     if (sceneShadowFocusForward.radius > 220.0F) {
         return fail("Viewport shadow focus accepted an oversized visible bounds radius");
+    }
+    const auto wideSceneShadowFocus = projectunity::editor::stableViewportShadowFocus(
+        projectunity::editor::ViewportMode::Scene,
+        {0.0F, 12.0F, -18.0F},
+        {0.0F, -0.2F, 1.0F},
+        {0.0F, 0.0F, 0.0F},
+        24.0F,
+        4000.0F,
+        640.0F,
+        true,
+        600.0F);
+    if (std::fabs(wideSceneShadowFocus.radius - 640.0F) > 0.001F) {
+        return fail("Viewport shadow focus ignored the configured shadow radius");
     }
 
     TestAssetManager shadowAssets;

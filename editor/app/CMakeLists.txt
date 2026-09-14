@@ -40,6 +40,7 @@ qt_add_executable(projectunity_editor
     src/MainWindowProfiler.cpp
     src/MainWindowSmoke.cpp
     src/MainWindowTerrain.cpp
+    src/TilemapEditorWidget.cpp
     src/ViewportTuningImGuiWindow.cpp
     src/ProjectAssetTreeWidget.cpp
     src/ProjectBrowserWidget.cpp
@@ -51,6 +52,7 @@ qt_add_executable(projectunity_editor
     include/projectunity/editor/ProjectBrowserWidget.hpp
     include/projectunity/editor/SceneHierarchyWidget.hpp
     include/projectunity/editor/SettingsDialog.hpp
+    include/projectunity/editor/TilemapEditorWidget.hpp
     include/projectunity/editor/ViewportTuningImGuiWindow.hpp
     src/SettingsDialog.cpp
     resources/editor_resources.qrc

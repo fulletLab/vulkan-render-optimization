@@ -646,6 +646,7 @@ ViewportAssetLodSettings viewportAssetLodSettingsFromQuality(const EditorQuality
     result.maxVisibleChunksFromFar = static_cast<std::size_t>(std::max(settings.lod.chunkBudget, 1));
     result.maxDrawPackets = static_cast<std::size_t>(std::max(settings.lod.drawPacketBudget, 1));
     result.maxShadowCasters = static_cast<std::size_t>(std::max(settings.lod.shadowCasterBudget, 1));
+    result.shadowFocusRadius = settings.shadow.distance;
     result.maxDetailedTriangles = static_cast<std::uint64_t>(std::max(settings.lod.detailedTriangleBudget, 1'000));
     result.staticUploadBudgetBytes = static_cast<std::uint64_t>(std::max(settings.lod.uploadBudgetMb, 1)) * 1024ULL * 1024ULL;
     result.staticUploadBatchBudget = static_cast<std::uint32_t>(std::max(settings.lod.uploadBatchBudget, 1));

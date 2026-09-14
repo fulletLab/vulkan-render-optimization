@@ -17,6 +17,7 @@ struct ViewportShadowFocus {
     math::Vec3 sceneCameraTarget,
     float sceneCameraDistance,
     float cameraFarPlane,
+    float shadowFocusRadius,
     bool visibleBoundsValid,
     float visibleBoundsRadius);
 

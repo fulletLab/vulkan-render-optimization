@@ -194,6 +194,7 @@ Entity* Scene::duplicateEntityRecursive(EntityId sourceId, std::optional<EntityI
         duplicate.light = sourceSnapshot.light;
     duplicate.camera = sourceSnapshot.camera;
     duplicate.terrain = sourceSnapshot.terrain;
+    duplicate.tilemap = sourceSnapshot.tilemap;
     duplicate.rigidbody = sourceSnapshot.rigidbody;
     duplicate.collider = sourceSnapshot.collider;
     const auto duplicateId = duplicate.id;
@@ -498,6 +499,35 @@ bool Scene::setTerrain(EntityId id, std::optional<TerrainComponent> component)
     return true;
 }
 
+bool Scene::setTilemap(EntityId id, std::optional<TilemapComponent> component)
+{
+    auto* entity = findEntityMutable(id);
+    if (entity == nullptr) {
+        return false;
+    }
+
+    if (component.has_value()) {
+        constexpr std::uint32_t kMaxTilemapDimension = 1024;
+        if (component->width == 0U || component->height == 0U
+            || component->width > kMaxTilemapDimension || component->height > kMaxTilemapDimension
+            || !(component->tileSize > 0.0F)
+            || component->tileIds.size() != component->cellCount()) {
+            core::logWarning(core::LogCategory::Core, "Scene rejected tilemap with invalid dimensions");
+            return false;
+        }
+        if (std::any_of(component->tileIds.begin(), component->tileIds.end(), [](std::int32_t tileId) {
+                return tileId < -1;
+            })) {
+            core::logWarning(core::LogCategory::Core, "Scene rejected tilemap with invalid tile id");
+            return false;
+        }
+    }
+
+    entity->tilemap = std::move(component);
+    setSingletonComponentOrder(*entity, ComponentType::Tilemap, entity->tilemap.has_value());
+    return true;
+}
+
 bool Scene::setRigidbody(EntityId id, std::optional<RigidbodyComponent> component)
 {
     auto* entity = findEntityMutable(id);
@@ -640,6 +670,7 @@ void Scene::rebuildComponentOrder(Entity& entity)
         entity.componentOrder.push_back({ComponentType::Script, script.instanceId});
     }
     if (entity.terrain.has_value()) { entity.componentOrder.push_back({ComponentType::Terrain, {}}); }
+    if (entity.tilemap.has_value()) { entity.componentOrder.push_back({ComponentType::Tilemap, {}}); }
     if (entity.rigidbody.has_value()) { entity.componentOrder.push_back({ComponentType::Rigidbody, {}}); }
     if (entity.collider.has_value()) { entity.componentOrder.push_back({ComponentType::Collider, {}}); }
 }

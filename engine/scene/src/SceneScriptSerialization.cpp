@@ -17,6 +17,7 @@ namespace {
     case ComponentType::Camera: return "camera";
     case ComponentType::Script: return "script";
     case ComponentType::Terrain: return "terrain";
+    case ComponentType::Tilemap: return "tilemap";
     case ComponentType::Rigidbody: return "rigidbody";
     case ComponentType::Collider: return "collider";
     }
@@ -32,6 +33,7 @@ namespace {
     if (name == "camera") { type = ComponentType::Camera; return true; }
     if (name == "script") { type = ComponentType::Script; return true; }
     if (name == "terrain") { type = ComponentType::Terrain; return true; }
+    if (name == "tilemap") { type = ComponentType::Tilemap; return true; }
     if (name == "rigidbody") { type = ComponentType::Rigidbody; return true; }
     if (name == "collider") { type = ComponentType::Collider; return true; }
     return false;

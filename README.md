@@ -1,10 +1,43 @@
-# ProjectUnity
+# Vulkan Render Optimization
 
-ProjectUnity is a modular C++20 engine/editor foundation. The implemented scope currently covers the base project, Scene/ECS basics, and a Qt Widgets editor shell with ADS docking, real Scene/Game viewport widgets, tinygizmo-backed transform gizmos, Im3d-backed debug draw in Scene View, and a first asset pipeline for PNG/JPG plus glTF/GLB model import.
+A modular C++20 engine and graphics experiment focused on high-performance Vulkan rendering, scene culling, and graphics optimization techniques.
 
-## Build
+---
 
-From a shell that already exposes CMake, a C++20 compiler, and Qt:
+## Project Status and Disclaimer
+
+This project is an ongoing experimental development foundation. It is incomplete, active work-in-progress, and contains known bugs across several subsystems.
+
+The primary motivation for publishing this repository is to share the Vulkan rendering and optimization code. If you are developing your own engine, custom viewport, or graphics pipeline, you are welcome to inspect, copy, borrow, or adapt any of the Vulkan rendering, culling, or optimization routines implemented here for your own projects.
+
+---
+
+## Free and Open Usage
+
+All code in this repository is provided openly for reference, learning, and integration:
+
+- You may freely copy and integrate the Vulkan rendering optimization algorithms, shaders, culling logic, and pipeline setup into your own tools, engines, or games.
+- You can modify, adapt, or refactor any module without restriction.
+- No warranties or royalties; feel free to take whatever is useful and adapt it to your requirements.
+
+---
+
+## Implemented Systems and Areas of Focus
+
+- **Vulkan Viewport and Rendering Backend:** Native Vulkan pipeline handling swapchain management, mesh and shadow passes, descriptor updates, and live GPU/CPU profiling metrics.
+- **Scene Culling and Optimization:**
+  - Frustum culling and occlusion culling routines.
+  - Hierarchical Level of Detail (LOD and HLOD) management with screen-space error estimation and hysteresis.
+  - Cascaded shadow maps (CSM) with shadow caster culling and draw budget management.
+- **Asset Processing:** Fast glTF/GLB parser and texture loading paths with binary asset caching.
+- **Editor Shell:** Qt Widgets editor framework featuring Advanced Docking System (ADS) docking panels and transform gizmos (intended for development and testing).
+- **Core Architecture:** Decoupled C++20 modules spanning core utilities, math, scene management, and scripting foundations.
+
+---
+
+## Building the Project
+
+### With Editor Support (Requires Qt 6 and a C++20 Compiler):
 
 ```powershell
 cmake --preset dev-editor
@@ -12,7 +45,7 @@ cmake --build --preset dev-editor
 ctest --preset dev-editor
 ```
 
-For machines without Qt installed:
+### Core Engine and Renderer Only (No Qt Dependency):
 
 ```powershell
 cmake --preset dev-core
@@ -20,36 +53,10 @@ cmake --build --preset dev-core
 ctest --preset dev-core
 ```
 
-For editor builds that need Qt discovery help, see `docs/qt_setup.md`.
+For environment setup and Qt configuration details, refer to `docs/qt_setup.md`.
 
-## Current Phase
+---
 
-Current active phase: Phase 6 asset pipeline / Vulkan imported-asset viewport.
-Status: PARCIAL / optimization a media / under review. Phase 6 must not be
-treated as complete yet.
+## Documentation
 
-The importer, material preservation, Vulkan viewport path, shadows, culling,
-profiling counters, and large-scene optimization work are integrated, but the
-phase still needs Release validation on representative external scenes before it
-can close. Current review items:
-
-- `.ffult` cooked ProjectUnity asset v1 is integrated for models/textures: GLB,
-  glTF, PNG/JPG/HDR, and KTX/KTX2 sources can be imported into engine asset data,
-  cached as `.ffult`, and imported back without reparsing the original source.
-  Reimports use the matching `.ffult` cache when the source hash matches. This
-  is a foundation for the runtime asset pipeline, not final proof of the
-  expected large-scene performance win.
-- Close-camera visual parity: no occlusion popping, no unintended asset
-  degradation, and selected/near objects remain full fidelity.
-- Final visible-list control: culled or occluded objects must not reach resource
-  preparation, shadow submission, descriptor/buffer binds, or `vkCmdDrawIndexed`.
-- Large-scene stress cases: duplicated 400 MB terrain assets and the 37 MB
-  rock-cluster asset, including separated instances and close camera movement.
-- Editor interaction: selection/picking and transform movement must remain
-  accurate and responsive on heavy imported assets.
-- Profiler counters must match real Vulkan work and FPS in the same frame.
-
-Per `docs/PROMPT_MAESTRO.md`, do not advance to Phase 7 as if Phase 6 is done
-until the current Phase 6 blockers are resolved, rebuilt, tested, and documented.
-
-See `docs/project_rules.md`, `docs/phase1.md`, `docs/phase2.md`, `docs/phase3.md`, `docs/phase4.md`, `docs/phase5.md`, and `docs/phase6.md` for implementation status. The editor target intentionally depends on Qt Widgets and Qt Advanced Docking System; runtime and server targets must not depend on Qt in later phases.
+Additional technical notes, design documents, and module specifications can be found under the `docs/` directory.

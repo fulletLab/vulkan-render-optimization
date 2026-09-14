@@ -58,7 +58,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kLayoutVersion = 1;
+constexpr int kLayoutVersion = 2;
 constexpr int kEntityIdRole = Qt::UserRole + 1;
 
 [[nodiscard]] QString formatLogEntry(const core::LogEntry& entry)
@@ -574,6 +574,7 @@ void MainWindow::newScene()
     rebuildHierarchy();
     updateInspector();
     syncTerrainPanelFromSelection();
+    syncTilemapPanelFromSelection();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("New scene"));
     core::logInfo(core::LogCategory::Editor, "New scene created");
@@ -647,6 +648,7 @@ bool MainWindow::loadSceneFromPath(const QString& path)
     rebuildHierarchy();
     updateInspector();
     syncTerrainPanelFromSelection();
+    syncTilemapPanelFromSelection();
     refreshViewports();
     statusBar()->showMessage(QStringLiteral("Scene loaded"));
     core::logInfo(core::LogCategory::Editor, "Scene loaded from editor");
@@ -677,6 +679,7 @@ void MainWindow::deleteSelectedEntity()
         selectedEntityId_ = {};
         rebuildHierarchy();
         updateInspector();
+        syncTilemapPanelFromSelection();
         refreshViewports();
         statusBar()->showMessage(QStringLiteral("Entity deleted"));
     }
@@ -717,6 +720,7 @@ void MainWindow::selectEntity(scene::EntityId id)
     }
 
     updateInspector();
+    syncTilemapPanelFromSelection();
     refreshViewports();
 }
 
@@ -727,6 +731,7 @@ void MainWindow::clearSelection()
         hierarchyTree_->clearSelection();
     }
     updateInspector();
+    syncTilemapPanelFromSelection();
     refreshViewports();
 }
 
@@ -863,6 +868,9 @@ void MainWindow::updateInspector()
         }
         if (hasSelection && entity->terrain.has_value()) {
             components << QStringLiteral("Terrain");
+        }
+        if (hasSelection && entity->tilemap.has_value()) {
+            components << QStringLiteral("Tilemap 2D");
         }
         if (hasSelection && entity->rigidbody.has_value()) {
             components << QStringLiteral("Rigidbody (basic terrain contact)");

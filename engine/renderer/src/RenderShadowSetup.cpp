@@ -143,7 +143,7 @@ struct Vec3 {
     const auto forward = safeNormalized(vec3(light.direction), {0.35F, -0.82F, 0.45F});
     const auto right = stableRight(forward);
     const auto up = safeNormalized(cross(forward, right), {0.0F, 1.0F, 0.0F});
-    const auto halfExtent = std::clamp(std::max(boundsRadius, 1.0F) * 1.35F, 12.0F, 640.0F);
+    const auto halfExtent = std::clamp(std::max(boundsRadius, 1.0F) * 1.45F, 12.0F, 8192.0F);
     constexpr float shadowMapSize = 4096.0F;
     const auto texelWorldSize = (halfExtent * 2.0F) / shadowMapSize;
     const auto snapAxis = [texelWorldSize](float value) {
@@ -256,8 +256,8 @@ struct Vec3 {
     selection.viewCount = static_cast<std::uint32_t>(kMaxShadowCascades);
     selection.cascadeCount = static_cast<std::uint32_t>(kMaxShadowCascades);
 
-    constexpr std::array<float, kMaxShadowCascades> cascadeRadiusScales {0.32F, 0.50F, 0.72F, 1.05F};
-    constexpr std::array<float, kMaxShadowCascades> cascadeSplitScales {0.28F, 0.48F, 0.72F, 1.10F};
+    constexpr std::array<float, kMaxShadowCascades> cascadeRadiusScales {0.38F, 0.58F, 0.82F, 1.18F};
+    constexpr std::array<float, kMaxShadowCascades> cascadeSplitScales {0.32F, 0.54F, 0.80F, 1.18F};
     for (std::size_t index = 0; index < kMaxShadowCascades; ++index) {
         selection.viewProjections[index] = directionalShadowMatrix(light, center, boundsRadius * cascadeRadiusScales[index]);
         selection.cascadeSplits[index] = boundsRadius * cascadeSplitScales[index];
@@ -358,8 +358,9 @@ bool shadowSphereIntersects(
         clipPlane(shadowViewProjection, 2, 2, 0.0F),
         clipPlane(shadowViewProjection, 3, 2, -1.0F),
     };
-    return std::none_of(planes.begin(), planes.end(), [center, worldRadius](ClipPlane plane) {
-        return sphereOutsidePlane(plane, center, worldRadius);
+    const auto cullRadius = worldRadius + std::max(worldRadius * 0.08F, 0.25F);
+    return std::none_of(planes.begin(), planes.end(), [center, cullRadius](ClipPlane plane) {
+        return sphereOutsidePlane(plane, center, cullRadius);
     });
 }
 

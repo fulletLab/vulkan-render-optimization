@@ -188,6 +188,13 @@ int main()
     if (shadowSphereIntersects(directionalShadow.viewProjection, {5000.0F, 5000.0F, 5000.0F}, 1.0F)) {
         return fail("Renderer shadow sphere culling accepted a distant off-map caster");
     }
+    std::array<RenderLight, 1> verticalSun {};
+    verticalSun[0].type = RenderLightType::Directional;
+    verticalSun[0].direction = {0.0F, -1.0F, 0.0F};
+    const auto broadShadow = chooseShadowMap(verticalSun, {0.0F, 0.0F, 0.0F}, 100.0F);
+    if (!shadowSphereIntersects(broadShadow.viewProjections[kMaxShadowCascades - 1U], {172.2F, 0.0F, 0.0F}, 1.0F)) {
+        return fail("Renderer shadow sphere culling clipped a caster touching the cascade edge");
+    }
 
     const auto brdfLut = generateBrdfIntegrationLut(16U, 32U);
     if (brdfLut.width != 16U

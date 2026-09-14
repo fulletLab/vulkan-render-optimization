@@ -6,6 +6,7 @@
 
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <sstream>
 #include <unordered_map>
 
@@ -434,6 +435,54 @@ void writeOptionalReference(nlohmann::json& json, const char* key, const AssetSl
         && rangeFromJson(json.at("slopeRange"), output.slopeRange);
 }
 
+[[nodiscard]] nlohmann::json tilemapToJson(const TilemapComponent& tilemap)
+{
+    return {
+        {"width", tilemap.width},
+        {"height", tilemap.height},
+        {"tileSize", tilemap.tileSize},
+        {"tileIds", tilemap.tileIds},
+    };
+}
+
+[[nodiscard]] bool tilemapFromJson(
+    const nlohmann::json& json,
+    TilemapComponent& output,
+    std::string* errorMessage)
+{
+    if (!json.is_object()) {
+        setError(errorMessage, "Scene tilemap must be an object");
+        return false;
+    }
+
+    output.width = json.value("width", output.width);
+    output.height = json.value("height", output.height);
+    output.tileSize = json.value("tileSize", output.tileSize);
+
+    if (output.width == 0U || output.height == 0U || output.width > 1024U || output.height > 1024U
+        || !(output.tileSize > 0.0F)) {
+        setError(errorMessage, "Scene tilemap dimensions are invalid");
+        return false;
+    }
+    if (!json.contains("tileIds") || !json.at("tileIds").is_array()) {
+        setError(errorMessage, "Scene tilemap tileIds must be an array");
+        return false;
+    }
+
+    output.tileIds = json.at("tileIds").get<std::vector<std::int32_t>>();
+    if (output.tileIds.size() != output.cellCount()) {
+        setError(errorMessage, "Scene tilemap tileIds size does not match width*height");
+        return false;
+    }
+    if (std::any_of(output.tileIds.begin(), output.tileIds.end(), [](std::int32_t tileId) {
+            return tileId < -1;
+        })) {
+        setError(errorMessage, "Scene tilemap tileIds contain an invalid id");
+        return false;
+    }
+    return true;
+}
+
 void setError(std::string* errorMessage, std::string message)
 {
     if (errorMessage != nullptr) {
@@ -531,6 +580,9 @@ std::string Scene::serialize(std::string* errorMessage) const
                     {"materialLayers", std::move(layers)},
                     {"heightmap", entity.terrain->heightmap},
                 };
+            }
+            if (entity.tilemap.has_value()) {
+                item["tilemap"] = tilemapToJson(*entity.tilemap);
             }
             if (entity.rigidbody.has_value()) {
                 item["rigidbody"] = {
@@ -793,6 +845,14 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                 entity.terrain = std::move(terrainComponent);
             }
 
+            if (item.contains("tilemap")) {
+                TilemapComponent tilemapComponent;
+                if (!tilemapFromJson(item.at("tilemap"), tilemapComponent, errorMessage)) {
+                    return false;
+                }
+                entity.tilemap = std::move(tilemapComponent);
+            }
+
             if (item.contains("rigidbody")) {
                 const auto& rigidbodyJson = item.at("rigidbody");
                 if (!rigidbodyJson.is_object()) {
@@ -898,6 +958,7 @@ bool Scene::deserialize(std::string_view jsonText, std::string* errorMessage)
                     || (entry.type == ComponentType::Camera && entity.camera.has_value())
                     || (entry.type == ComponentType::Script && findScript(entity, entry.scriptInstanceId) != nullptr)
                     || (entry.type == ComponentType::Terrain && entity.terrain.has_value())
+                    || (entry.type == ComponentType::Tilemap && entity.tilemap.has_value())
                     || (entry.type == ComponentType::Rigidbody && entity.rigidbody.has_value())
                     || (entry.type == ComponentType::Collider && entity.collider.has_value());
                 if (!present) {

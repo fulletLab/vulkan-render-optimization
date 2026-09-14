@@ -8,9 +8,15 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <filesystem>
 #include <utility>
 
 #include <QGuiApplication>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonParseError>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QOpenGLContext>
@@ -78,9 +84,9 @@ ViewportTuningImGuiWindow::ViewportTuningImGuiWindow(
     ApplySettingsCallback applySettings,
     StatsProvider statsProvider,
     CameraSettingsCallback cameraSettings,
-    QWidget* parent,
+    QWindow* parent,
     bool embedded)
-    : QOpenGLWidget(parent)
+    : QOpenGLWindow(QOpenGLWindow::NoPartialUpdate, parent)
     , settings_(std::move(settings))
     , applySettings_(std::move(applySettings))
     , statsProvider_(std::move(statsProvider))
@@ -97,12 +103,9 @@ ViewportTuningImGuiWindow::ViewportTuningImGuiWindow(
     setFormat(format);
 
     if (!embedded_) {
-        setWindowFlags(Qt::Tool | Qt::Window | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
-        setWindowTitle(QStringLiteral("Viewport Tuning - Dear ImGui"));
-        setAttribute(Qt::WA_DeleteOnClose, false);
+        setFlags(Qt::Tool | Qt::Window | Qt::WindowCloseButtonHint | Qt::WindowMinMaxButtonsHint);
+        setTitle(QStringLiteral("Viewport Tuning - Dear ImGui"));
     }
-    setFocusPolicy(Qt::StrongFocus);
-    setMouseTracking(true);
     setMinimumSize(embedded_ ? QSize(220, 480) : QSize(420, 560));
     if (!embedded_) {
         resize(500, 760);
@@ -131,14 +134,14 @@ ViewportTuningImGuiWindow::~ViewportTuningImGuiWindow()
     if (imguiContext_ == nullptr || context() == nullptr) {
         return;
     }
-    makeCurrent();
+    context()->makeCurrent(this);
     setCurrentImGuiContext();
     if (imguiReady_) {
         ImGui_ImplOpenGL3_Shutdown();
     }
     ImGui::DestroyContext(imguiContext_);
     imguiContext_ = nullptr;
-    doneCurrent();
+    context()->doneCurrent();
 }
 
 void ViewportTuningImGuiWindow::syncSettings(const EditorQualitySettings& settings)
@@ -152,11 +155,11 @@ void ViewportTuningImGuiWindow::showToolWindow()
 {
     show();
     if (embedded_) {
-        setFocus(Qt::OtherFocusReason);
+        requestActivate();
         return;
     }
     raise();
-    activateWindow();
+    requestActivate();
 }
 
 void ViewportTuningImGuiWindow::initializeGL()
@@ -164,7 +167,7 @@ void ViewportTuningImGuiWindow::initializeGL()
     imguiContext_ = ImGui::CreateContext();
     setCurrentImGuiContext();
     auto& io = ImGui::GetIO();
-    io.BackendPlatformName = "projectunity_qt_opengl_widget";
+    io.BackendPlatformName = "projectunity_qt_opengl_window";
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.Fonts->AddFontDefault();
 
@@ -183,12 +186,23 @@ void ViewportTuningImGuiWindow::initializeGL()
 
 void ViewportTuningImGuiWindow::paintGL()
 {
+    const auto clearWidget = [this] {
+        auto* gl = context() == nullptr ? nullptr : context()->functions();
+        if (gl == nullptr) {
+            return;
+        }
+        const auto scale = static_cast<float>(devicePixelRatio());
+        gl->glViewport(0, 0, static_cast<int>(static_cast<float>(width()) * scale), static_cast<int>(static_cast<float>(height()) * scale));
+        gl->glClearColor(0.055F, 0.060F, 0.070F, 1.0F);
+        gl->glClear(GL_COLOR_BUFFER_BIT);
+    };
     if (!imguiReady_ || imguiContext_ == nullptr) {
+        clearWidget();
         return;
     }
     setCurrentImGuiContext();
     auto& io = ImGui::GetIO();
-    const auto scale = static_cast<float>(devicePixelRatioF());
+    const auto scale = static_cast<float>(devicePixelRatio());
     io.DisplaySize = {static_cast<float>(width()), static_cast<float>(height())};
     io.DisplayFramebufferScale = {scale, scale};
     const auto elapsedNanoseconds = frameTimer_.nsecsElapsed();
@@ -209,6 +223,10 @@ void ViewportTuningImGuiWindow::paintGL()
     if (changed) {
         applyLiveSettings();
     }
+    if (importJsonRequested_) {
+        importJsonRequested_ = false;
+        QTimer::singleShot(0, this, [this] { importSettingsFromJson(); });
+    }
 }
 
 bool ViewportTuningImGuiWindow::drawTuningUi()
@@ -221,10 +239,16 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
         | ImGuiWindowFlags_NoSavedSettings
         | ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin("Viewport Tuning", nullptr, flags);
+    const auto contentWidth = ImGui::GetContentRegionAvail().x;
+    const auto narrowLayout = contentWidth < 300.0F;
+    const auto controlWidth = narrowLayout
+        ? std::max(118.0F, contentWidth * 0.54F)
+        : std::min(260.0F, contentWidth * 0.58F);
+    ImGui::PushItemWidth(controlWidth);
 
-    ImGui::TextUnformatted("Profiling");
+    ImGui::TextUnformatted("Optimization Studio");
     ImGui::SameLine();
-    ImGui::TextDisabled("Dear ImGui Demo");
+    ImGui::TextDisabled("live profiler");
     ImGui::Separator();
 
     if (const auto* stats = statsProvider_ == nullptr ? nullptr : statsProvider_()) {
@@ -238,30 +262,45 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
     }
     ImGui::Separator();
 
-    ImGui::TextUnformatted("Viewport Tuning");
+    ImGui::TextUnformatted("Live tuning");
     ImGui::SameLine();
-    ImGui::TextDisabled("Dear ImGui");
+    ImGui::TextDisabled("runtime settings");
     ImGui::Separator();
 
     if (ImGui::Button("Asset completo")) {
         applyCompleteAssetPreset(settings_);
         changed = true;
     }
-    ImGui::SameLine();
+    if (!narrowLayout) {
+        ImGui::SameLine();
+    }
     if (ImGui::Button("Solo LOD")) {
         applySoloLodPreset(settings_);
         changed = true;
     }
-    ImGui::SameLine();
+    if (!narrowLayout) {
+        ImGui::SameLine();
+    }
     if (ImGui::Button("Sin culling")) {
         applyNoCullingPreset(settings_);
         changed = true;
     }
-    ImGui::SameLine();
+    if (!narrowLayout) {
+        ImGui::SameLine();
+    }
     if (ImGui::Button("Balanceado")) {
         applyQualityPreset(QualityPreset::Medium, settings_);
         balancedPresetRequested_ = true;
         changed = true;
+    }
+    if (!narrowLayout) {
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Importar JSON")) {
+        importJsonRequested_ = true;
+    }
+    if (!importJsonStatus_.empty()) {
+        ImGui::TextDisabled("%s", importJsonStatus_.c_str());
     }
 
     if (ImGui::CollapsingHeader("LOD / HLOD", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -293,7 +332,6 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
         changed |= ImGui::DragFloat("Hysteresis", &settings_.lod.hysteresis, 0.005F, 0.0F, 0.45F, "%.3f", ImGuiSliderFlags_AlwaysClamp);
         changed |= ImGui::DragInt("Chunk budget", &settings_.lod.chunkBudget, 4.0F, 1, 1'000'000, "%d", ImGuiSliderFlags_AlwaysClamp);
         changed |= ImGui::DragInt("Draw packet budget", &settings_.lod.drawPacketBudget, 8.0F, 1, 1'000'000, "%d", ImGuiSliderFlags_AlwaysClamp);
-        changed |= ImGui::DragInt("Shadow caster budget", &settings_.lod.shadowCasterBudget, 8.0F, 1, 1'000'000, "%d", ImGuiSliderFlags_AlwaysClamp);
         changed |= ImGui::Checkbox("Forzar LOD0 global", &settings_.lod.forceLod0);
         changed |= ImGui::Checkbox("Presupuesto de triangulos", &settings_.lod.triangleBudgetEnabled);
         changed |= ImGui::DragInt("Triangulos detallados", &settings_.lod.detailedTriangleBudget, 25000.0F, 1'000, 1'000'000'000, "%d", ImGuiSliderFlags_AlwaysClamp);
@@ -394,6 +432,25 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
                 : (settings_.shadow.quality == ShadowQuality::Off ? ShadowQuality::High : settings_.shadow.quality);
             changed = true;
         }
+        changed |= ImGui::DragInt("Resolucion shadow", &settings_.shadow.resolution, 512.0F, 512, 8192, "%d px", ImGuiSliderFlags_AlwaysClamp);
+        changed |= ImGui::DragFloat("Radio frustum", &settings_.shadow.distance, 10.0F, 48.0F, 5000.0F, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
+        changed |= ImGui::DragInt("Budget casters", &settings_.lod.shadowCasterBudget, 8.0F, 1, 1'000'000, "%d", ImGuiSliderFlags_AlwaysClamp);
+        if (const auto* stats = statsProvider_ == nullptr ? nullptr : statsProvider_()) {
+            ImGui::Separator();
+            ImGui::Text("Casters: %llu/%llu | batches %llu | views %llu",
+                static_cast<unsigned long long>(stats->shadowSubmitted),
+                static_cast<unsigned long long>(stats->shadowCandidates),
+                static_cast<unsigned long long>(stats->shadowBatchesSubmitted),
+                static_cast<unsigned long long>(stats->lastFrameShadowViewCount));
+            const auto rejected = stats->shadowRejectedByPolicy + stats->shadowRejectedByCasterCull;
+            ImGui::Text("Rechazados: policy %llu | frustum %llu",
+                static_cast<unsigned long long>(stats->shadowRejectedByPolicy),
+                static_cast<unsigned long long>(stats->shadowRejectedByCasterCull));
+            if (rejected > 0U || stats->shadowOnlyRejectedInstances > 0U) {
+                ImGui::TextColored({1.0F, 0.72F, 0.25F, 1.0F},
+                    "Aviso: sube Radio frustum o Budget casters si ves cortes.");
+            }
+        }
     }
 
     if (ImGui::CollapsingHeader("Debug", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -437,6 +494,7 @@ bool ViewportTuningImGuiWindow::drawTuningUi()
         }
     }
 
+    ImGui::PopItemWidth();
     ImGui::End();
     return changed;
 }
@@ -458,6 +516,44 @@ void ViewportTuningImGuiWindow::applyLiveSettings()
     if (persistTimer_ != nullptr) {
         persistTimer_->start();
     }
+}
+
+void ViewportTuningImGuiWindow::importSettingsFromJson()
+{
+    const auto selected = QFileDialog::getOpenFileName(
+        nullptr,
+        QStringLiteral("Importar configuracion JSON"),
+        QString::fromStdString(projectGraphicsSettingsPath().parent_path().string()),
+        QStringLiteral("ProjectUnity Graphics Settings (*.json);;JSON (*.json);;Todos los archivos (*.*)"));
+    if (selected.isEmpty()) {
+        importJsonStatus_ = "Importar JSON cancelado";
+        return;
+    }
+
+    QFile file(selected);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        importJsonStatus_ = "ERROR: no se pudo abrir JSON";
+        return;
+    }
+
+    QJsonParseError parseError {};
+    const auto document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        importJsonStatus_ = QStringLiteral("ERROR JSON: %1")
+            .arg(parseError.errorString())
+            .toStdString();
+        return;
+    }
+
+    settings_ = loadEditorQualitySettings(std::filesystem::path(selected.toStdWString()));
+    if (applySettings_ != nullptr) {
+        applyingSettings_ = true;
+        applySettings_(settings_, true);
+        applyingSettings_ = false;
+    }
+    importJsonStatus_ = QStringLiteral("JSON importado: %1")
+        .arg(QFileInfo(selected).fileName())
+        .toStdString();
 }
 
 void ViewportTuningImGuiWindow::setCurrentImGuiContext() const
@@ -497,7 +593,7 @@ void ViewportTuningImGuiWindow::mousePressEvent(QMouseEvent* event)
         }
         submitKeyboardModifiers(event->modifiers());
     }
-    setFocus(Qt::MouseFocusReason);
+    requestActivate();
     event->accept();
 }
 
@@ -545,13 +641,13 @@ void ViewportTuningImGuiWindow::keyReleaseEvent(QKeyEvent* event)
     event->accept();
 }
 
-void ViewportTuningImGuiWindow::leaveEvent(QEvent* event)
+bool ViewportTuningImGuiWindow::event(QEvent* event)
 {
-    if (imguiContext_ != nullptr) {
+    if (event != nullptr && event->type() == QEvent::Leave && imguiContext_ != nullptr) {
         setCurrentImGuiContext();
         ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
     }
-    QOpenGLWidget::leaveEvent(event);
+    return QOpenGLWindow::event(event);
 }
 
 void MainWindow::createViewportTuningWindow(QWidget* embeddedParent)
@@ -562,7 +658,7 @@ void MainWindow::createViewportTuningWindow(QWidget* embeddedParent)
     viewportTuningImGuiWindow_ = new ViewportTuningImGuiWindow(
         qualitySettings_,
         [this](EditorQualitySettings settings, bool persist) {
-            if (settings.graphics.preset == QualityPreset::Medium) {
+            if (!persist && settings.graphics.preset == QualityPreset::Medium) {
                 applyOptimizationBalancedMode();
                 QTimer::singleShot(0, this, [this] { syncViewportTuningPanel(); });
                 return;
@@ -584,7 +680,7 @@ void MainWindow::createViewportTuningWindow(QWidget* embeddedParent)
                 }
             }
         },
-        embeddedParent == nullptr ? static_cast<QWidget*>(this) : embeddedParent,
+        nullptr,
         embeddedParent != nullptr);
     viewportTuningImGuiWindow_->setObjectName(QStringLiteral("ViewportTuningImGuiWindow"));
 }

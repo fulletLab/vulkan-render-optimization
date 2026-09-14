@@ -122,6 +122,20 @@ namespace {
     at(projection, 3, 2) = 1.0F;
     return projection;
 }
+[[nodiscard]] renderer::RenderMatrix4 orthographicMatrix(float xMagnitude, float yMagnitude, float nearPlane, float farPlane)
+{
+    renderer::RenderMatrix4 projection;
+    projection.values.fill(0.0F);
+    const auto halfWidth = std::max(xMagnitude, 0.001F);
+    const auto halfHeight = std::max(yMagnitude, 0.001F);
+    const auto depth = std::max(farPlane - nearPlane, 0.001F);
+    at(projection, 0, 0) = 1.0F / halfWidth;
+    at(projection, 1, 1) = -1.0F / halfHeight;
+    at(projection, 2, 2) = 1.0F / depth;
+    at(projection, 2, 3) = -nearPlane / depth;
+    at(projection, 3, 3) = 1.0F;
+    return projection;
+}
 [[nodiscard]] float radians(float degrees)
 {
     return degrees * 0.01745329251994329577F;
@@ -281,8 +295,11 @@ struct ViewportCameraFrame {
     math::Vec3 right;
     math::Vec3 up;
     math::Vec3 forward;
+    scene::CameraComponentProjection projection {scene::CameraComponentProjection::Perspective};
     float verticalFovRadians {1.04719755F};
     float aspectRatio {1.0F};
+    float xMagnitude {1.0F};
+    float yMagnitude {1.0F};
     float nearPlane {0.05F};
     float farPlane {4000.0F};
 };
@@ -724,8 +741,11 @@ bool ViewportWidget::renderRendererFrame()
         cameraRight(),
         cameraUp(),
         cameraForward(),
+        scene::CameraComponentProjection::Perspective,
         camera_.verticalFovRadians,
         aspectRatio(),
+        1.0F,
+        1.0F,
         camera_.nearPlane,
         camera_.farPlane,
     };
@@ -740,9 +760,6 @@ bool ViewportWidget::renderRendererFrame()
                 continue;
             }
             const auto& imported = *entity.camera;
-            if (imported.projection != scene::CameraComponentProjection::Perspective) {
-                continue;
-            }
             cameraFrame.eye = *worldPosition;
             cameraFrame.forward = safeNormalized(
                 rotateEuler(imported.direction, entity.transform.rotationEuler),
@@ -757,8 +774,11 @@ bool ViewportWidget::renderRendererFrame()
                 cameraFrame.right - cameraFrame.forward * math::dot(cameraFrame.right, cameraFrame.forward),
                 safeNormalized(math::cross(cameraFrame.up, cameraFrame.forward), cameraFrame.right));
             cameraFrame.up = safeNormalized(math::cross(cameraFrame.forward, cameraFrame.right), cameraFrame.up);
+            cameraFrame.projection = imported.projection;
             cameraFrame.verticalFovRadians = imported.verticalFovRadians;
             cameraFrame.aspectRatio = imported.aspectRatio > 0.0F ? imported.aspectRatio : aspectRatio();
+            cameraFrame.xMagnitude = imported.xMagnitude;
+            cameraFrame.yMagnitude = imported.yMagnitude;
             cameraFrame.nearPlane = imported.nearPlane;
             cameraFrame.farPlane = imported.farPlane;
             cameraFromSceneEntity = true;
@@ -809,11 +829,19 @@ bool ViewportWidget::renderRendererFrame()
     const auto& forward = cameraFrame.forward;
     const auto& eye = cameraFrame.eye;
     const auto view = viewMatrix(eye, right, up, forward);
-    const auto projection = perspectiveMatrix(
-        cameraFrame.verticalFovRadians,
-        cameraFrame.aspectRatio,
-        cameraFrame.nearPlane,
-        cameraFrame.farPlane);
+    // Repaso: una camara 2D/isometrica no debe verse por una perspectiva fingida;
+    // xMagnitude/yMagnitude son la causa directa del volumen ortografico visible.
+    const auto projection = cameraFrame.projection == scene::CameraComponentProjection::Orthographic
+        ? orthographicMatrix(
+            cameraFrame.xMagnitude,
+            cameraFrame.yMagnitude,
+            cameraFrame.nearPlane,
+            cameraFrame.farPlane)
+        : perspectiveMatrix(
+            cameraFrame.verticalFovRadians,
+            cameraFrame.aspectRatio,
+            cameraFrame.nearPlane,
+            cameraFrame.farPlane);
     const auto viewProjection = multiply(projection, view);
     frame.viewProjection = viewProjection;
     frame.cameraPosition = {eye.x, eye.y, eye.z};
@@ -1014,6 +1042,7 @@ bool ViewportWidget::renderRendererFrame()
         camera_.target,
         camera_.distance,
         cameraFrame.farPlane,
+        assetLodSettings_.shadowFocusRadius,
         visibleBounds.valid,
         visibleBounds.valid ? visibleBounds.radius() : 0.0F);
     const std::array<float, 3> shadowFocusCenter {

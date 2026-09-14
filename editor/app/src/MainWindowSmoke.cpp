@@ -37,7 +37,7 @@
 namespace projectunity::editor {
 namespace {
 
-constexpr int kLayoutVersion = 1;
+constexpr int kLayoutVersion = 2;
 
 [[nodiscard]] QString pathToQString(const std::filesystem::path& path)
 {

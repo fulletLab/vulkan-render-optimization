@@ -24,9 +24,13 @@ ViewportShadowFocus stableViewportShadowFocus(
     math::Vec3 sceneCameraTarget,
     float sceneCameraDistance,
     float cameraFarPlane,
+    float shadowFocusRadius,
     bool visibleBoundsValid,
     float visibleBoundsRadius)
 {
+    const auto configuredRadius = std::isfinite(shadowFocusRadius)
+        ? std::clamp(shadowFocusRadius, 48.0F, 5000.0F)
+        : 220.0F;
     const auto horizontalForward = safeNormalized(
         {cameraForward.x, 0.0F, cameraForward.z},
         {0.0F, 0.0F, 1.0F});
@@ -42,9 +46,12 @@ ViewportShadowFocus stableViewportShadowFocus(
         ? std::max(sceneCameraDistance * 1.65F, 48.0F)
         : 96.0F;
     if (visibleBoundsValid) {
-        radius = std::max(radius, std::min(visibleBoundsRadius, 120.0F));
+        radius = std::max(radius, std::min(visibleBoundsRadius * 1.15F, configuredRadius));
     }
-    return {center, std::clamp(radius, 48.0F, 220.0F)};
+    if (mode == ViewportMode::Game) {
+        radius = std::max(radius, std::min(cameraFarPlane * 0.12F, configuredRadius));
+    }
+    return {center, std::clamp(radius, 48.0F, configuredRadius)};
 }
 
 } // namespace projectunity::editor
