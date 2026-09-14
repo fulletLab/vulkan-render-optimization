@@ -14,12 +14,12 @@ The primary motivation for publishing this repository is to share the Vulkan ren
 
 ## Development Methodology
 
-This project represents a synthesis of custom applied mathematics and AI-assisted software engineering:
+This project was designed and formulated around custom mathematical models and algorithmic logic, integrated and verified through agentic AI workflows:
 
-- **Applied Mathematics:** The underlying spatial partitioning logic, projection transforms, screen-space error metrics for LOD transitions, bounding volume evaluations, and culling heuristics were formulated using domain-specific applied mathematical models designed for high-throughput graphics workloads.
-- **AI-Assisted Architecture:** The engine scaffolding, modular C++20 boilerplate, and rapid systems integration were implemented with extensive assistance from modern AI systems.
+- **Author's Logic & Applied Mathematics:** The core mathematical formulations—including spatial partitioning, projection transforms, screen-space LOD metrics, and culling logic—were conceived and designed by the author for high-performance graphics workloads.
+- **Agent-Driven Integration & Code Scanning:** Autonomous AI agents were leveraged to perform deep repository scanning, static auditing, module scaffolding, and continuous integration across the C++20 engine subsystems.
 
-This hybrid methodology enabled rapid prototyping, architectural iteration, and continuous stress-testing of complex Vulkan rendering and scene-management pipelines.
+This methodology enabled custom mathematical designs to be rapidly implemented into a functional Vulkan rendering pipeline and validated through agent-assisted engineering.
 
 ---
 
